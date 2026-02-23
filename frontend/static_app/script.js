@@ -2696,7 +2696,26 @@ function handleUpdatePermission() {
 }
 // --- NAVIGATION & HISTORY MANAGEMENT ---
 function switchView(viewId, updateHistory = true) {
-    const viewExists = document.getElementById(viewId);
+    let viewExists = document.getElementById(viewId);
+    if (!viewExists && viewId === 'parent-progress-card-view') {
+        const host = document.getElementById('main-content');
+        if (host) {
+            const dynamicView = document.createElement('div');
+            dynamicView.id = 'parent-progress-card-view';
+            dynamicView.className = 'view container-fluid p-4';
+            dynamicView.innerHTML = `
+                <h3 class="fw-bold mb-4 text-dark">View Progress Card</h3>
+                <div id="parent-progress-card-container" class="card border-0 shadow rounded-4 p-4">
+                    <div class="text-center text-muted py-5">
+                        <span class="material-icons fs-1">analytics</span>
+                        <p class="mt-2">Progress card will appear here.</p>
+                    </div>
+                </div>
+            `;
+            host.appendChild(dynamicView);
+            viewExists = dynamicView;
+        }
+    }
     if (!viewExists) {
         console.warn(`Attempted to switch to non-existent view: ${viewId}`);
         return;
@@ -2724,6 +2743,10 @@ function switchView(viewId, updateHistory = true) {
         if (typeof loadTestCreateView === 'function') loadTestCreateView();
     }
     if (viewId === 'upcoming-exams-view') {
+        if (isParentRole(appState.role)) {
+            switchView('parent-exam-schedule-view', updateHistory);
+            return;
+        }
         if (typeof loadStudentExams === 'function') loadStudentExams();
     }
     if (viewId === 'student-exams-view') {
@@ -4852,6 +4875,8 @@ function renderParentControls() {
     const inviteSection = document.getElementById('invite-section');
     if (inviteSection)
         inviteSection.classList.add('d-none');
+    const currentRole = appState.role || localStorage.getItem('user_role') || '';
+    const isTeacherPersona = ['Teacher', 'Admin', 'Principal', 'Tenant_Admin', 'Super_Admin', 'Root_Admin'].includes(currentRole);
     const navList = document.createElement('div');
     navList.className = 'nav-menu';
     const createNavItem = (key, icon, onClick, active = false) => {
@@ -4877,15 +4902,17 @@ function renderParentControls() {
             title.textContent = t('sidebar_dashboard');
         }
     }, true));
-    // 2. Academic Progress
-    navList.appendChild(createNavItem('sidebar_academic_progress', 'auto_stories', () => {
-        switchView('parent-academic-view');
-        const title = document.getElementById('page-title');
-        if (title) {
-            title.setAttribute('data-i18n', 'sidebar_academic_progress');
-            title.textContent = t('sidebar_academic_progress');
-        }
-    }));
+    // 2. Academic Progress (hide for teacher persona)
+    if (!isTeacherPersona) {
+        navList.appendChild(createNavItem('sidebar_academic_progress', 'auto_stories', () => {
+            switchView('parent-academic-view');
+            const title = document.getElementById('page-title');
+            if (title) {
+                title.setAttribute('data-i18n', 'sidebar_academic_progress');
+                title.textContent = t('sidebar_academic_progress');
+            }
+        }));
+    }
     // 3. Attendance
     navList.appendChild(createNavItem('sidebar_attendance', 'calendar_today', () => {
         switchView('parent-attendance-view');
@@ -14861,10 +14888,20 @@ async function fetchProgressCard(studentId) {
     }
     return res.json();
 }
+async function fetchMyProgressCard() {
+    const res = await fetchAPI('/progress-card/my');
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.message || 'Failed to load my progress card.');
+    }
+    return res.json();
+}
 async function loadProgressReportView() {
     const selectEl = document.getElementById('progress-student-select');
     const container = document.getElementById('progress-card-container');
     const btn = document.getElementById('progress-load-btn');
+    const publishBtn = document.getElementById('progress-publish-student-btn');
+    const publishStatusEl = document.getElementById('progress-publish-status');
     if (!selectEl || !container || !btn)
         return;
     if (!selectEl.dataset.bound) {
@@ -14877,6 +14914,38 @@ async function loadProgressReportView() {
             if (selectEl.value)
                 loadProgressCardForStudent(selectEl.value, container);
         });
+        if (publishBtn) {
+            publishBtn.addEventListener('click', async () => {
+                const studentId = selectEl.value;
+                if (!studentId) {
+                    alert('Please select a student first.');
+                    return;
+                }
+                if (!confirm('Publish all pending marks for this student progress card?'))
+                    return;
+                if (publishStatusEl)
+                    publishStatusEl.textContent = 'Publishing...';
+                try {
+                    const res = await fetchAPI('/progress/publish/student', {
+                        method: 'POST',
+                        body: JSON.stringify({ student_id: studentId })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        if (publishStatusEl)
+                            publishStatusEl.textContent = data.detail || 'Failed to publish progress card.';
+                        return;
+                    }
+                    if (publishStatusEl)
+                        publishStatusEl.textContent = `Published ${data.updated || 0} pending record(s) for ${studentId}.`;
+                    await loadProgressCardForStudent(studentId, container);
+                }
+                catch (e) {
+                    if (publishStatusEl)
+                        publishStatusEl.textContent = 'Network error while publishing progress card.';
+                }
+            });
+        }
     }
     try {
         const res = await fetchAPI('/students/all');
@@ -14908,16 +14977,12 @@ async function loadProgressCardForStudent(studentId, container) {
     }
 }
 async function loadParentProgressCardView() {
-    const container = document.getElementById('parent-progress-card-container');
+    const container = ensureParentProgressCardViewLayout();
     if (!container)
         return;
-    if (!appState.activeStudentId) {
-        container.innerHTML = '<div class="text-center text-muted py-4">No student selected.</div>';
-        return;
-    }
     container.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
     try {
-        const data = await fetchProgressCard(appState.activeStudentId);
+        const data = await fetchMyProgressCard();
         renderProgressCard(data, container, true);
     }
     catch (e) {
@@ -14926,22 +14991,42 @@ async function loadParentProgressCardView() {
 }
 
 async function loadStudentProgressCardView() {
-    const container = document.getElementById('parent-progress-card-container');
+    const container = ensureParentProgressCardViewLayout();
     if (!container)
         return;
-    const studentId = appState.activeStudentId || appState.userId;
-    if (!studentId) {
+    const studentId = appState.activeStudentId || appState.userId || '';
+    if (!studentId && !appState.userId) {
         container.innerHTML = '<div class="text-center text-muted py-4">Student session not found.</div>';
         return;
     }
     container.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
     try {
-        const data = await fetchProgressCard(studentId);
+        const data = await fetchMyProgressCard();
         renderProgressCard(data, container, true);
     }
     catch (e) {
-        container.innerHTML = `<div class="text-danger p-3">Error: ${e.message}</div>`;
+        container.innerHTML = `<div class="text-danger p-3">Unable to load progress card for <b>${studentId || (appState.userId || '-')}</b>: ${e.message}</div>`;
     }
+}
+
+function ensureParentProgressCardViewLayout() {
+    const view = document.getElementById('parent-progress-card-view');
+    if (!view)
+        return null;
+    let container = document.getElementById('parent-progress-card-container');
+    if (container)
+        return container;
+    view.innerHTML = `
+        <h3 class="fw-bold mb-4 text-dark">View Progress Card</h3>
+        <div id="parent-progress-card-container" class="card border-0 shadow rounded-4 p-4">
+            <div class="text-center text-muted py-5">
+                <span class="material-icons fs-1">analytics</span>
+                <p class="mt-2">Progress card will appear here.</p>
+            </div>
+        </div>
+    `;
+    container = document.getElementById('parent-progress-card-container');
+    return container;
 }
 
 // --- EMAIL LOGIC ---

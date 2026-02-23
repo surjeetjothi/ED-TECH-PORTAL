@@ -4418,6 +4418,8 @@ function renderParentControls() {
     elements.userControls.innerHTML = '';
     const inviteSection = document.getElementById('invite-section') as HTMLInputElement;
     if (inviteSection) inviteSection.classList.add('d-none');
+    const currentRole = appState.role || localStorage.getItem('user_role') || '';
+    const isTeacherPersona = ['Teacher', 'Admin', 'Principal', 'Tenant_Admin', 'Super_Admin', 'Root_Admin'].includes(currentRole);
 
     const navList = document.createElement('div');
     navList.className = 'nav-menu';
@@ -4447,15 +4449,17 @@ function renderParentControls() {
         }
     }, true));
 
-    // 2. Academic Progress
-    navList.appendChild(createNavItem('sidebar_academic_progress', 'auto_stories', () => {
-        switchView('parent-academic-view');
-        const title = document.getElementById('page-title') as HTMLInputElement;
-        if (title) {
-            title.setAttribute('data-i18n', 'sidebar_academic_progress');
-            title.textContent = t('sidebar_academic_progress');
-        }
-    }));
+    // 2. Academic Progress (hide for teacher persona)
+    if (!isTeacherPersona) {
+        navList.appendChild(createNavItem('sidebar_academic_progress', 'auto_stories', () => {
+            switchView('parent-academic-view');
+            const title = document.getElementById('page-title') as HTMLInputElement;
+            if (title) {
+                title.setAttribute('data-i18n', 'sidebar_academic_progress');
+                title.textContent = t('sidebar_academic_progress');
+            }
+        }));
+    }
 
     // 3. Attendance
     navList.appendChild(createNavItem('sidebar_attendance', 'calendar_today', () => {

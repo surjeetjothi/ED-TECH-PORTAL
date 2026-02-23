@@ -1088,6 +1088,15 @@ class FormTemplatePublishRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
 
+class TimetablePdfResponse(BaseModel):
+    id: Optional[int] = None
+    class_grade: int
+    section: Optional[str] = None
+    title: str
+    file_path: str
+    uploaded_by: str
+    uploaded_at: str
+
 
 # --- STAFF MANAGEMENT MODELS ---
 class DepartmentCreateRequest(BaseModel):
@@ -1439,7 +1448,7 @@ def initialize_db():
 
     
     # Determine Primary Key Syntax based on DB
-    is_postgres = USE_POSTGRES and ('postgres' in DATABASE_URL.lower())
+    is_postgres = "psycopg2" in str(type(conn)).lower()
     # For Postgres, use SERIAL PRIMARY KEY. For SQLite, INTEGER PRIMARY KEY AUTOINCREMENT
     pk_def = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
@@ -3117,6 +3126,21 @@ def initialize_db():
         subject TEXT,
         teacher_id TEXT,
         FOREIGN KEY (teacher_id) REFERENCES students(id)
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS timetable_pdfs (
+        id {pk_def},
+        school_id INTEGER DEFAULT 1,
+        class_grade INTEGER NOT NULL,
+        section TEXT,
+        title TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_by TEXT NOT NULL,
+        uploaded_at TEXT NOT NULL,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
+        FOREIGN KEY (uploaded_by) REFERENCES students(id) ON DELETE CASCADE
     )
     """)
 
@@ -9924,12 +9948,53 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
 
         if role in ['Parent', 'Parent_Guardian']:
             results = []
-            children = conn.execute("""
-                SELECT s.id, s.name, s.grade, s.section_id
-                FROM guardians g
-                JOIN students s ON g.student_id = s.id
-                WHERE g.email = ? AND s.school_id = ? AND s.role = 'Student'
-            """, (x_user_id, school_id)).fetchall()
+            parent_row = conn.execute(
+                "SELECT id, name FROM students WHERE id = ?",
+                (x_user_id,)
+            ).fetchone()
+            parent_name = (parent_row["name"] or "").strip() if parent_row else ""
+
+            parent_email_candidates = {(x_user_id or "").strip()}
+            if x_user_id in PARENT_OTP_EMAIL_OVERRIDES:
+                parent_email_candidates.add((PARENT_OTP_EMAIL_OVERRIDES[x_user_id] or "").strip())
+
+            # If logged in using parent user-id alias (e.g., parent_g1_1), include mapped email key.
+            for login_email, alias_values in PARENT_LOGIN_ALIASES.items():
+                if isinstance(alias_values, str):
+                    alias_values = (alias_values,)
+                if any((v or "").strip().lower() == (x_user_id or "").strip().lower() for v in alias_values):
+                    parent_email_candidates.add((login_email or "").strip())
+
+            valid_email_candidates = [e for e in parent_email_candidates if e]
+            children_by_id: Dict[str, Dict[str, Any]] = {}
+
+            for parent_email in valid_email_candidates:
+                rows = conn.execute("""
+                    SELECT s.id, s.name, s.grade, s.section_id
+                    FROM guardians g
+                    JOIN students s ON g.student_id = s.id
+                    WHERE LOWER(g.email) = LOWER(?) AND s.school_id = ? AND s.role = 'Student'
+                """, (parent_email, school_id)).fetchall()
+                for row in rows:
+                    children_by_id[row["id"]] = dict(row)
+
+            # Fallback by guardian name matching parent account (for legacy datasets).
+            if parent_name:
+                rows = conn.execute("""
+                    SELECT s.id, s.name, s.grade, s.section_id
+                    FROM guardians g
+                    JOIN students s ON g.student_id = s.id
+                    WHERE (
+                        LOWER(g.name) = LOWER(?)
+                        OR LOWER(g.name) = LOWER(?)
+                    )
+                      AND s.school_id = ?
+                      AND s.role = 'Student'
+                """, (parent_name, x_user_id, school_id)).fetchall()
+                for row in rows:
+                    children_by_id[row["id"]] = dict(row)
+
+            children = list(children_by_id.values())
             for child in children:
                 rows = fetch_schedules_for(child["grade"], child["section_id"])
                 for r in rows:
@@ -12282,6 +12347,365 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
     finally:
         conn.close()
 
+@app.post("/api/timetable/upload-pdf")
+async def upload_timetable_pdf(
+    class_grade: int = Form(...),
+    section: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        actor = c.execute(
+            "SELECT id, role, school_id FROM students WHERE id = ?",
+            (x_user_id,)
+        ).fetchone()
+        if not actor:
+            raise HTTPException(status_code=401, detail="User not found.")
+
+        allowed_roles = {"Teacher", "Admin", "Principal", "Tenant_Admin", "Super Admin", "Super_Admin", "Root_Admin", "Root_Super_Admin"}
+        if actor["role"] not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Only teacher/admin users can upload timetable PDFs.")
+
+        filename = (file.filename or "").strip()
+        ext = os.path.splitext(filename)[1].lower()
+        if ext != ".pdf":
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed for timetable uploads.")
+
+        payload = await file.read()
+        if not payload:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        if len(payload) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File is too large. Maximum allowed size is 15MB.")
+
+        target_school_id = actor["school_id"] if actor["school_id"] else 1
+        clean_section = (section or "").strip()
+        uploaded_at = datetime.now().isoformat()
+        safe_title = (title or "").strip() or f"Class {class_grade}{('-' + clean_section) if clean_section else ''} Timetable"
+
+        timetable_dir = os.path.join(STATIC_DIR, "uploads", "timetables")
+        os.makedirs(timetable_dir, exist_ok=True)
+        unique_filename = f"{uuid.uuid4()}{ext}"
+        disk_path = os.path.join(timetable_dir, unique_filename)
+        with open(disk_path, "wb") as fp:
+            fp.write(payload)
+        web_path = f"/static/uploads/timetables/{unique_filename}"
+
+        row = c.execute(
+            """
+            INSERT INTO timetable_pdfs (school_id, class_grade, section, title, file_path, uploaded_by, uploaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            """,
+            (
+                target_school_id,
+                class_grade,
+                clean_section if clean_section else None,
+                safe_title,
+                web_path,
+                actor["id"],
+                uploaded_at
+            )
+        ).fetchone()
+        pdf_id = row["id"] if row else 0
+
+        recipients_students = c.execute(
+            """
+            SELECT s.id, s.name, sec.name AS section_name
+            FROM students s
+            LEFT JOIN sections sec ON sec.id = s.section_id
+            WHERE s.school_id = ?
+              AND s.role = 'Student'
+              AND s.grade = ?
+              AND (? = '' OR LOWER(COALESCE(sec.name, '')) = LOWER(?))
+            """,
+            (target_school_id, class_grade, clean_section, clean_section)
+        ).fetchall()
+
+        recipients_teachers = []
+        if clean_section:
+            recipients_teachers = c.execute(
+                """
+                SELECT DISTINCT t.id
+                FROM students t
+                JOIN timetables tt ON tt.teacher_id = t.id
+                WHERE t.school_id = ?
+                  AND t.role = 'Teacher'
+                  AND tt.class_grade = ?
+                  AND LOWER(COALESCE(tt.section, '')) = LOWER(?)
+                  AND t.id <> ?
+                """,
+                (target_school_id, class_grade, clean_section, actor["id"])
+            ).fetchall()
+        else:
+            recipients_teachers = c.execute(
+                """
+                SELECT DISTINCT t.id
+                FROM students t
+                JOIN timetables tt ON tt.teacher_id = t.id
+                WHERE t.school_id = ?
+                  AND t.role = 'Teacher'
+                  AND tt.class_grade = ?
+                  AND t.id <> ?
+                """,
+                (target_school_id, class_grade, actor["id"])
+            ).fetchall()
+
+        student_notified = 0
+        parent_notified = 0
+        teacher_notified = 0
+
+        class_label = f"Grade {class_grade}{('-' + clean_section) if clean_section else ''}"
+        subject_line = f"New Timetable PDF: {safe_title}"
+        teacher_subject_line = f"Timetable Shared for {class_label}"
+
+        parent_notified_ids = set()
+        for student in recipients_students:
+            try:
+                c.execute(
+                    """
+                    INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
+                    VALUES (?, ?, ?, ?, ?, FALSE)
+                    """,
+                    (
+                        actor["id"],
+                        student["id"],
+                        subject_line,
+                        f"A new timetable PDF has been uploaded for {class_label}.\nTitle: {safe_title}\nFile: {web_path}",
+                        uploaded_at
+                    )
+                )
+                student_notified += 1
+            except Exception as e:
+                logger.warning(f"Failed to notify student {student['id']} about timetable PDF: {e}")
+
+            guardians = c.execute(
+                "SELECT email, name FROM guardians WHERE student_id = ?",
+                (student["id"],)
+            ).fetchall()
+            parent_ids = _resolve_parent_ids_for_student(c, student["id"], target_school_id, guardians)
+            for pid in parent_ids:
+                if pid in parent_notified_ids:
+                    continue
+                try:
+                    c.execute(
+                        """
+                        INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
+                        VALUES (?, ?, ?, ?, ?, FALSE)
+                        """,
+                        (
+                            actor["id"],
+                            pid,
+                            subject_line,
+                            f"A new timetable PDF has been uploaded for your child ({class_label}).\nTitle: {safe_title}\nFile: {web_path}",
+                            uploaded_at
+                        )
+                    )
+                    parent_notified_ids.add(pid)
+                    parent_notified += 1
+                except Exception as e:
+                    logger.warning(f"Failed to notify parent {pid} about timetable PDF: {e}")
+
+        teacher_ids = sorted({row["id"] for row in recipients_teachers if row["id"]})
+        if teacher_ids:
+            teacher_notified = _send_messages(
+                conn,
+                actor["id"],
+                teacher_ids,
+                teacher_subject_line,
+                f"A timetable PDF was uploaded for {class_label}.\nTitle: {safe_title}\nFile: {web_path}"
+            )
+
+        conn.commit()
+        return {
+            "success": True,
+            "id": pdf_id,
+            "class_grade": class_grade,
+            "section": clean_section or None,
+            "title": safe_title,
+            "file_path": web_path,
+            "uploaded_by": actor["id"],
+            "uploaded_at": uploaded_at,
+            "notified": {
+                "students": student_notified,
+                "parents": parent_notified,
+                "teachers": teacher_notified
+            }
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Failed to upload timetable PDF: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload timetable PDF.")
+    finally:
+        conn.close()
+
+@app.get("/api/timetable/student/my/pdfs", response_model=List[TimetablePdfResponse])
+async def get_my_timetable_pdfs(student_id: Optional[str] = None, x_user_id: str = Header(None, alias="X-User-Id")):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Missing X-User-Id header.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        requester = c.execute(
+            "SELECT id, role FROM students WHERE id = ?",
+            (x_user_id,)
+        ).fetchone()
+        if not requester:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        target_student_id = x_user_id
+        if requester["role"] == "Student":
+            target_student_id = x_user_id
+        elif requester["role"] in ("Parent", "Parent_Guardian"):
+            if student_id and student_id.strip():
+                target_student_id = student_id.strip()
+            else:
+                child = c.execute(
+                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
+                    (x_user_id,),
+                ).fetchone()
+                if not child or not child["student_id"]:
+                    raise HTTPException(status_code=404, detail="No linked child found for parent.")
+                target_student_id = child["student_id"]
+
+            linked = c.execute(
+                """
+                SELECT 1
+                FROM guardians
+                WHERE LOWER(email) = LOWER(?)
+                  AND LOWER(student_id) = LOWER(?)
+                LIMIT 1
+                """,
+                (x_user_id, target_student_id),
+            ).fetchone()
+            if not linked:
+                raise HTTPException(status_code=403, detail="Access denied for this student.")
+        else:
+            raise HTTPException(status_code=403, detail="Only students/parents can access this endpoint.")
+
+        student = c.execute(
+            """
+            SELECT s.id, s.grade, s.school_id, sec.name AS section_name
+            FROM students s
+            LEFT JOIN sections sec ON sec.id = s.section_id
+            WHERE s.id = ? AND s.role = 'Student'
+            """,
+            (target_student_id,)
+        ).fetchone()
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found.")
+
+        section_name = (student["section_name"] or "").strip()
+        rows = c.execute(
+            """
+            SELECT id, class_grade, section, title, file_path, uploaded_by, uploaded_at
+            FROM timetable_pdfs
+            WHERE school_id = ?
+              AND class_grade = ?
+              AND (section IS NULL OR TRIM(section) = '' OR ? = '' OR LOWER(TRIM(section)) = LOWER(?))
+            ORDER BY uploaded_at DESC
+            """,
+            (student["school_id"] if student["school_id"] else 1, student["grade"], section_name, section_name)
+        ).fetchall()
+
+        return [
+            TimetablePdfResponse(
+                id=row["id"],
+                class_grade=row["class_grade"],
+                section=(row["section"] or "").strip() or None,
+                title=row["title"],
+                file_path=row["file_path"],
+                uploaded_by=row["uploaded_by"],
+                uploaded_at=row["uploaded_at"]
+            )
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+@app.get("/api/timetable/teacher/my/pdfs", response_model=List[TimetablePdfResponse])
+async def get_teacher_timetable_pdfs(x_user_id: str = Header(None, alias="X-User-Id")):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Missing X-User-Id header.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        teacher = c.execute(
+            "SELECT id, role, school_id FROM students WHERE id = ?",
+            (x_user_id,)
+        ).fetchone()
+        if not teacher:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        allowed_roles = {"Teacher", "Admin", "Principal", "Tenant_Admin", "Super Admin", "Super_Admin", "Root_Admin", "Root_Super_Admin"}
+        if teacher["role"] not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Only teacher/admin users can access this endpoint.")
+
+        rows = c.execute(
+            """
+            SELECT id, class_grade, section, title, file_path, uploaded_by, uploaded_at
+            FROM timetable_pdfs
+            WHERE school_id = ?
+            ORDER BY uploaded_at DESC
+            """,
+            (teacher["school_id"] if teacher["school_id"] else 1,)
+        ).fetchall()
+
+        if teacher["role"] == "Teacher":
+            assignments = c.execute(
+                """
+                SELECT DISTINCT class_grade, COALESCE(TRIM(section), '') AS section
+                FROM timetables
+                WHERE teacher_id = ?
+                """,
+                (x_user_id,)
+            ).fetchall()
+            assignment_set = {
+                (row["class_grade"], (row["section"] or "").strip().lower())
+                for row in assignments
+                if row["class_grade"] is not None
+            }
+            taught_grades = {grade for grade, _ in assignment_set}
+
+            filtered = []
+            for row in rows:
+                row_grade = row["class_grade"]
+                row_section = (row["section"] or "").strip().lower()
+                if row["uploaded_by"] == x_user_id:
+                    filtered.append(row)
+                    continue
+                if (row_grade, row_section) in assignment_set:
+                    filtered.append(row)
+                    continue
+                if not row_section and row_grade in taught_grades:
+                    filtered.append(row)
+            rows = filtered
+
+        return [
+            TimetablePdfResponse(
+                id=row["id"],
+                class_grade=row["class_grade"],
+                section=(row["section"] or "").strip() or None,
+                title=row["title"],
+                file_path=row["file_path"],
+                uploaded_by=row["uploaded_by"],
+                uploaded_at=row["uploaded_at"]
+            )
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
 # --- LEAVE REQUEST MODULE ---
 class LeaveRequestCreate(BaseModel):
     user_id: str
@@ -12526,6 +12950,9 @@ class ProgressPublishRequest(BaseModel):
     grade_level: int
     section_id: Optional[int] = None
 
+class ProgressPublishStudentRequest(BaseModel):
+    student_id: str
+
 # --- EMAIL MODULE ---
 class EmailSendRequest(BaseModel):
     to: str  # can be user id, email, or group token (grade:10, section:3, role:Teacher, all)
@@ -12589,7 +13016,7 @@ async def save_progress_marks(req: ProgressMarksBulkRequest,
 
             cursor.execute("""
                 INSERT INTO student_marks (student_id, exam_name, subject, marks_obtained, max_marks, grade, remarks, date, published, published_at, published_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """, (
                 e.student_id,
                 req.exam_name,
@@ -12598,7 +13025,9 @@ async def save_progress_marks(req: ProgressMarksBulkRequest,
                 req.max_marks,
                 e.grade,
                 e.remarks,
-                date_val
+                date_val,
+                date_val,
+                x_user_id
             ))
             inserted += 1
 
@@ -12626,7 +13055,6 @@ async def publish_progress_marks(req: ProgressPublishRequest,
             if x_school_id and sec["school_id"] != x_school_id:
                 raise HTTPException(status_code=403, detail="Section does not belong to your school.")
 
-        params = [req.exam_name, req.subject, req.grade_level]
         query = """
             UPDATE student_marks
             SET published = 1, published_at = ?, published_by = ?
@@ -12634,7 +13062,7 @@ async def publish_progress_marks(req: ProgressPublishRequest,
                 SELECT sm.id
                 FROM student_marks sm
                 JOIN students s ON sm.student_id = s.id
-                WHERE sm.exam_name = ? AND sm.subject = ? AND s.grade = ?
+                WHERE sm.exam_name = ? AND sm.subject = ? AND s.grade = ? AND COALESCE(sm.published, 0) = 0
         """
         params = [datetime.now().isoformat(), x_user_id, req.exam_name, req.subject, req.grade_level]
         if req.section_id:
@@ -12646,8 +13074,47 @@ async def publish_progress_marks(req: ProgressPublishRequest,
         query += " )"
 
         cursor.execute(query, tuple(params))
+        updated_count = cursor.rowcount
         conn.commit()
-        return {"success": True, "updated": cursor.rowcount}
+        return {"success": True, "updated": updated_count}
+    finally:
+        conn.close()
+
+@app.post("/api/progress/publish/student")
+async def publish_progress_for_student(req: ProgressPublishStudentRequest,
+                                       x_user_role: str = Header(None, alias="X-User-Role"),
+                                       x_user_id: str = Header(None, alias="X-User-Id"),
+                                       x_school_id: Optional[int] = Header(None, alias="X-School-Id")):
+    if x_user_role not in ('Teacher', 'Admin', 'Tenant_Admin', 'Super_Admin'):
+        raise HTTPException(status_code=403, detail="Not authorized to publish marks.")
+
+    student_id = (req.student_id or "").strip()
+    if not student_id:
+        raise HTTPException(status_code=400, detail="student_id is required.")
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        student = cursor.execute(
+            "SELECT id, school_id FROM students WHERE id = ? AND role = 'Student'",
+            (student_id,)
+        ).fetchone()
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found.")
+        if x_school_id and student["school_id"] != x_school_id:
+            raise HTTPException(status_code=403, detail="Student does not belong to your school.")
+
+        cursor.execute(
+            """
+            UPDATE student_marks
+            SET published = 1, published_at = ?, published_by = ?
+            WHERE student_id = ? AND COALESCE(published, 0) = 0
+            """,
+            (datetime.now().isoformat(), x_user_id or "teacher_publish", student_id)
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        return {"success": True, "student_id": student_id, "updated": updated}
     finally:
         conn.close()
 
@@ -13035,6 +13502,8 @@ async def get_notifications(x_user_id: str = Header(..., alias="X-User-Id")):
             SELECT id, sender_id, subject, content, timestamp, is_read 
             FROM messages 
             WHERE receiver_id = ? 
+              AND LOWER(COALESCE(subject, '')) NOT LIKE '%report card%'
+              AND LOWER(COALESCE(content, '')) NOT LIKE '%report card%'
             ORDER BY timestamp DESC
         """, (x_user_id,)).fetchall()
         
@@ -13075,14 +13544,119 @@ async def mark_notification_read(msg_id: int, x_user_id: str = Header(..., alias
 
 
 # --- PROGRESS CARD ENDPOINTS ---
+def _resolve_progress_student_id(conn, student_id: str) -> str:
+    requested_id = (student_id or "").strip()
+    if not requested_id:
+        return requested_id
+
+    direct = conn.execute(
+        "SELECT id FROM students WHERE id = ? AND role = 'Student'",
+        (requested_id,)
+    ).fetchone()
+    if direct:
+        return direct["id"]
+
+    alias_candidates = STUDENT_LOGIN_ALIASES.get(requested_id.lower())
+    if alias_candidates:
+        if isinstance(alias_candidates, str):
+            alias_candidates = (alias_candidates,)
+        for candidate in alias_candidates:
+            row = conn.execute(
+                "SELECT id FROM students WHERE id = ? AND role = 'Student'",
+                (candidate,)
+            ).fetchone()
+            if row:
+                return row["id"]
+
+    return requested_id
+
+@app.get("/api/progress-card/my", response_model=ProgressCardResponse)
+async def get_my_progress_card(x_user_id: str = Header(None, alias="X-User-Id")):
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Missing user.")
+
+    conn = get_db_connection()
+    try:
+        user = conn.execute(
+            "SELECT id, role FROM students WHERE LOWER(id) = LOWER(?)",
+            (x_user_id,)
+        ).fetchone()
+
+        if not user:
+            alias_candidates = STUDENT_LOGIN_ALIASES.get((x_user_id or "").strip().lower())
+            if alias_candidates:
+                if isinstance(alias_candidates, str):
+                    alias_candidates = (alias_candidates,)
+                for candidate in alias_candidates:
+                    user = conn.execute(
+                        "SELECT id, role FROM students WHERE LOWER(id) = LOWER(?)",
+                        (candidate,)
+                    ).fetchone()
+                    if user:
+                        x_user_id = user["id"]
+                        break
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        role = (user["role"] or "").strip()
+        if role == "Student":
+            target_student_id = user["id"]
+        elif role in ("Parent", "Parent_Guardian"):
+            user_email_row = conn.execute("SELECT email, name FROM students WHERE id = ?", (x_user_id,)).fetchone()
+            user_email = user_email_row["email"] if user_email_row and user_email_row["email"] else ""
+            user_name = user_email_row["name"] if user_email_row and user_email_row["name"] else ""
+            
+            child = conn.execute(
+                "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
+                (x_user_id,)
+            ).fetchone()
+            
+            if not child and user_email:
+                child = conn.execute(
+                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
+                    (user_email,)
+                ).fetchone()
+
+            if not child and x_user_id in PARENT_OTP_EMAIL_OVERRIDES:
+                child = conn.execute(
+                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
+                    (PARENT_OTP_EMAIL_OVERRIDES[x_user_id],)
+                ).fetchone()
+                
+            if not child and user_name:
+                like_name = f"%{user_name}%"
+                child = conn.execute(
+                    "SELECT student_id FROM guardians WHERE name LIKE ? ORDER BY id DESC LIMIT 1",
+                    (like_name,)
+                ).fetchone()
+                
+            if not child:
+                if x_user_id.startswith("parent_"):
+                    fallback_id = x_user_id.replace("parent_", "student_")
+                    child = conn.execute("SELECT id as student_id FROM students WHERE role='Student' AND id=?", (fallback_id,)).fetchone()
+                    
+            if not child:
+                child = conn.execute("SELECT student_id FROM guardians ORDER BY id DESC LIMIT 1").fetchone()
+
+            if not child:
+                raise HTTPException(status_code=404, detail="No linked student found for parent.")
+            target_student_id = child["student_id"]
+        else:
+            raise HTTPException(status_code=403, detail="Only student/parent can use this endpoint.")
+    finally:
+        conn.close()
+
+    return await get_progress_card(target_student_id, x_user_id)
+
 @app.get("/api/progress-card/{student_id}", response_model=ProgressCardResponse)
 async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
     conn = get_db_connection()
     try:
+        resolved_student_id = _resolve_progress_student_id(conn, student_id)
         # Resolve student
         student = conn.execute(
             "SELECT id, name, grade, school_id, attendance_rate FROM students WHERE id = ? AND role = 'Student'",
-            (student_id,)
+            (resolved_student_id,)
         ).fetchone()
         if not student:
             raise HTTPException(status_code=404, detail="Student not found.")
@@ -13100,7 +13674,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             if not requester["is_super_admin"] and requester["school_id"] != student["school_id"]:
                 raise HTTPException(status_code=403, detail="Access denied for this school.")
 
-        published_only = requester_role in ('Parent', 'Parent_Guardian')
+        published_only = requester_role in ('Student', 'Parent', 'Parent_Guardian')
 
         # Academics: subject averages + overall
         subject_query = """
@@ -13112,7 +13686,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         if published_only:
             subject_query += " AND published = 1"
         subject_query += " GROUP BY subject ORDER BY subject"
-        subject_rows = conn.execute(subject_query, (student_id,)).fetchall()
+        subject_rows = conn.execute(subject_query, (resolved_student_id,)).fetchall()
         subjects = [{"subject": r["subject"], "avg_pct": round(r["avg_pct"] or 0, 1)} for r in subject_rows]
 
         overall_query = """
@@ -13122,7 +13696,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         """
         if published_only:
             overall_query += " AND published = 1"
-        overall_row = conn.execute(overall_query, (student_id,)).fetchone()
+        overall_row = conn.execute(overall_query, (resolved_student_id,)).fetchone()
         overall_avg = round(overall_row["avg_pct"] or 0, 1)
 
         # Trend: compare latest two exam dates
@@ -13135,7 +13709,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         if published_only:
             trend_query += " AND published = 1"
         trend_query += " GROUP BY date ORDER BY date DESC LIMIT 2"
-        trend_rows = conn.execute(trend_query, (student_id,)).fetchall()
+        trend_rows = conn.execute(trend_query, (resolved_student_id,)).fetchall()
         trend = "na"
         if len(trend_rows) == 2:
             latest = trend_rows[0]["avg_pct"] or 0
@@ -13153,7 +13727,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT COUNT(*) AS cnt
             FROM student_attendance
             WHERE student_id = ? AND date >= ? AND status = 'Absent'
-        """, (student_id, cutoff_30)).fetchone()
+        """, (resolved_student_id, cutoff_30)).fetchone()
         absent_last_30 = int(absent_row["cnt"] or 0)
 
         # Engagement: assignments
@@ -13162,14 +13736,14 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             FROM assignments a
             JOIN group_members gm ON gm.group_id = a.group_id
             WHERE gm.student_id = ?
-        """, (student_id,)).fetchone()
+        """, (resolved_student_id,)).fetchone()
         assignments_due = int(assignments_due_row["cnt"] or 0)
 
         assignments_submitted_row = conn.execute("""
             SELECT COUNT(*) AS cnt
             FROM assignment_submissions
             WHERE student_id = ?
-        """, (student_id,)).fetchone()
+        """, (resolved_student_id,)).fetchone()
         assignments_submitted = int(assignments_submitted_row["cnt"] or 0)
 
         # Engagement: quizzes
@@ -13177,7 +13751,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT COUNT(*) AS cnt, AVG(score) AS avg_score
             FROM quiz_attempts
             WHERE student_id = ?
-        """, (student_id,)).fetchone()
+        """, (resolved_student_id,)).fetchone()
         quizzes_attempted = int(quiz_row["cnt"] or 0)
         avg_quiz_score = round(quiz_row["avg_score"] or 0, 1)
 
@@ -13187,14 +13761,14 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT COUNT(*) AS cnt
             FROM activities
             WHERE student_id = ? AND date >= ?
-        """, (student_id, cutoff_30)).fetchone()
+        """, (resolved_student_id, cutoff_30)).fetchone()
         activities_last_30 = int(activities_30_row["cnt"] or 0)
 
         active_days_row = conn.execute("""
             SELECT COUNT(DISTINCT date) AS cnt
             FROM activities
             WHERE student_id = ? AND date >= ?
-        """, (student_id, cutoff_7)).fetchone()
+        """, (resolved_student_id, cutoff_7)).fetchone()
         active_days_last_7 = int(active_days_row["cnt"] or 0)
 
         # Latest remarks
@@ -13206,7 +13780,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         if published_only:
             remarks_query += " AND published = 1"
         remarks_query += " ORDER BY date DESC LIMIT 1"
-        remarks_row = conn.execute(remarks_query, (student_id,)).fetchone()
+        remarks_row = conn.execute(remarks_query, (resolved_student_id,)).fetchone()
         latest_remarks = remarks_row["remarks"] if remarks_row else None
 
         # Recent marks
@@ -13217,8 +13791,8 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         """
         if published_only:
             recent_query += " AND published = 1"
-        recent_query += " ORDER BY date DESC LIMIT 5"
-        recent_rows = conn.execute(recent_query, (student_id,)).fetchall()
+        recent_query += " ORDER BY date DESC, id DESC"
+        recent_rows = conn.execute(recent_query, (resolved_student_id,)).fetchall()
         recent_marks = [dict(r) for r in recent_rows]
 
         # Alerts

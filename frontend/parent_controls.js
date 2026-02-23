@@ -3,6 +3,8 @@ function renderParentControls() {
     elements.userControls.innerHTML = '';
     const inviteSection = document.getElementById('invite-section');
     if (inviteSection) inviteSection.classList.add('d-none');
+    const currentRole = (typeof appState !== 'undefined' && appState.role) || localStorage.getItem('user_role') || '';
+    const isTeacherPersona = ['Teacher', 'Admin', 'Principal', 'Tenant_Admin', 'Super_Admin', 'Root_Admin'].includes(currentRole);
 
     const navList = document.createElement('div');
     navList.className = 'nav-menu';
@@ -27,11 +29,13 @@ function renderParentControls() {
         document.getElementById('page-title').textContent = 'Parent Dashboard';
     }, true));
 
-    // 2. Academic Progress
-    navList.appendChild(createNavItem('Academic Progress', 'auto_stories', () => {
-        switchView('parent-academic-view');
-        document.getElementById('page-title').textContent = 'Academic Progress';
-    }));
+    // 2. Academic Progress (hide for teacher persona)
+    if (!isTeacherPersona) {
+        navList.appendChild(createNavItem('Academic Progress', 'auto_stories', () => {
+            switchView('parent-academic-view');
+            document.getElementById('page-title').textContent = 'Academic Progress';
+        }));
+    }
 
     // 3. Attendance
     navList.appendChild(createNavItem('Attendance', 'calendar_today', () => {

@@ -3640,8 +3640,6 @@ function getSidebarConfig(role) {
         return [
             // 0. Dashboard
             { label: 'sidebar_dashboard', icon: 'dashboard', view: 'teacher-view', onClick: () => handleTeacherViewToggle('teacher-view') },
-            // Academic Management (Exam schedules live here)
-            { label: 'sidebar_academic_progress', icon: 'auto_stories', view: 'academics-view', onClick: () => { switchView('academics-view'); renderAcademicsDashboard(); } },
             // 1. Timetable
             {
                 label: 'sidebar_timetable', icon: 'schedule', id: 'cat-timetable',
