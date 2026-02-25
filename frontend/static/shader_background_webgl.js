@@ -2,6 +2,20 @@
 // --- WEBGL SHADER BACKGROUND ---
 // Adapted from User's React Component (Raw WebGL)
 
+// Track animation frame ID so we can stop the loop on login
+let shaderAnimId = null;
+
+// Call this after login to free GPU/CPU
+window.stopShaderLoop = function () {
+    if (shaderAnimId !== null) {
+        cancelAnimationFrame(shaderAnimId);
+        shaderAnimId = null;
+        // Hide the shader container to free GPU memory
+        const c = document.getElementById('shader-background-container');
+        if (c) { c.style.display = 'none'; c.innerHTML = ''; }
+    }
+};
+
 function initShaderBackground() {
     const container = document.getElementById('shader-background-container');
     if (!container) return;
@@ -195,8 +209,10 @@ function initShaderBackground() {
 
     const startTime = Date.now();
 
-    // Draw once and stop to keep it static
     const render = () => {
+        // If loop was stopped, bail out immediately
+        if (shaderAnimId === null) return;
+
         const currentTime = (Date.now() - startTime) / 1000;
 
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -219,10 +235,11 @@ function initShaderBackground() {
         gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        requestAnimationFrame(render);
+        shaderAnimId = requestAnimationFrame(render);
     };
 
-    requestAnimationFrame(render);
+    shaderAnimId = requestAnimationFrame(render);
 }
 
 document.addEventListener('DOMContentLoaded', initShaderBackground);
+

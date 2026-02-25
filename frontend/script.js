@@ -41,7 +41,7 @@ const API_BASE_URL = isLocal
     : (window.__API_BASE_URL__ || PROD_API_DEFAULT);
 
 console.log("------------------------------------------");
-console.log(" FRONTEND VERSION 2.5 - CONNECTING TO CLASSBRIDGE BACKEND");
+console.log(" FRONTEND VERSION 3.1 - CONNECTING TO CLASSBRIDGE BACKEND");
 console.log("------------------------------------------");
 
 console.log("ClassBridge API Base URL:", API_BASE_URL);
@@ -82,13 +82,25 @@ let appState = {
     currentCourseId: null,
     activeSchoolId: null, // For Super Admin context switching
     name: null,
+    tempUserId: null,
+    tempSecurityMode: null,
     roles: [],
     permissions: []
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Performance utilities, view loader registry and role constants are defined in:
+//   frontend/static/cb_perf.js          — loadPlotlyAndRender, cachedFetchAPI
+//   frontend/static/cb_view_registry.js — VIEW_LOADERS, TEACHER_ROLES, etc.
+// Both files are loaded before this script in index.html.
+// ─────────────────────────────────────────────────────────────────────────────
+
 function applyRoleTheme() {
     const role = appState.role || '';
     const isTeacherUi = role === 'Teacher' || role === 'Admin' || role === 'Principal' || role === 'Tenant_Admin' || role === 'Super_Admin' || role === 'Root_Super_Admin';
+    const isStudentUi = role === 'Student';
     document.body.classList.toggle('teacher-mode', isTeacherUi);
+    document.body.classList.toggle('student-mode', isStudentUi);
 }
 // Helper functions for DOM casting
 function getVal(id) {
@@ -146,7 +158,7 @@ function restoreAuthState() {
     return false;
 }
 // --- LOCALIZATION & ACCESSIBILITY (FR-17, FR-16) ---
-const translations = {
+var translations = window.translations || {
     en: {
         login_welcome: "Welcome to Noble Nexus",
         login_subtitle: "Sign in to Class Bridge",
@@ -1954,7 +1966,7 @@ const translations = {
         btn_join_free: "Noble Nexusを無料で始める"
     }
 };
-let currentLanguage = localStorage.getItem('appLanguage') || 'en';
+var currentLanguage = localStorage.getItem('appLanguage') || 'en';
 function t(key, params = {}) {
     let text = key; // Default to key if not found
     if (translations[currentLanguage] && translations[currentLanguage][key]) {
@@ -2065,6 +2077,9 @@ function ensureGlobalLanguageControl() {
 // Initialize Language on Load
 // Initialize Language & Auth on Load
 document.addEventListener('DOMContentLoaded', () => {
+    if (window.__cbBootInitialized)
+        return;
+    window.__cbBootInitialized = true;
     ensureGlobalLanguageControl();
     updateTranslations();
     const isLoggedIn = restoreAuthState();
@@ -2129,6 +2144,7 @@ document.addEventListener('DOMContentLoaded', () => {
             switchView('landing-view', false);
         }
     }
+    window.__cbInitialBootComplete = true;
 });
 // --- DOM ELEMENTS & MODALS ---
 const viewStack = [];
@@ -2306,6 +2322,21 @@ function getEventBadgeClass(eventType) {
 }
 function fetchAPI(endpoint_1) {
     return __awaiter(this, arguments, void 0, function* (endpoint, options = {}) {
+        if (!window.__cbNetworkStats) {
+            window.__cbNetworkStats = { total: 0, byEndpoint: {}, startedAt: Date.now() };
+            window.printNetworkStats = () => {
+                const stats = window.__cbNetworkStats || { total: 0, byEndpoint: {} };
+                const sorted = Object.entries(stats.byEndpoint).sort((a, b) => b[1] - a[1]);
+                console.table(sorted.map(([ep, count]) => ({ endpoint: ep, count })));
+                console.log(`[CB] Total API calls: ${stats.total}`);
+            };
+        }
+        window.__cbNetworkStats.total += 1;
+        window.__cbNetworkStats.byEndpoint[endpoint] = (window.__cbNetworkStats.byEndpoint[endpoint] || 0) + 1;
+        const debugNet = window.location.search.includes('debugNet=1') || localStorage.getItem('cb_debug_net') === '1';
+        if (debugNet) {
+            console.debug(`[CB][API #${window.__cbNetworkStats.total}] ${endpoint}`);
+        }
         const headers = { 'Content-Type': 'application/json' };
         // Inject RBAC Headers if logged in
         if (appState.isLoggedIn && appState.role && appState.userId) {
@@ -2528,261 +2559,666 @@ function submitEditStudentForm() {
 // --- ROLE & PERMISSION MANAGEMENT ---
 function loadRoles() {
     return __awaiter(this, void 0, void 0, function* () {
-        const listContainer = document.getElementById('rbac-roles-list');
-        if (!listContainer)
-            return;
-        listContainer.innerHTML = '<div class="text-center p-4"><div class="spinner-border text-primary" role="status"></div></div>';
+        const tableBody = document.getElementById('roles-table-body');
+        if (!tableBody) return;
+
+        // Show loading spinner row
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center py-5 text-muted">
+                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                    Loading roles...
+                </td>
+            </tr>`;
+
         try {
             const response = yield fetchAPI('/admin/roles');
             if (response.ok) {
                 const roles = yield response.json();
                 renderRolesList(roles);
+            } else {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center py-5 text-danger">
+                            <span class="material-icons fs-2 d-block mb-2">error_outline</span>
+                            Failed to load roles.
+                        </td>
+                    </tr>`;
             }
-            else {
-                listContainer.innerHTML = '<div class="text-center text-danger p-3">Failed to load roles.</div>';
-            }
-        }
-        catch (e) {
-            console.error(e);
-            listContainer.innerHTML = '<div class="text-center text-danger p-3">Network Error</div>';
+        } catch (e) {
+            console.error('loadRoles error:', e);
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="text-center py-5 text-danger">
+                        <span class="material-icons fs-2 d-block mb-2">wifi_off</span>
+                        Network error. Please try again.
+                    </td>
+                </tr>`;
         }
     });
 }
+
 function renderRolesList(roles) {
-    const listContainer = document.getElementById('rbac-roles-list');
-    listContainer.innerHTML = '';
+    const tableBody = document.getElementById('roles-table-body');
+    if (!tableBody) return;
+
+    if (!roles || roles.length === 0) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center py-5">
+                    <span class="material-icons text-muted" style="font-size:3rem;opacity:0.4;">manage_accounts</span>
+                    <p class="text-muted mt-2 mb-0">No roles found.</p>
+                </td>
+            </tr>`;
+        return;
+    }
+
+    const canEdit = hasPermission('edit_roles') || appState.isSuperAdmin || (appState.permissions || []).includes('*');
+    const canDelete = hasPermission('delete_roles') || appState.isSuperAdmin || (appState.permissions || []).includes('*');
+
+    // Also render the Create button if admin has add_roles
+    const createBtnContainer = document.getElementById('role-create-action');
+    if (createBtnContainer) {
+        if (hasPermission('add_roles') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
+            createBtnContainer.innerHTML = `
+                <button class="btn rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-2"
+                    style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:none;font-size:0.85rem;"
+                    onclick="openRoleModal()">
+                    <span class="material-icons" style="font-size:18px;">add</span>
+                    Create Role
+                </button>`;
+        } else {
+            createBtnContainer.innerHTML = '';
+        }
+    }
+
+    tableBody.innerHTML = '';
     roles.forEach(role => {
-        // Filter Root_Super_Admin logic
-        if (role.name === 'Super Admin' && !appState.isSuperAdmin)
-            return;
-        const a = document.createElement('a');
-        a.href = '#';
-        a.className = 'list-group-item list-group-item-action p-3 d-flex justify-content-between align-items-center role-item';
-        a.dataset.id = role.id; // Mark for active state
-        a.onclick = (e) => {
-            e.preventDefault();
-            // Highlight active
-            document.querySelectorAll('.role-item').forEach(el => el.classList.remove('active'));
-            a.classList.add('active');
-            loadRoleDetails(role.id);
-        };
-        a.innerHTML = `
-            <div>
-                <div class="fw-bold text-dark">${role.name}</div>
-                <small class="text-muted">${role.description || 'No description'}</small>
-            </div>
-            <span class="badge ${role.status === 'Active' ? 'bg-success' : 'bg-secondary'} rounded-pill">${role.status}</span>
+        const isSystem = role.is_system;
+        const statusColour = role.status === 'Active'
+            ? { bg: '#dcfce7', text: '#15803d' }
+            : { bg: '#f1f5f9', text: '#64748b' };
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="ps-4">
+                <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
+                    style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
+                    ${role.code || '—'}
+                </span>
+            </td>
+            <td>
+                <div class="fw-semibold" style="color:#1e1b4b;">${role.name}</div>
+                ${isSystem ? '<span class="badge ms-1" style="background:#fef3c7;color:#b45309;font-size:0.65rem;font-weight:600;">System</span>' : ''}
+            </td>
+            <td>
+                <span class="badge rounded-pill px-3 py-1"
+                    style="background:${statusColour.bg};color:${statusColour.text};font-size:0.72rem;font-weight:600;">
+                    ${role.status || 'Active'}
+                </span>
+            </td>
+            <td class="small text-secondary" style="max-width:300px;">
+                ${role.description || '<em class="text-muted fst-italic" style="opacity:.5;">No description</em>'}
+            </td>
+            <td class="text-end pe-4">
+                <div class="d-flex align-items-center justify-content-end gap-1">
+                    ${canEdit ? `
+                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                        style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isSystem ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                        title="${isSystem ? 'System roles cannot be modified' : 'Edit role'}"
+                        ${isSystem ? 'disabled' : `onmouseover="this.style.background='rgba(79,70,229,0.18)'" onmouseout="this.style.background='rgba(79,70,229,0.09)'" onclick="openRoleModal(${role.id})"`}>
+                        <span class="material-icons" style="font-size:14px;">edit</span>
+                        Edit
+                    </button>` : ''}
+                    ${canDelete ? `
+                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                        style="background:rgba(220,38,38,0.07);color:#dc2626;border:1px solid rgba(220,38,38,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isSystem ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                        title="${isSystem ? 'System roles cannot be deleted' : 'Delete role'}"
+                        ${isSystem ? 'disabled' : `onmouseover="this.style.background='rgba(220,38,38,0.16)'" onmouseout="this.style.background='rgba(220,38,38,0.07)'" onclick="deleteRole(${role.id}, '${(role.name || '').replace(/'/g, "\\'")}')"`}>
+                        <span class="material-icons" style="font-size:14px;">delete</span>
+                        Delete
+                    </button>` : ''}
+                    ${(!canEdit && !canDelete) ? `
+                    <span class="text-muted small fst-italic" style="font-size:0.72rem;opacity:0.5;">—</span>` : ''}
+                </div>
+            </td>
         `;
-        listContainer.appendChild(a);
+        tableBody.appendChild(tr);
     });
 }
+
 function loadRoleDetails(roleId) {
     return __awaiter(this, void 0, void 0, function* () {
-        const titleEl = document.getElementById('rbac-role-detail-title');
-        const bodyEl = document.getElementById('rbac-role-detail-body');
-        titleEl.textContent = 'Loading...';
-        bodyEl.innerHTML = '<div class="text-center p-5"><div class="spinner-border text-secondary"></div></div>';
         try {
             const response = yield fetchAPI(`/admin/roles/${roleId}`);
             if (response.ok) {
                 const role = yield response.json();
-                titleEl.textContent = role.name;
-                // Generate Permissions Badges/List
-                let permsHtml = '';
-                if (role.permissions && role.permissions.length > 0) {
-                    // Group by prefix if possible? Or just list.
-                    permsHtml = '<div class="d-flex flex-wrap gap-2 mb-4">';
-                    role.permissions.forEach(p => {
-                        permsHtml += `<span class="badge bg-light text-dark border" title="${p.description}">${p.code}</span>`;
-                    });
-                    permsHtml += '</div>';
-                }
-                else {
-                    permsHtml = '<p class="text-muted fst-italic">No permissions assigned.</p>';
-                }
-                // Edit Actions
-                let actionsHtml = '';
-                if (hasPermission('role_management') && !role.is_system) {
-                    actionsHtml = `
-                    <div class="border-top pt-3 mt-4 d-flex gap-2">
-                        <button class="btn btn-primary-custom px-4 rounded-pill" onclick="openRoleModal(${role.id})">
-                            <span class="material-icons align-middle small me-1">edit</span> Edit Role
-                        </button>
-                        <button class="btn btn-outline-danger px-4 rounded-pill" onclick="deleteRole(${role.id}, '${role.name}')">
-                            <span class="material-icons align-middle small me-1">delete</span> Delete
-                        </button>
-                    </div>
-                `;
-                }
-                else if (role.is_system) {
-                    actionsHtml = `<div class="alert alert-warning small mt-4"><span class="material-icons align-middle small me-1">lock</span> System roles cannot be modified.</div>`;
-                }
-                bodyEl.innerHTML = `
-                <h6 class="fw-bold text-uppercase text-muted small mb-3">Role Details</h6>
-                <div class="mb-3">
-                    <span class="fw-bold">Status:</span> 
-                    <span class="badge ${role.status === 'Active' ? 'bg-success' : 'bg-secondary'} ms-2">${role.status}</span>
-                </div>
-                <div class="mb-4">
-                    <span class="fw-bold">Description:</span>
-                    <p class="text-muted">${role.description}</p>
-                </div>
-                
-                <h6 class="fw-bold text-uppercase text-muted small mb-3">Permissions (${role.permissions.length})</h6>
-                ${permsHtml}
-
-                ${actionsHtml}
-            `;
+                openRoleModal(role.id);
             }
-            else {
-                bodyEl.innerHTML = '<p class="text-danger">Failed to load details.</p>';
-            }
-        }
-        catch (e) {
-            bodyEl.innerHTML = '<p class="text-danger">Network Error</p>';
+        } catch (e) {
+            console.error('loadRoleDetails error:', e);
         }
     });
 }
+
 function openRoleModal(roleId = null) {
-    const modalTitle = document.getElementById('role-form-title');
-    const form = document.getElementById('role-form');
-    // Clear Form
-    form.reset();
-    document.getElementById('role-id').value = '';
-    document.getElementById('role-perms-container').innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading permissions...';
-    if (roleId) {
-        modalTitle.textContent = 'Edit Role';
-        document.getElementById('role-id').value = roleId;
-        // Fetch details
-        fetchAPI(`/admin/roles/${roleId}`).then(res => res.json()).then(data => {
-            document.getElementById('role-name').value = data.name;
-            document.getElementById('role-desc').value = data.description;
-            // Status radio
-            if (document.querySelector(`input[name="roleStatus"][value="${data.status}"]`)) {
-                document.querySelector(`input[name="roleStatus"][value="${data.status}"]`).checked = true;
+    return __awaiter(this, void 0, void 0, function* () {
+        const modalTitle = document.getElementById('role-form-title');
+        const form = document.getElementById('role-form');
+        if (!form) return;
+
+        form.reset();
+        document.getElementById('role-id').value = '';
+
+        // Clear permission search box
+        const searchEl = document.getElementById('perm-search-role');
+        if (searchEl) searchEl.value = '';
+
+        // Reset selected-perms tag area immediately
+        document.querySelectorAll('.perm-tag').forEach(t => t.remove());
+        const hint = document.getElementById('no-perms-hint');
+        if (hint) hint.style.display = '';
+        const countEl = document.getElementById('selected-perms-count');
+        if (countEl) countEl.textContent = '0 selected';
+
+        // Show auto-generated code placeholder
+        const codeEl = document.getElementById('role-display-code');
+        if (codeEl) codeEl.textContent = roleId ? 'Loading...' : 'Auto-generated on save';
+
+        const permsContainer = document.getElementById('role-perms-container');
+        if (permsContainer) {
+            permsContainer.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> <span class="text-muted small ms-2">Loading permissions...</span></div>';
+        }
+
+        if (roleId) {
+            if (modalTitle) modalTitle.textContent = 'Edit Role';
+            document.getElementById('role-id').value = roleId;
+            try {
+                const res = yield fetchAPI(`/admin/roles/${roleId}`);
+                if (res.ok) {
+                    const data = yield res.json();
+                    document.getElementById('role-name').value = data.name || '';
+                    document.getElementById('role-desc').value = data.description || '';
+                    if (codeEl) codeEl.textContent = data.code || `R-${String(roleId).padStart(3, '0')}`;
+                    const statusRadio = document.querySelector(`input[name="roleStatus"][value="${data.status}"]`);
+                    if (statusRadio) statusRadio.checked = true;
+                    yield loadPermissionsForModal(data.permissions.map(p => p.code));
+                }
+            } catch (e) {
+                console.error('openRoleModal fetch error:', e);
             }
-            loadPermissionsForModal(data.permissions.map(p => p.code));
-        });
-    }
-    else {
-        modalTitle.textContent = 'Create Role';
-        loadPermissionsForModal([]);
-    }
-    switchView('role-form-view');
+        } else {
+            if (modalTitle) modalTitle.textContent = 'Create Role';
+            yield loadPermissionsForModal([]);
+        }
+
+        switchView('role-form-view');
+    });
 }
+
+// Stores all permissions data for searching
+let _allRolePermissions = {};
+
 function loadPermissionsForModal() {
     return __awaiter(this, arguments, void 0, function* (selectedCodes = []) {
         const container = document.getElementById('role-perms-container');
+        if (!container) return;
+
+        // Reset selected tags area
+        _updateSelectedPermsTags(selectedCodes);
+
         try {
             const response = yield fetchAPI('/admin/permissions');
             const groupedPerms = yield response.json();
-            container.innerHTML = '';
-            for (const [group, perms] of Object.entries(groupedPerms)) {
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'mb-3';
-                groupDiv.innerHTML = `<h6 class="fw-bold small text-uppercase text-muted border-bottom pb-1 mb-2">${group}</h6>`;
-                const row = document.createElement('div');
-                row.className = 'row g-2';
-                perms.forEach(p => {
-                    const isChecked = selectedCodes.includes(p.code);
-                    const col = document.createElement('div');
-                    col.className = 'col-md-6';
-                    col.innerHTML = `
-                    <div class="form-check">
-                        <input class="form-check-input perm-check" type="checkbox" value="${p.code}" id="perm-${p.id}" ${isChecked ? 'checked' : ''}>
-                        <label class="form-check-label small" for="perm-${p.id}" title="${p.description}">
-                            ${p.description} <span class="text-muted" style="font-size: 10px;">(${p.code})</span>
-                        </label>
-                    </div>
-                `;
-                    row.appendChild(col);
-                });
-                groupDiv.appendChild(row);
-                container.appendChild(groupDiv);
-            }
-        }
-        catch (e) {
-            container.textContent = "Error loading permissions.";
+            _allRolePermissions = groupedPerms;   // cache for search filtering
+
+            _renderPermissionsCheckboxes(groupedPerms, selectedCodes);
+        } catch (e) {
+            console.error('loadPermissionsForModal error:', e);
+            if (container) container.innerHTML = '<p class="text-danger small">Error loading permissions.</p>';
         }
     });
 }
+
+function _renderPermissionsCheckboxes(groupedPerms, selectedCodes) {
+    const container = document.getElementById('role-perms-container');
+    if (!container) return;
+
+    // Get current selected from tags (may have changed since initial load)
+    const currentSelected = _getSelectedPermCodes();
+    const checkedSet = new Set(currentSelected.length ? currentSelected : (selectedCodes || []));
+
+    container.innerHTML = '';
+    let totalVisible = 0;
+
+    for (const [group, perms] of Object.entries(groupedPerms)) {
+        if (!perms || perms.length === 0) continue;
+        totalVisible += perms.length;
+
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'mb-4 perm-group-block';
+        groupDiv.innerHTML = `
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="fw-bold text-uppercase" style="font-size:0.67rem;letter-spacing:0.07em;color:#6366f1;">${group}</span>
+                <div class="flex-grow-1" style="height:1px;background:#e0e7ff;"></div>
+            </div>`;
+
+        const row = document.createElement('div');
+        row.className = 'row g-2';
+
+        perms.forEach(p => {
+            const isChecked = checkedSet.has(p.code);
+            const col = document.createElement('div');
+            col.className = 'col-md-6 perm-item';
+            col.dataset.code = p.code;
+            col.dataset.desc = (p.description || '').toLowerCase();
+            col.innerHTML = `
+                <div class="form-check d-flex align-items-start gap-2 p-2 rounded-2 perm-check-row"
+                    style="cursor:pointer;transition:background .15s;"
+                    onmouseover="this.style.background='#f5f3ff'"
+                    onmouseout="this.style.background='transparent'">
+                    <input class="form-check-input perm-check mt-1 flex-shrink-0"
+                        type="checkbox" value="${p.code}" id="rperm-${p.id}"
+                        ${isChecked ? 'checked' : ''}
+                        style="cursor:pointer;width:15px;height:15px;"
+                        onchange="_onPermCheckChange(this, '${p.description ? p.description.replace(/'/g, "\\'") : p.code}')">
+                    <label class="form-check-label" for="rperm-${p.id}" style="cursor:pointer;line-height:1.3;user-select:none;">
+                        <span class="d-block fw-semibold" style="color:#1e1b4b;font-size:0.78rem;">${p.description || p.code}</span>
+                        <span class="font-monospace" style="font-size:0.65rem;color:#8b5cf6;">${p.code}</span>
+                    </label>
+                </div>`;
+            row.appendChild(col);
+        });
+
+        groupDiv.appendChild(row);
+        container.appendChild(groupDiv);
+    }
+
+    if (totalVisible === 0) {
+        container.innerHTML = '<p class="text-muted small text-center py-3">No permissions match your search.</p>';
+    }
+}
+
+function _onPermCheckChange(checkbox, label) {
+    const code = checkbox.value;
+    const isChecked = checkbox.checked;
+    const selectedList = document.getElementById('selected-perms-list');
+    const hint = document.getElementById('no-perms-hint');
+    const countEl = document.getElementById('selected-perms-count');
+
+    if (isChecked) {
+        // Add tag
+        if (hint) hint.style.display = 'none';
+        const tag = document.createElement('span');
+        tag.className = 'd-inline-flex align-items-center gap-1 rounded-pill px-2 py-1 perm-tag';
+        tag.dataset.code = code;
+        tag.style.cssText = 'background:#e0e7ff;color:#4338ca;font-size:0.72rem;font-weight:600;border:1px solid #c7d2fe;cursor:default;';
+        tag.innerHTML = `
+            <span class="font-monospace" style="font-size:0.68rem;">${code}</span>
+            <button type="button" onclick="_removePermTag('${code}')" aria-label="Remove"
+                style="background:none;border:none;padding:0;line-height:1;color:#6366f1;cursor:pointer;"
+                title="Remove">&times;</button>`;
+        if (selectedList) selectedList.appendChild(tag);
+    } else {
+        // Remove tag
+        _removePermTag(code);
+    }
+
+    // Update count
+    _updatePermCount();
+}
+
+function _removePermTag(code) {
+    // Remove tag from selected list
+    const tag = document.querySelector(`.perm-tag[data-code="${code}"]`);
+    if (tag) tag.remove();
+
+    // Uncheck checkbox in picker
+    const cb = document.querySelector(`.perm-check[value="${code}"]`);
+    if (cb) cb.checked = false;
+
+    // Show hint if no tags left
+    const tags = document.querySelectorAll('.perm-tag');
+    const hint = document.getElementById('no-perms-hint');
+    if (hint) hint.style.display = tags.length === 0 ? '' : 'none';
+
+    _updatePermCount();
+}
+
+function _updatePermCount() {
+    const count = document.querySelectorAll('.perm-tag').length;
+    const el = document.getElementById('selected-perms-count');
+    if (el) el.textContent = `${count} selected`;
+}
+
+function _getSelectedPermCodes() {
+    return Array.from(document.querySelectorAll('.perm-tag')).map(t => t.dataset.code);
+}
+
+function _updateSelectedPermsTags(selectedCodes) {
+    const selectedList = document.getElementById('selected-perms-list');
+    const hint = document.getElementById('no-perms-hint');
+    if (!selectedList) return;
+
+    // Clear all existing tags
+    document.querySelectorAll('.perm-tag').forEach(t => t.remove());
+
+    if (!selectedCodes || selectedCodes.length === 0) {
+        if (hint) hint.style.display = '';
+    } else {
+        if (hint) hint.style.display = 'none';
+        selectedCodes.forEach(code => {
+            const tag = document.createElement('span');
+            tag.className = 'd-inline-flex align-items-center gap-1 rounded-pill px-2 py-1 perm-tag';
+            tag.dataset.code = code;
+            tag.style.cssText = 'background:#e0e7ff;color:#4338ca;font-size:0.72rem;font-weight:600;border:1px solid #c7d2fe;cursor:default;';
+            tag.innerHTML = `
+                <span class="font-monospace" style="font-size:0.68rem;">${code}</span>
+                <button type="button" onclick="_removePermTag('${code}')" aria-label="Remove"
+                    style="background:none;border:none;padding:0;line-height:1;color:#6366f1;cursor:pointer;"
+                    title="Remove">&times;</button>`;
+            selectedList.appendChild(tag);
+        });
+    }
+    _updatePermCount();
+}
+
+function filterRolePermissions(query) {
+    const q = (query || '').toLowerCase().trim();
+    if (!q) {
+        // Show all groups
+        document.querySelectorAll('.perm-group-block').forEach(g => g.style.display = '');
+        document.querySelectorAll('.perm-item').forEach(i => i.style.display = '');
+        return;
+    }
+    document.querySelectorAll('.perm-group-block').forEach(group => {
+        let anyVisible = false;
+        group.querySelectorAll('.perm-item').forEach(item => {
+            const code = (item.dataset.code || '').toLowerCase();
+            const desc = (item.dataset.desc || '').toLowerCase();
+            const match = code.includes(q) || desc.includes(q);
+            item.style.display = match ? '' : 'none';
+            if (match) anyVisible = true;
+        });
+        group.style.display = anyVisible ? '' : 'none';
+    });
+}
+
 function handleSaveRole() {
     return __awaiter(this, void 0, void 0, function* () {
         const roleId = document.getElementById('role-id').value;
-        const name = document.getElementById('role-name').value;
-        const desc = document.getElementById('role-desc').value;
-        const status = document.querySelector('input[name="roleStatus"]:checked').value;
-        // Get checked perms
-        const selectedPerms = Array.from(document.querySelectorAll('.perm-check:checked')).map(el => el.value);
+        const name = (document.getElementById('role-name').value || '').trim();
+        const desc = (document.getElementById('role-desc').value || '').trim();
+        const statusEl = document.querySelector('input[name="roleStatus"]:checked');
+        const status = statusEl ? statusEl.value : 'Active';
+        if (!name) { alert('Role Title is required.'); return; }
+
+        // Collect permissions from the tag list (PRD: selected shown as list)
+        const selectedPerms = _getSelectedPermCodes();
         const endpoint = roleId ? `/admin/roles/${roleId}` : '/admin/roles';
         const method = roleId ? 'PUT' : 'POST';
+
+        // Show loading state on Save button
+        const saveBtn = document.querySelector('[onclick="handleSaveRole()"]');
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:16px;">hourglass_empty</span> Saving...'; }
+
         try {
             const response = yield fetchAPI(endpoint, {
-                method: method,
-                body: JSON.stringify({
-                    name: name,
-                    description: desc,
-                    status: status,
-                    permissions: selectedPerms
-                })
+                method,
+                body: JSON.stringify({ name, description: desc, status, permissions: selectedPerms })
             });
             if (response.ok) {
-                switchView('role-management-view');
+                // Go back to role listing
+                switchView('roles-view');
                 loadRoles();
+
+                // Show success toast
+                const toast = document.createElement('div');
+                toast.className = 'position-fixed bottom-0 end-0 m-4 p-3 rounded-3 text-white fw-semibold shadow-lg';
+                toast.style.cssText = 'background:linear-gradient(135deg,#4f46e5,#7c3aed);z-index:9999;font-size:0.85rem;min-width:260px;';
+                toast.innerHTML = `<span class="material-icons align-middle me-2" style="font-size:16px;">check_circle</span>Role ${roleId ? 'updated' : 'created'} successfully!`;
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+            } else {
+                const err = yield response.json().catch(() => ({}));
+                alert(err.detail || 'Failed to save role.');
             }
-            else {
-                alert("Failed to save role.");
+        } catch (e) {
+            alert('Network error. Please try again.');
+        } finally {
+            // Restore Save button
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:16px;">save</span> Save Role';
             }
-        }
-        catch (e) {
-            alert("Network error.");
         }
     });
 }
+
 function deleteRole(id, name) {
     return __awaiter(this, void 0, void 0, function* () {
-        if (!confirm(`Are you sure you want to delete role: ${name}?`))
+        if (!confirm(`Are you sure you want to delete the role "${name}"?
+
+This cannot be undone.`))
             return;
         try {
             const response = yield fetchAPI(`/admin/roles/${id}`, { method: 'DELETE' });
             if (response.ok) {
+                // Remove row with fade
+                const rows = document.querySelectorAll('#roles-table-body tr');
+                rows.forEach(row => { if (row.innerHTML.includes(`deleteRole(${id},`)) row.remove(); });
                 loadRoles();
+            } else {
+                const d = yield response.json().catch(() => ({}));
+                alert(d.detail || 'Failed to delete role.');
             }
-            else {
-                const d = yield response.json();
-                alert(d.detail || "Failed to delete.");
-            }
-        }
-        catch (e) {
-            alert("Network error.");
+        } catch (e) {
+            alert('Network error.');
         }
     });
 }
+
+
 // --- PERMISSION MANAGEMENT ---
+
+// Cache for permissions data (used by filter)
+let _cachedPermissions = [];
+
+/**
+ * Loads the permissions listing into the dedicated permissions-view.
+ * Called when the sidebar "Permission Setup" item is clicked or Refresh is pressed.
+ */
+function loadPermissionsSetup() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const tableBody = document.getElementById('permissions-setup-body');
+        if (!tableBody) return;
+
+        // Show table loading spinner
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center py-5 text-muted">
+                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                    Loading permissions...
+                </td>
+            </tr>`;
+
+        // Reset summary cards to loading state
+        ['perm-stat-total', 'perm-stat-groups', 'perm-stat-desc'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<div class="spinner-border spinner-border-sm" style="opacity:.6;width:18px;height:18px;border-width:2px;"></div>';
+        });
+
+        // Clear search input
+        const searchInput = document.getElementById('perm-search-input');
+        if (searchInput) searchInput.value = '';
+
+        try {
+            // Fetch summary + permissions list in parallel
+            const [summaryRes, listRes] = yield Promise.all([
+                fetchAPI('/admin/permissions/summary'),
+                fetchAPI('/admin/permissions/list')
+            ]);
+
+            // --- Populate summary cards ---
+            if (summaryRes.ok) {
+                const summary = yield summaryRes.json();
+                const totalEl = document.getElementById('perm-stat-total');
+                const groupsEl = document.getElementById('perm-stat-groups');
+                const descEl = document.getElementById('perm-stat-desc');
+
+                if (totalEl) totalEl.textContent = summary.total_permissions ?? '—';
+                if (groupsEl) groupsEl.textContent = summary.total_groups ?? '—';
+                if (descEl) descEl.textContent = summary.with_description ?? '—';
+            }
+
+            // --- Populate table ---
+            if (listRes.ok) {
+                const perms = yield listRes.json();
+                _cachedPermissions = perms;
+                renderPermissionsSetupTable(perms);
+            } else {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center py-5 text-danger">
+                            <span class="material-icons fs-2 d-block mb-2">error_outline</span>
+                            Failed to load permissions.
+                        </td>
+                    </tr>`;
+            }
+        } catch (e) {
+            console.error('loadPermissionsSetup error:', e);
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="text-center py-5 text-danger">
+                        <span class="material-icons fs-2 d-block mb-2">wifi_off</span>
+                        Network error. Please try again.
+                    </td>
+                </tr>`;
+        }
+    });
+}
+function renderPermissionsSetupTable(perms) {
+    const tableBody = document.getElementById('permissions-setup-body');
+    if (!tableBody) return;
+    if (!perms || perms.length === 0) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center py-5">
+                    <span class="material-icons text-muted" style="font-size:3rem;opacity:0.4;">vpn_key</span>
+                    <p class="text-muted mt-2 mb-0">No permissions found.</p>
+                </td>
+            </tr>`;
+        return;
+    }
+    // Allow edit if super admin, wildcard, or any admin-level role
+    const canEdit = appState.isSuperAdmin
+        || (appState.permissions || []).includes('*')
+        || hasPermission('edit_permissions')
+        || hasPermission('permission_management')
+        || appState.role === 'Root_Super_Admin';
+
+    // Group badge colour mapping
+    const groupColours = {
+        'User Management': { bg: '#dbeafe', text: '#1d4ed8' },
+        'Role Management': { bg: '#ede9fe', text: '#7c3aed' },
+        'Permission Management': { bg: '#fee2e2', text: '#dc2626' },
+        'System': { bg: '#f1f5f9', text: '#374151' },
+        'Academics': { bg: '#d1fae5', text: '#059669' },
+        'Analytics': { bg: '#cffafe', text: '#0891b2' },
+        'Finance': { bg: '#fef3c7', text: '#b45309' },
+        'Communication': { bg: '#fce7f3', text: '#be185d' },
+        'Compliance': { bg: '#ffe4e6', text: '#9f1239' },
+        'HR': { bg: '#ecfccb', text: '#65a30d' },
+        'Student Info': { bg: '#e0f2fe', text: '#0369a1' },
+        'General': { bg: '#f3f4f6', text: '#6b7280' }
+    };
+
+    tableBody.innerHTML = '';
+    perms.forEach(p => {
+        const gc = groupColours[p.group_name] || groupColours['General'];
+        const safeCode = (p.code || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const safeDesc = (p.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="ps-4">
+                <span class="badge bg-light text-dark border font-monospace fw-bold px-2 py-1"
+                    style="letter-spacing:0.5px;font-size:0.72rem;">
+                    ${p.display_code || 'P-????'}
+                </span>
+            </td>
+            <td class="small font-monospace fw-semibold" style="color:#3730a3;word-break:break-all;">
+                ${p.code || '-'}
+            </td>
+            <td class="small text-secondary" style="max-width:340px;">
+                ${p.description || '<em class="text-muted fst-italic" style="opacity:.6;">No description set</em>'}
+            </td>
+            <td>
+                <span class="badge rounded-pill px-2 py-1"
+                    style="background:${gc.bg};color:${gc.text};font-size:0.68rem;font-weight:600;border:1px solid ${gc.text}22;">
+                    ${p.group_name || 'General'}
+                </span>
+            </td>
+            <td class="text-center">
+                ${canEdit ? `
+                <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-3 py-1"
+                        style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;"
+                        title="Edit description"
+                        onmouseover="this.style.background='rgba(79,70,229,0.18)';this.style.transform='translateY(-1px)'"
+                        onmouseout="this.style.background='rgba(79,70,229,0.09)';this.style.transform=''"
+                        onclick="openPermissionEditModal(${p.id}, '${safeCode}', '${safeDesc}')">
+                    <span class="material-icons" style="font-size:14px;">edit</span>
+                    Edit
+                </button>` : `
+                <span class="material-icons" style="font-size:16px;opacity:0.3;color:#9ca3af;" title="View only">lock</span>`}
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+}
+/**
+ * Live-filter the permissions table by code or title (client-side).
+ */
+function filterPermissionsTable(query) {
+    const q = (query || '').toLowerCase().trim();
+    if (!q) {
+        renderPermissionsSetupTable(_cachedPermissions);
+        return;
+    }
+    const filtered = _cachedPermissions.filter(p =>
+        (p.code || '').toLowerCase().includes(q) ||
+        (p.display_code || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q) ||
+        (p.group_name || '').toLowerCase().includes(q)
+    );
+    renderPermissionsSetupTable(filtered);
+}
+
+/** Legacy: used by the Permissions tab inside the roles-view */
 function loadPermissionsList() {
     return __awaiter(this, void 0, void 0, function* () {
         const tableBody = document.getElementById('perms-table-body');
-        if (!tableBody)
-            return;
+        if (!tableBody) return;
         tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
         try {
             const response = yield fetchAPI('/admin/permissions/list');
             if (response.ok) {
                 const perms = yield response.json();
                 renderPermissionsTable(perms);
-            }
-            else {
+            } else {
                 tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load permissions.</td></tr>';
             }
-        }
-        catch (e) {
+        } catch (e) {
             console.error(e);
             tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Network Error</td></tr>';
         }
     });
 }
+
+/** Legacy: renders into the old perms-table-body (inside roles-view tab) */
 function renderPermissionsTable(perms) {
     const tableBody = document.getElementById('perms-table-body');
+    if (!tableBody) return;
     tableBody.innerHTML = '';
     perms.forEach(p => {
         const tr = document.createElement('tr');
@@ -2791,41 +3227,83 @@ function renderPermissionsTable(perms) {
             <td class="fw-medium font-monospace text-primary small">${p.code}</td>
             <td class="small text-muted">${p.description}</td>
             <td>
-                ${(hasPermission('permission_management')) ?
-                `<button class="btn btn-sm btn-link text-primary p-0" onclick="openPermissionEditModal(${p.id}, '${p.code}', '${p.description.replace(/'/g, "\\'")}')">
-                        <span class="material-icons" style="font-size: 18px;">edit</span>
-                    </button>` : ''}
+                ${hasPermission('edit_permissions')
+                ? `<button class="btn btn-sm btn-link text-primary p-0"
+                        onclick="openPermissionEditModal(${p.id}, '${p.code.replace(/'/g, "\\'")}',' ${p.description.replace(/'/g, "\\'")}}')">
+                        <span class="material-icons" style="font-size:18px;">edit</span>
+                     </button>` : ''}
             </td>
         `;
         tableBody.appendChild(tr);
     });
 }
+
 function openPermissionEditModal(id, code, desc) {
+    const displayCode = `P-${String(id).padStart(4, '0')}`;
+
+    // Populate hidden inputs (backward compat)
     document.getElementById('perm-edit-id').value = id;
-    document.getElementById('perm-edit-code').value = `P-${String(id).padStart(4, '0')}`;
+    document.getElementById('perm-edit-code').value = displayCode;
     document.getElementById('perm-edit-title').value = code;
+
+    // Update visible display elements in the Bootstrap modal
+    const codeBadge = document.getElementById('perm-edit-code-badge');
+    const titleDisplay = document.getElementById('perm-edit-title-display');
+    if (codeBadge) codeBadge.textContent = displayCode;
+    if (titleDisplay) titleDisplay.textContent = code || '—';
+
+    // Pre-fill editable description field
     document.getElementById('perm-edit-desc').value = desc;
-    openView('permEditModal');
+
+    // Open as a real Bootstrap modal popup
+    const modalEl = document.getElementById('permEditModal');
+    if (modalEl) {
+        // Remove view class if accidentally set (since we rebuilt this as a proper modal)
+        modalEl.classList.remove('view');
+        const modal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
+        modal.show();
+    }
 }
 function handleUpdatePermission() {
     return __awaiter(this, void 0, void 0, function* () {
         const id = document.getElementById('perm-edit-id').value;
-        const desc = document.getElementById('perm-edit-desc').value;
+        const desc = document.getElementById('perm-edit-desc').value.trim();
+        if (!desc) { alert('Description cannot be empty.'); return; }
+
+        const btn = document.getElementById('perm-update-btn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:15px;">hourglass_empty</span> Saving...'; }
+
         try {
             const response = yield fetchAPI(`/admin/permissions/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify({ description: desc })
             });
             if (response.ok) {
-                closeView();
-                loadPermissionsList();
+                // Close Bootstrap modal
+                const modalEl = document.getElementById('permEditModal');
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+
+                // Show brief success toast-style feedback
+                const toastMsg = document.createElement('div');
+                toastMsg.className = 'position-fixed bottom-0 end-0 m-4 p-3 rounded-3 text-white fw-semibold shadow-lg';
+                toastMsg.style.cssText = 'background:linear-gradient(135deg,#4f46e5,#7c3aed);z-index:9999;font-size:0.85rem;min-width:250px;animation:fadeIn .3s ease;';
+                toastMsg.innerHTML = '<span class="material-icons align-middle me-2" style="font-size:16px;">check_circle</span>Permission updated successfully!';
+                document.body.appendChild(toastMsg);
+                setTimeout(() => toastMsg.remove(), 3000);
+
+                // Refresh the permissions-view table
+                loadPermissionsSetup();
+                // Also refresh legacy tab if visible
+                if (document.getElementById('perms-table-body')) loadPermissionsList();
+            } else {
+                const err = yield response.json().catch(() => ({}));
+                alert(err.detail || 'Failed to update permission.');
             }
-            else {
-                alert("Failed to update permission.");
-            }
-        }
-        catch (e) {
-            alert("Network error.");
+        } catch (e) {
+            alert('Network error. Please try again.');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:15px;">save</span> Update Description'; }
         }
     });
 }
@@ -2866,115 +3344,29 @@ function switchView(viewId, updateHistory = true) {
         body.classList.remove('login-mode');
     }
     updateGlobalLanguageControlVisibility(viewId);
+    syncSuperAdminNavigationUI(viewId);
 
-    // View Specific Loaders
-    if (viewId === 'test-results-view') {
-        if (typeof loadTeacherQuizzes === 'function') loadTeacherQuizzes();
+    // ── Universal View Loader Dispatcher ─────────────────────────────────────
+    // Parent role redirect: upcoming-exams → parent-exam-schedule
+    if (viewId === 'upcoming-exams-view' && isParentRole(appState.role)) {
+        switchView('parent-exam-schedule-view', updateHistory);
+        return;
     }
-    if (viewId === 'test-question-bank-view') {
-        if (typeof loadQuestionBanks === 'function') loadQuestionBanks();
-    }
-    if (viewId === 'test-create-view') {
-        if (typeof loadTestCreateView === 'function') loadTestCreateView();
-    }
-    if (viewId === 'upcoming-exams-view') {
-        if (isParentRole(appState.role)) {
-            switchView('parent-exam-schedule-view', updateHistory);
+    const loaderDef = VIEW_LOADERS[viewId];
+    if (loaderDef && appState.isLoggedIn) {
+        // 1. Permission guard — block if user's role is not in the allowed list
+        const allowed = loaderDef.roles.length === 0
+            || loaderDef.roles.includes(appState.role)
+            || appState.isSuperAdmin;
+        if (!allowed) {
+            console.warn(`[CB] Role '${appState.role}' not permitted for view '${viewId}'`);
             return;
         }
-        if (typeof loadStudentExams === 'function') loadStudentExams();
-    }
-    if (viewId === 'student-exams-view') {
-        if (typeof loadStudentAssignmentsExamSchedules === 'function')
-            loadStudentAssignmentsExamSchedules();
-        if (typeof loadStudentAssignmentsAndResults === 'function')
-            loadStudentAssignmentsAndResults();
-        const examsTabBtn = document.getElementById('exams-tab-btn');
-        if (examsTabBtn && !examsTabBtn.dataset.boundLoad) {
-            examsTabBtn.dataset.boundLoad = '1';
-            examsTabBtn.addEventListener('shown.bs.tab', () => {
-                if (typeof loadStudentAssignmentsExamSchedules === 'function')
-                    loadStudentAssignmentsExamSchedules();
-            });
+        // 2. Cache guard — fire loader only on first visit (or alwaysReload views)
+        if (!window._cbViewLoaded[viewId] || loaderDef.alwaysReload) {
+            window._cbViewLoaded[viewId] = true;
+            try { loaderDef.loader(); } catch (e) { console.error(`[CB] Loader error for ${viewId}:`, e); }
         }
-    }
-    if (viewId === 'timetable-view') {
-        if (typeof loadTimetable === 'function') loadTimetable();
-    }
-    if (viewId === 'parent-timetable-view') {
-        if (typeof loadTimetable === 'function') loadTimetable();
-    }
-    if (viewId === 'parent-attendance-view' && (appState.role === 'Student' || isParentRole(appState.role))) {
-        if (typeof loadStudentAttendanceView === 'function') loadStudentAttendanceView();
-    }
-    if (viewId === 'parent-fees-view') {
-        if (typeof loadParentFeesView === 'function') loadParentFeesView();
-    }
-    if (viewId === 'parent-leave-apply-view') {
-        if (typeof initParentLeaveApplyView === 'function') initParentLeaveApplyView();
-    }
-    if (viewId === 'parent-leave-status-view') {
-        if (typeof loadParentLeaveStatusView === 'function') loadParentLeaveStatusView();
-    }
-    if (viewId === 'attendance-sheet-view') {
-        if (typeof initAttendanceSheetView === 'function') initAttendanceSheetView();
-    }
-    if (viewId === 'progress-enter-view') {
-        if (typeof initProgressEnterView === 'function') initProgressEnterView();
-    }
-    if (viewId === 'progress-publish-view') {
-        if (typeof initProgressPublishView === 'function') initProgressPublishView();
-    }
-    if (viewId === 'email-inbox-view') {
-        if (typeof loadEmailInbox === 'function') loadEmailInbox();
-    }
-    if (viewId === 'email-sent-view') {
-        if (typeof loadEmailSent === 'function') loadEmailSent();
-    }
-    if (viewId === 'email-compose-view') {
-        if (typeof initEmailCompose === 'function') initEmailCompose();
-    }
-    if (viewId === 'parent-email-inbox-view') {
-        if (typeof loadParentEmailInbox === 'function') loadParentEmailInbox();
-    }
-    if (viewId === 'parent-email-sent-view') {
-        if (typeof loadParentEmailSent === 'function') loadParentEmailSent();
-    }
-    if (viewId === 'parent-email-compose-view') {
-        if (typeof initParentEmailCompose === 'function') initParentEmailCompose();
-    }
-    if (viewId === 'student-notifications-view') {
-        if (typeof loadStudentNotifications === 'function') loadStudentNotifications();
-    }
-    if (viewId === 'parent-notifications-view') {
-        if (typeof loadParentNotifications === 'function') loadParentNotifications();
-    }
-    if (viewId === 'progress-report-view') {
-        if (typeof loadProgressReportView === 'function') loadProgressReportView();
-    }
-    if (viewId === 'parent-progress-card-view') {
-        if (appState.role === 'Student') {
-            if (typeof loadStudentProgressCardView === 'function') loadStudentProgressCardView();
-        }
-        else if (typeof loadParentProgressCardView === 'function') {
-            loadParentProgressCardView();
-        }
-    }
-    if (viewId === 'parent-exam-schedule-view') {
-        if (typeof loadParentExamScheduleView === 'function') loadParentExamScheduleView();
-    }
-    if (viewId === 'assignment-view-view') {
-        if (typeof loadAssignments === 'function') loadAssignments();
-    }
-    if (viewId === 'assignment-review-view') {
-        if (typeof loadAssignmentReviewQueue === 'function') loadAssignmentReviewQueue();
-    }
-    if (viewId === 'assignment-marks-view') {
-        if (typeof loadAssignmentMarksView === 'function') loadAssignmentMarksView();
-    }
-    if (viewId === 'resources-view') {
-        if (typeof initResourcesView === 'function')
-            initResourcesView();
     }
 
     // Update Browser History
@@ -2989,12 +3381,16 @@ function switchView(viewId, updateHistory = true) {
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.viewId) {
         switchView(event.state.viewId, false);
+        if (typeof handleHashRouting === 'function')
+            handleHashRouting();
     }
     else {
         // Fallback for direct hash access or empty state
         const hash = window.location.hash.substring(1);
         if (hash) {
             switchView(hash, false);
+            if (typeof handleHashRouting === 'function')
+                handleHashRouting();
         }
         else {
             // Default view if no hash
@@ -3006,6 +3402,8 @@ window.addEventListener('popstate', (event) => {
                     switchView('parent-dashboard-view');
                 else
                     switchView('teacher-view');
+                if (typeof handleHashRouting === 'function')
+                    handleHashRouting();
             }
             else {
                 switchView('landing-view', false);
@@ -3404,21 +3802,35 @@ function handleLogin(e) {
                 // CHECK 2FA REQUIREMENT
                 if (data.requires_2fa) {
                     appState.tempUserId = data.user_id; // Store ID for 2nd step
+                    appState.tempSecurityMode = data.security_mode || 'email_otp';
                     msgEl.textContent = ""; // Clear message
-                    // Show relevant message
                     const demoContainer = document.getElementById('demo-codes-container');
                     const twoFactorMsg = document.getElementById('2fa-message');
-                    if (data.email_masked) {
-                        twoFactorMsg.textContent = `A verification code has been sent to ${data.email_masked}`;
+                    const codeLabel = document.querySelector('label[for="2fa-code"]');
+                    if (codeLabel) {
+                        codeLabel.textContent = appState.tempSecurityMode === 'authenticator_app'
+                            ? 'Authenticator Code'
+                            : 'Email Verification Code';
+                    }
+                    const codeInput = document.getElementById('2fa-code');
+                    if (codeInput) {
+                        codeInput.placeholder = appState.tempSecurityMode === 'authenticator_app' ? '6-digit authenticator code' : '6-digit code';
+                    }
+                    if (demoContainer)
+                        demoContainer.classList.add('d-none');
+                    if (appState.tempSecurityMode === 'authenticator_app') {
+                        twoFactorMsg.textContent = data.email_masked
+                            ? `Authenticator mode enabled. Setup/enter your code to continue. Contact email: ${data.email_masked}`
+                            : "Authenticator mode enabled. Setup/enter your code to continue.";
                         twoFactorMsg.className = 'text-info fw-bold mb-3 d-block';
-                        if (demoContainer)
-                            demoContainer.classList.add('d-none');
+                        loadAuthenticatorSetup(appState.tempUserId);
                     }
                     else {
-                        if (demoContainer)
-                            demoContainer.classList.add('d-none');
-                        twoFactorMsg.textContent = "Please check your email for the code.";
+                        twoFactorMsg.textContent = data.email_masked
+                            ? `A verification code has been sent to ${data.email_masked}`
+                            : "Please check your email for the code.";
                         twoFactorMsg.className = 'text-info fw-bold mb-3 d-block';
+                        renderAuthenticatorSetupBox(null);
                     }
                     switchView('two-factor-view');
                     return;
@@ -3500,6 +3912,55 @@ function handleLogin(e) {
         }
     });
 }
+function renderAuthenticatorSetupBox(data) {
+    const form = document.getElementById('two-factor-form');
+    if (!form)
+        return;
+    let box = document.getElementById('authenticator-setup-box');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'authenticator-setup-box';
+        box.className = 'alert alert-light border text-start d-none mb-3';
+        const msgEl = document.getElementById('2fa-message');
+        if (msgEl && msgEl.parentElement) {
+            msgEl.parentElement.insertBefore(box, msgEl);
+        }
+        else {
+            form.appendChild(box);
+        }
+    }
+    if (!data) {
+        box.classList.add('d-none');
+        box.innerHTML = '';
+        return;
+    }
+    box.classList.remove('d-none');
+    box.innerHTML = `
+        <div class="fw-bold mb-2">${data.is_enabled ? 'Authenticator Already Enabled' : 'Setup Authenticator App'}</div>
+        <div class="small text-muted mb-2">Scan the QR code with Google/Microsoft Authenticator and enter the 6-digit code below.</div>
+        ${data.qr_url ? `<div class="text-center mb-2"><img src="${data.qr_url}" alt="Authenticator QR" style="max-width:180px; border:1px solid #dee2e6; padding:6px; border-radius:8px;"></div>` : ''}
+        <div class="small"><strong>Manual key:</strong> <code>${data.secret_key || ''}</code></div>
+    `;
+}
+function loadAuthenticatorSetup(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const res = yield fetchAPI('/auth/authenticator/setup', {
+                method: 'POST',
+                body: JSON.stringify({ user_id: userId })
+            });
+            if (!res.ok) {
+                renderAuthenticatorSetupBox(null);
+                return;
+            }
+            const data = yield res.json();
+            renderAuthenticatorSetupBox(data);
+        }
+        catch (e) {
+            renderAuthenticatorSetupBox(null);
+        }
+    });
+}
 function handle2FASubmit(e) {
     return __awaiter(this, void 0, void 0, function* () {
         e.preventDefault();
@@ -3561,7 +4022,9 @@ function handle2FASubmit(e) {
                 }));
                 // Clear temp state
                 appState.tempUserId = null;
+                appState.tempSecurityMode = null;
                 document.getElementById('two-factor-form').reset();
+                renderAuthenticatorSetupBox(null);
                 // Switch to Dashboard
                 const msgEl2FA = document.getElementById('2fa-message');
                 if (msgEl2FA) {
@@ -3782,83 +4245,60 @@ function handleSocialLogin(provider) {
     });
 }
 function initializeDashboard() {
-    return __awaiter(this, void 0, void 0, function* () {
+    if (window.__cbInitDashboardPromise)
+        return window.__cbInitDashboardPromise;
+    window.__cbInitDashboardPromise = __awaiter(this, void 0, void 0, function* () {
+        // Stop WebGL shader loop — free GPU on login
+        if (typeof window.stopShaderLoop === 'function') window.stopShaderLoop();
+
+        // Clear session view-load cache so fresh data loads after login/re-login
+        window._cbViewLoaded = {};
+
         elements.loginView.classList.remove('active');
         applyRoleTheme();
-        // Update Top Header
+
+        // ── UI Setup only — no API calls here ────────────────────────────────
         const userNameEl = document.getElementById('header-user-name');
-        if (userNameEl)
-            userNameEl.textContent = appState.name || appState.userId;
+        if (userNameEl) userNameEl.textContent = appState.name || appState.userId;
         const userRoleEl = document.getElementById('header-user-role');
         if (userRoleEl) {
             userRoleEl.textContent = appState.role;
-            if (appState.schoolName && appState.schoolName !== 'Independent') {
+            if (appState.schoolName && appState.schoolName !== 'Independent')
                 userRoleEl.textContent += ` • ${appState.schoolName}`;
-            }
         }
         const userImgEl = document.getElementById('header-user-img');
         if (userImgEl)
-            userImgEl.src = `https://ui-avatars.com/api/?name=${appState.userId}&background=random`;
-        elements.authStatus.innerHTML = `
-            <strong>Role:</strong> ${appState.role} <span class="mx-2">|</span> <strong>User:</strong> ${appState.userId}
-        `;
-        if (appState.schoolName) {
-            elements.authStatus.innerHTML += ` <span class="mx-2">|</span> <strong>School:</strong> ${appState.schoolName}`;
-        }
+            userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(appState.userId)}&background=random`;
+        elements.authStatus.innerHTML =
+            `<strong>Role:</strong> ${appState.role} <span class="mx-2">|</span> <strong>User:</strong> ${appState.userId}` +
+            (appState.schoolName ? ` <span class="mx-2">|</span> <strong>School:</strong> ${appState.schoolName}` : '');
         elements.loginMessage.textContent = '';
+
+        if (appState.role === 'Root_Super_Admin') appState.isSuperAdmin = true;
+
         if (appState.isSuperAdmin) {
             yield loadSuperAdminDashboard();
             return;
         }
-        if (appState.role === 'Root_Super_Admin') {
-            renderRootAdminControls();
-            ensureRootAdminView();
-            const rootTitleEl = document.getElementById('page-title');
-            if (rootTitleEl) rootTitleEl.textContent = 'Root Admin Panel';
-            switchView('root-admin-view');
-            yield loadRootAdminPanel();
-            return;
-        }
-        yield fetchStudents();
+
+        // ── Build sidebar for user's role, then switch to default view ────────
+        // Data loading is deferred — VIEW_LOADERS handles it when switchView fires
         if (appState.role === 'Teacher' || appState.role === 'Admin' || appState.role === 'Principal') {
             renderTeacherControls();
-            renderTeacherDashboard();
+            switchView('teacher-view');   // triggers loadTeacherDashboardData()
         }
         else if (isParentRole(appState.role)) {
             renderParentControls();
-            switchView('parent-dashboard-view');
-            if (!appState.activeStudentId && Array.isArray(appState.allStudents) && appState.allStudents.length > 0) {
-                const linkedStudent = appState.allStudents.find(s => (s.role || '').toLowerCase() === 'student');
-                appState.activeStudentId = linkedStudent ? (linkedStudent.id || linkedStudent.student_id || null) : null;
-            }
-            if (appState.activeStudentId) {
-                const childIdInput = document.getElementById('parent-child-id');
-                if (childIdInput)
-                    childIdInput.value = appState.activeStudentId;
-                loadParentChildData(); // Helper to load child data
-            }
+            switchView('parent-dashboard-view');  // triggers loadParentDashboardData()
         }
         else if (appState.role === 'Student') {
             renderStudentControls();
-            switchView('student-view');
-            if (appState.activeStudentId) {
-                loadStudentDashboard(appState.activeStudentId);
-            }
-            else if (appState.allStudents && appState.allStudents.length > 0) {
-                // Fallback: Auto-select first available student
-                appState.activeStudentId = appState.allStudents[0].id || appState.allStudents[0].student_id;
-                loadStudentDashboard(appState.activeStudentId);
-            }
-            else {
-                document.getElementById('student-metrics').innerHTML = `
-                <div class="alert alert-warning">
-                    No linked student profile found. Please contact support or try logging in again.
-                </div>`;
-            }
+            switchView('student-view');   // triggers loadStudentDashboardData()
         }
-        loadLiveClasses();
-        checkClassStatus();
+    }).finally(() => {
+        window.__cbInitDashboardPromise = null;
     });
+    return window.__cbInitDashboardPromise;
 }
 function ensureRootAdminView() {
     if (document.getElementById('root-admin-view'))
@@ -4223,20 +4663,127 @@ function renderRootAdminControls() {
     elements.userControls.appendChild(navList);
 }
 // --- SUPER ADMIN FUNCTIONS ---
+let institutionConfigCache = {};
+let institutionWizardStep1Saved = false;
+let institutionContactsDraft = [];
+let institutionContactEditIndex = -1;
+function setSuperAdminInstitutionListMode(enabled) {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    const main = document.getElementById('main-content');
+    if (enabled) {
+        if (sidebar)
+            sidebar.style.display = 'none';
+        if (overlay)
+            overlay.style.display = 'none';
+        if (main) {
+            main.style.marginLeft = '0';
+            main.style.width = '100%';
+        }
+    }
+    else {
+        if (sidebar)
+            sidebar.style.display = '';
+        if (overlay)
+            overlay.style.display = '';
+        if (main) {
+            main.style.marginLeft = '';
+            main.style.width = '';
+        }
+    }
+}
+function getCurrentSuperAdminSchoolId() {
+    if (!appState.isSuperAdmin)
+        return null;
+    const schoolId = appState.activeSchoolId || appState.schoolId || null;
+    return schoolId ? Number(schoolId) : null;
+}
+function renderSuperAdminBackToInstitutionList() {
+    const teacherView = document.getElementById('teacher-view');
+    if (!teacherView)
+        return;
+    const existing = document.getElementById('superadmin-backbar');
+    const currentSchoolId = getCurrentSuperAdminSchoolId();
+    if (!currentSchoolId) {
+        if (existing)
+            existing.remove();
+        return;
+    }
+    if (existing)
+        existing.remove();
+    const bar = document.createElement('div');
+    bar.id = 'superadmin-backbar';
+    bar.className = 'd-flex justify-content-between align-items-center mb-3 p-3 rounded-3 border bg-light';
+    bar.innerHTML = `
+        <div class="fw-bold text-primary">Super Admin Context: ${appState.schoolName || `Institution ${currentSchoolId}`}</div>
+        <button type="button" class="btn btn-outline-primary btn-sm">
+            <span class="material-icons align-middle" style="font-size:16px;">arrow_back</span>
+            Back to Institution List
+        </button>
+    `;
+    const btn = bar.querySelector('button');
+    if (btn) {
+        btn.addEventListener('click', () => {
+            appState.activeSchoolId = null;
+            loadSuperAdminDashboard();
+        });
+    }
+    teacherView.insertBefore(bar, teacherView.firstChild);
+}
+function syncSuperAdminNavigationUI(viewId) {
+    if (!appState.isSuperAdmin)
+        return;
+    const isInstitutionListView = viewId === 'super-admin-view' || viewId === 'createSchoolModal';
+    setSuperAdminInstitutionListMode(isInstitutionListView);
+    if (viewId === 'teacher-view') {
+        renderSuperAdminBackToInstitutionList();
+    }
+    else {
+        const existing = document.getElementById('superadmin-backbar');
+        if (existing)
+            existing.remove();
+    }
+}
 function loadSuperAdminDashboard() {
     return __awaiter(this, void 0, void 0, function* () {
+        // Build the sidebar first so Super Admin gets all navigation items
+        renderTeacherControls();
+        setSuperAdminInstitutionListMode(true);
+        const backBar = document.getElementById('superadmin-backbar');
+        if (backBar)
+            backBar.remove();
         switchView('super-admin-view');
         const container = document.getElementById('super-admin-content');
         if (!container)
             return;
-        container.innerHTML = '<div class="text-center mt-5"><div class="spinner-border text-primary" role="status"></div><p>Loading schools...</p></div>';
+        container.innerHTML = '<div class="text-center mt-5"><div class="spinner-border text-primary" role="status"></div><p>Loading institutions...</p></div>';
         try {
-            const response = yield fetchAPI('/admin/schools', {}); // Requires Auth
+            let institutions = [];
+            let response = yield fetchAPI('/admin/institutions', {});
             if (response.ok) {
-                const schools = yield response.json();
+                institutions = yield response.json();
+            }
+            else {
+                response = yield fetchAPI('/admin/schools', {});
+                if (response.ok) {
+                    const schools = yield response.json();
+                    institutions = (schools || []).map((s) => ({
+                        id: s.id,
+                        institution_id: `CB_INT_${String(s.id).padStart(6, '0')}`,
+                        institution_official_name: s.name,
+                        institution_type: 'K12 School',
+                        institution_structure: 'Sole Entity',
+                        state: 'Trial',
+                        address: s.address || '',
+                        contact_email: s.contact_email || '',
+                        created_at: s.created_at
+                    }));
+                }
+            }
+            if (response.ok) {
                 let html = `
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h3 class="fw-bold text-primary">Registered Institutions</h3>
+                    <h3 class="fw-bold text-primary">Institution Setup Config</h3>
                     <button class="btn btn-primary-custom" onclick="showCreateSchoolModal()">
                         <span class="material-icons align-middle fs-5 me-1">add_circle</span> Add Institution
                     </button>
@@ -4246,9 +4793,11 @@ function loadSuperAdminDashboard() {
                         <table class="table table-hover mb-0 align-middle">
                             <thead class="bg-light">
                                 <tr>
-                                    <th class="py-3 ps-4">ID</th>
-                                    <th class="py-3">Name</th>
-                                    <th class="py-3">Address</th>
+                                    <th class="py-3 ps-4">Institution ID</th>
+                                    <th class="py-3">Official Name</th>
+                                    <th class="py-3">Type</th>
+                                    <th class="py-3">Structure</th>
+                                    <th class="py-3">State</th>
                                     <th class="py-3">Contact</th>
                                     <th class="py-3">Created</th>
                                     <th class="py-3 text-end pe-4">Actions</th>
@@ -4256,35 +4805,35 @@ function loadSuperAdminDashboard() {
                             </thead>
                             <tbody>
             `;
-                if (schools.length === 0) {
-                    html += `<tr><td colspan="6" class="text-center py-4 text-muted">No schools registered yet.</td></tr>`;
+                if (institutions.length === 0) {
+                    html += `<tr><td colspan="8" class="text-center py-4 text-muted">No institutions registered yet.</td></tr>`;
                 }
                 else {
-                    schools.forEach(s => {
-                        const safeName = s.name.replace(/"/g, '&quot;');
-                        const safeAddr = (s.address || '').replace(/"/g, '&quot;');
-                        const safeEmail = (s.contact_email || '').replace(/"/g, '&quot;');
+                    institutions.forEach(s => {
+                        const safeName = (s.institution_official_name || '').replace(/"/g, '&quot;');
                         html += `<tr>
-                        <td class="ps-4 fw-bold">#${s.id}</td>
+                        <td class="ps-4 fw-bold">${s.institution_id || `CB_INT_${String(s.id).padStart(6, '0')}`}</td>
                         <td>
                             <a href="#" class="text-primary fw-bold text-decoration-none" 
                                onclick="openSchoolDashboard(${s.id}, '${safeName}'); return false;">
-                                ${s.name}
+                                ${s.institution_official_name || ''}
                             </a>
                         </td>
-                        <td>${s.address}</td>
-                        <td>${s.contact_email}</td>
+                        <td>${s.institution_type || ''}</td>
+                        <td>${s.institution_structure || ''}</td>
+                        <td>${s.state || ''}</td>
+                        <td>${s.contact_email || ''}</td>
                         <td class="text-muted"><small>${new Date(s.created_at).toLocaleDateString()}</small></td>
                         <td class="text-end pe-4">
                             <div class="d-flex justify-content-end gap-2">
-                                <button class="btn btn-sm btn-outline-warning" 
-                                    onclick="openEditSchoolModal(${s.id}, '${safeName}', '${safeAddr}', '${safeEmail}')"
-                                    title="Edit School">
-                                    <span class="material-icons" style="font-size: 16px;">edit</span>
+                                <button class="btn btn-sm btn-outline-primary"
+                                    onclick="openInstitutionConfig(${s.id})"
+                                    title="Tenant Configuration">
+                                    <span class="material-icons" style="font-size: 16px;">settings</span>
                                 </button>
                                 <button class="btn btn-sm btn-outline-danger" 
                                     onclick="handleDeleteSchool(${s.id}, '${safeName}')"
-                                    title="Delete School">
+                                    title="Delete Institution">
                                     <span class="material-icons" style="font-size: 16px;">delete</span>
                                 </button>
                             </div>
@@ -4296,13 +4845,685 @@ function loadSuperAdminDashboard() {
                 container.innerHTML = html;
             }
             else {
-                container.innerHTML = '<p class="text-danger">Failed to load schools.</p>';
+                container.innerHTML = '<p class="text-danger">Failed to load institutions.</p>';
             }
         }
         catch (e) {
-            container.innerHTML = '<p class="text-danger">Error loading schools: ' + e.message + '</p>';
+            container.innerHTML = '<p class="text-danger">Error loading institutions: ' + e.message + '</p>';
         }
     });
+}
+function renderInstitutionContactRows(items) {
+    const host = document.getElementById('institution-contacts-list');
+    if (!host)
+        return;
+    if (Array.isArray(items)) {
+        institutionContactsDraft = items.map((c) => ({
+            individual_type: c.individual_type || 'Tenant Admin',
+            custom_type: c.custom_type || '',
+            first_name: c.first_name || '',
+            middle_name: c.middle_name || '',
+            last_name: c.last_name || '',
+            email: c.email || '',
+            status: c.status || 'Active',
+            contact_number: c.contact_number || '',
+            mobile_number: c.mobile_number || '',
+            address: c.address || ''
+        }));
+    }
+    const rows = institutionContactsDraft || [];
+    if (!rows.length) {
+        host.innerHTML = '<div class="text-muted small">No key individuals added yet.</div>';
+        return;
+    }
+    host.innerHTML = `
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Individual Type</th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Email</th>
+                        <th>Status</th>
+                        <th>Contact</th>
+                        <th>Mobile</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map((c, idx) => `
+                        <tr>
+                            <td>${c.individual_type === 'Others' ? (c.custom_type || 'Others') : (c.individual_type || '')}</td>
+                            <td>${c.first_name || ''}</td>
+                            <td>${c.last_name || ''}</td>
+                            <td>${c.email || ''}</td>
+                            <td>${c.status || 'Active'}</td>
+                            <td>${c.contact_number || ''}</td>
+                            <td>${c.mobile_number || ''}</td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="openInstitutionContactModal(${idx})">Edit</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeInstitutionContactRow(${idx})">Remove</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+function collectInstitutionContacts() {
+    return (institutionContactsDraft || [])
+        .filter((item) => item.individual_type && item.first_name && item.last_name && item.email);
+}
+function ensureInstitutionContactModal() {
+    if (document.getElementById('institutionContactModal'))
+        return;
+    const html = `
+        <div class="view full-page-view" id="institutionContactModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content rounded-4 border-0 shadow">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title fw-bold text-primary" id="institution-contact-modal-title">Add Key Individual</h5>
+                        <button type="button" class="btn-close" onclick="closeView()"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small">Individual Type</label>
+                                <select id="inst-contact-type" class="form-select">
+                                    <option value="Owner">Owner</option>
+                                    <option value="Principal">Principal</option>
+                                    <option value="Dean">Dean</option>
+                                    <option value="Tenant Admin">Tenant Admin</option>
+                                    <option value="Financial Admin">Financial Admin</option>
+                                    <option value="Tech Admin">Tech Admin</option>
+                                    <option value="Others">Others</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 d-none" id="inst-contact-custom-wrap">
+                                <label class="form-label small">Custom Type</label>
+                                <input id="inst-contact-custom" class="form-control" placeholder="Specify individual type">
+                            </div>
+                            <div class="col-md-4"><label class="form-label small">First Name</label><input id="inst-contact-first" class="form-control"></div>
+                            <div class="col-md-4"><label class="form-label small">Middle Name</label><input id="inst-contact-middle" class="form-control"></div>
+                            <div class="col-md-4"><label class="form-label small">Last Name</label><input id="inst-contact-last" class="form-control"></div>
+                            <div class="col-md-6"><label class="form-label small">Email</label><input id="inst-contact-email" class="form-control" type="email"></div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Status</label>
+                                <select id="inst-contact-status" class="form-select">
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6"><label class="form-label small">Contact Number</label><input id="inst-contact-phone" class="form-control"></div>
+                            <div class="col-md-6"><label class="form-label small">Mobile Number</label><input id="inst-contact-mobile" class="form-control"></div>
+                            <div class="col-12"><label class="form-label small">Address</label><input id="inst-contact-address" class="form-control"></div>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-secondary" onclick="closeView()">Cancel</button>
+                            <button type="button" class="btn btn-primary-custom" onclick="saveInstitutionContactModal()">Save</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+    const typeEl = document.getElementById('inst-contact-type');
+    if (typeEl) {
+        typeEl.addEventListener('change', () => {
+            const wrap = document.getElementById('inst-contact-custom-wrap');
+            if (wrap)
+                wrap.classList.toggle('d-none', typeEl.value !== 'Others');
+        });
+    }
+}
+function openInstitutionContactModal(index = -1) {
+    ensureInstitutionContactModal();
+    institutionContactEditIndex = index;
+    const edit = index >= 0 ? institutionContactsDraft[index] : {
+        individual_type: 'Tenant Admin',
+        custom_type: '',
+        first_name: '',
+        middle_name: '',
+        last_name: '',
+        email: '',
+        status: 'Active',
+        contact_number: '',
+        mobile_number: '',
+        address: ''
+    };
+    const titleEl = document.getElementById('institution-contact-modal-title');
+    if (titleEl)
+        titleEl.textContent = index >= 0 ? 'Edit Key Individual' : 'Add Key Individual';
+    document.getElementById('inst-contact-type').value = edit.individual_type || 'Tenant Admin';
+    document.getElementById('inst-contact-custom').value = edit.custom_type || '';
+    document.getElementById('inst-contact-first').value = edit.first_name || '';
+    document.getElementById('inst-contact-middle').value = edit.middle_name || '';
+    document.getElementById('inst-contact-last').value = edit.last_name || '';
+    document.getElementById('inst-contact-email').value = edit.email || '';
+    document.getElementById('inst-contact-status').value = edit.status || 'Active';
+    document.getElementById('inst-contact-phone').value = edit.contact_number || '';
+    document.getElementById('inst-contact-mobile').value = edit.mobile_number || '';
+    document.getElementById('inst-contact-address').value = edit.address || '';
+    const wrap = document.getElementById('inst-contact-custom-wrap');
+    if (wrap)
+        wrap.classList.toggle('d-none', (edit.individual_type || 'Tenant Admin') !== 'Others');
+    openView('institutionContactModal');
+}
+function saveInstitutionContactModal() {
+    const individual_type = (document.getElementById('inst-contact-type').value || '').trim();
+    const custom_type = (document.getElementById('inst-contact-custom').value || '').trim();
+    const first_name = (document.getElementById('inst-contact-first').value || '').trim();
+    const middle_name = (document.getElementById('inst-contact-middle').value || '').trim();
+    const last_name = (document.getElementById('inst-contact-last').value || '').trim();
+    const email = (document.getElementById('inst-contact-email').value || '').trim();
+    const status = (document.getElementById('inst-contact-status').value || 'Active').trim();
+    const contact_number = (document.getElementById('inst-contact-phone').value || '').trim();
+    const mobile_number = (document.getElementById('inst-contact-mobile').value || '').trim();
+    const address = (document.getElementById('inst-contact-address').value || '').trim();
+    if (!individual_type || !first_name || !last_name || !email) {
+        alert('Individual Type, First Name, Last Name and Email are required.');
+        return;
+    }
+    if (individual_type === 'Others' && !custom_type) {
+        alert('Please provide custom individual type.');
+        return;
+    }
+    const payload = {
+        individual_type,
+        custom_type,
+        first_name,
+        middle_name,
+        last_name,
+        email,
+        status,
+        contact_number,
+        mobile_number,
+        address
+    };
+    if (institutionContactEditIndex >= 0) {
+        institutionContactsDraft[institutionContactEditIndex] = payload;
+    }
+    else {
+        institutionContactsDraft.push(payload);
+    }
+    renderInstitutionContactRows();
+    closeView();
+}
+function addInstitutionContactRow() {
+    openInstitutionContactModal(-1);
+}
+function removeInstitutionContactRow(index) {
+    institutionContactsDraft.splice(index, 1);
+    renderInstitutionContactRows();
+}
+function openInstitutionConfig(schoolId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const container = document.getElementById('super-admin-content');
+        if (!container)
+            return;
+        container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div><p class="mt-2">Loading institution configuration...</p></div>';
+        try {
+            const res = yield fetchAPI(`/admin/institutions/${schoolId}`);
+            if (!res.ok) {
+                const err = yield res.json();
+                throw new Error(err.detail || 'Failed to load institution config');
+            }
+            const data = yield res.json();
+            institutionConfigCache[schoolId] = data;
+            const selectedAddress = (data.addresses && data.addresses.length > 0)
+                ? (data.addresses.find((a) => !!a.is_primary) || data.addresses[0])
+                : null;
+            institutionEditAddresses = [{
+                address_line: selectedAddress ? (selectedAddress.address_line || '') : '',
+                region: selectedAddress ? (selectedAddress.region || '') : '',
+                timezone: selectedAddress ? (selectedAddress.timezone || '') : '',
+                language: selectedAddress ? (selectedAddress.language || 'English') : 'English',
+                is_primary: true
+            }];
+            container.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="fw-bold text-primary mb-0">Tenant Setup: ${data.institution_official_name || ''}</h4>
+                    <button class="btn btn-outline-secondary" onclick="loadSuperAdminDashboard()"><span class="material-icons align-middle fs-6">arrow_back</span> Back</button>
+                </div>
+                <div id="institution-config-message" class="small fw-bold mb-3"></div>
+                <div class="card border-0 shadow-sm rounded-4 mb-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Section 1: Institution Details</h6>
+                        <div class="row g-2">
+                            <div class="col-md-3"><label class="form-label small">Institution ID</label><input id="inst-code" class="form-control" value="${data.institution_id || ''}" disabled></div>
+                            <div class="col-md-3"><label class="form-label small">Official Name</label><input id="inst-official-name" class="form-control" value="${data.institution_official_name || ''}"></div>
+                            <div class="col-md-3"><label class="form-label small">Visual Name</label><input id="inst-visual-name" class="form-control" value="${data.institution_visual_name || ''}"></div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Type</label>
+                                <select id="inst-type" class="form-select">
+                                    <option value="Pre school" ${(data.institution_type || '') === 'Pre school' ? 'selected' : ''}>Pre school</option>
+                                    <option value="Primary School" ${(data.institution_type || '') === 'Primary School' ? 'selected' : ''}>Primary School</option>
+                                    <option value="Secondary School" ${(data.institution_type || '') === 'Secondary School' ? 'selected' : ''}>Secondary School</option>
+                                    <option value="K12 School" ${(data.institution_type || 'K12 School') === 'K12 School' ? 'selected' : ''}>K12 School</option>
+                                    <option value="College" ${(data.institution_type || '') === 'College' ? 'selected' : ''}>College</option>
+                                    <option value="Company" ${(data.institution_type || '') === 'Company' ? 'selected' : ''}>Company</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Structure</label>
+                                <select id="inst-structure" class="form-select">
+                                    <option value="Sole Entity" ${(data.institution_structure || 'Sole Entity') === 'Sole Entity' ? 'selected' : ''}>Sole Entity</option>
+                                    <option value="Union" ${(data.institution_structure || '') === 'Union' ? 'selected' : ''}>Union</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">State</label>
+                                <select id="inst-state" class="form-select">
+                                    <option value="Trial" ${(data.state || 'Trial') === 'Trial' ? 'selected' : ''}>Trial</option>
+                                    <option value="Active" ${(data.state || '') === 'Active' ? 'selected' : ''}>Active</option>
+                                    <option value="Suspended" ${(data.state || '') === 'Suspended' ? 'selected' : ''}>Suspended</option>
+                                    <option value="Archived" ${(data.state || '') === 'Archived' ? 'selected' : ''}>Archived</option>
+                                    <option value="Deleted" ${(data.state || '') === 'Deleted' ? 'selected' : ''}>Deleted</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6"><label class="form-label small">Brief Details</label><input id="inst-brief" class="form-control" value="${data.institution_brief_details || ''}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card border-0 shadow-sm rounded-4 mb-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Section 2: Institution Address</h6>
+                        <div class="small text-muted mb-2">Edit mode updates the selected address context.</div>
+                        <div id="inst-address-list"></div>
+                    </div>
+                </div>
+                <div class="card border-0 shadow-sm rounded-4 mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold mb-0">Section 3: Primary Contacts</h6>
+                            <button class="btn btn-outline-primary btn-sm" type="button" onclick="addInstitutionContactRow()">Add Key Individual</button>
+                        </div>
+                        <div id="institution-contacts-list"></div>
+                    </div>
+                </div>
+                <div class="card border-0 shadow-sm rounded-4 mb-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Section 4: Tenant Security</h6>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label small">Authentication Mode</label>
+                                <select id="inst-auth-mode" class="form-select">
+                                    <option value="password_only" ${(data.security && data.security.auth_mode) === 'password_only' ? 'selected' : ''}>User ID + Password</option>
+                                    <option value="email_otp" ${(data.security && data.security.auth_mode) === 'email_otp' ? 'selected' : ''}>Email OTP</option>
+                                    <option value="authenticator_app" ${(data.security && data.security.auth_mode) === 'authenticator_app' ? 'selected' : ''}>Authenticator App</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8"><label class="form-label small">Recommendation</label><input id="inst-security-recommendation" class="form-control" value="${(data.security && data.security.recommendation_text) || ''}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card border-0 shadow-sm rounded-4 mb-3">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Section 5: Branding</h6>
+                        <div class="row g-2">
+                            <div class="col-md-4"><label class="form-label small">Logo URL</label><input id="inst-logo-url" class="form-control" value="${(data.branding && data.branding.logo_url) || ''}"></div>
+                            <div class="col-md-4"><label class="form-label small">Color Theme</label><input id="inst-color-theme" class="form-control" value="${(data.branding && data.branding.color_theme) || ''}"></div>
+                            <div class="col-md-4"><label class="form-label small">Default Course Image URL</label><input id="inst-course-image" class="form-control" value="${(data.branding && data.branding.default_course_image_url) || ''}"></div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Upload Logo (max 1MB)</label>
+                                <input id="inst-logo-file" type="file" class="form-control" accept=".png,.jpg,.jpeg,.webp,.svg">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Upload Default Course Image (max 1MB)</label>
+                                <input id="inst-course-file" type="file" class="form-control" accept=".png,.jpg,.jpeg,.webp,.svg">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card border-0 shadow-sm rounded-4 mb-4">
+                    <div class="card-body">
+                        <h6 class="fw-bold mb-3">Section 6: Date, Time & Currency</h6>
+                        <div class="row g-2">
+                            <div class="col-md-4"><label class="form-label small">Date Format</label><input id="inst-date-format" class="form-control" value="${(data.locale && data.locale.date_format) || 'YYYY-MM-DD'}"></div>
+                            <div class="col-md-4"><label class="form-label small">Time Format</label><input id="inst-time-format" class="form-control" value="${(data.locale && data.locale.time_format) || '24h'}"></div>
+                            <div class="col-md-4"><label class="form-label small">Currency Code</label><input id="inst-currency-code" class="form-control" value="${(data.locale && data.locale.currency_code) || 'USD'}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 justify-content-end mb-2">
+                    <button class="btn btn-outline-secondary" type="button" onclick="loadSuperAdminDashboard()">Cancel</button>
+                    <button class="btn btn-primary-custom" type="button" onclick="submitInstitutionConfigUpdate(${schoolId})">Update</button>
+                </div>
+            `;
+            renderInstitutionContactRows(data.key_individuals || []);
+            renderInstitutionEditAddresses();
+            const typeEl = document.getElementById('inst-type');
+            const authEl = document.getElementById('inst-auth-mode');
+            const recEl = document.getElementById('inst-security-recommendation');
+            const syncRec = () => {
+                if (!recEl)
+                    return;
+                if (!(recEl.value || '').trim()) {
+                    recEl.value = getSecurityRecommendation(typeEl ? typeEl.value : '', authEl ? authEl.value : '');
+                }
+            };
+            if (typeEl)
+                typeEl.addEventListener('change', () => {
+                    if (recEl)
+                        recEl.value = getSecurityRecommendation(typeEl.value, authEl ? authEl.value : '');
+                });
+            if (authEl)
+                authEl.addEventListener('change', () => {
+                    if (recEl)
+                        recEl.value = getSecurityRecommendation(typeEl ? typeEl.value : '', authEl.value);
+                });
+            syncRec();
+        }
+        catch (e) {
+            container.innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+        }
+    });
+}
+function submitInstitutionConfigUpdate(schoolId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const msgEl = document.getElementById('institution-config-message');
+        if (msgEl) {
+            msgEl.className = 'small fw-bold text-primary mb-3';
+            msgEl.textContent = 'Updating institution...';
+        }
+        const structure = (document.getElementById('inst-structure').value || '').trim();
+        if (!institutionEditAddresses.length || !String(institutionEditAddresses[0].address_line || '').trim()) {
+            if (msgEl) {
+                msgEl.className = 'small fw-bold text-danger mb-3';
+                msgEl.textContent = 'Primary address is required.';
+            }
+            return;
+        }
+        if (structure === 'Sole Entity' && institutionEditAddresses.length > 1) {
+            if (msgEl) {
+                msgEl.className = 'small fw-bold text-danger mb-3';
+                msgEl.textContent = 'Sole Entity supports one address only.';
+            }
+            return;
+        }
+        let logoUrl = (document.getElementById('inst-logo-url').value || '').trim();
+        let courseImageUrl = (document.getElementById('inst-course-image').value || '').trim();
+        const uploadAsset = (assetType, fileObj) => __awaiter(this, void 0, void 0, function* () {
+            const fd = new FormData();
+            fd.append('asset_type', assetType);
+            fd.append('file', fileObj);
+            const upRes = yield fetchAPI(`/admin/institutions/${schoolId}/branding/upload`, {
+                method: 'POST',
+                body: fd
+            });
+            if (!upRes.ok) {
+                const err = yield upRes.json().catch(() => ({}));
+                throw new Error(err.detail || `Failed to upload ${assetType}`);
+            }
+            const upData = yield upRes.json();
+            return upData.url || '';
+        });
+        try {
+            const logoFileEl = document.getElementById('inst-logo-file');
+            const courseFileEl = document.getElementById('inst-course-file');
+            if (logoFileEl && logoFileEl.files && logoFileEl.files[0]) {
+                logoUrl = yield uploadAsset('logo', logoFileEl.files[0]);
+            }
+            if (courseFileEl && courseFileEl.files && courseFileEl.files[0]) {
+                courseImageUrl = yield uploadAsset('default_course_image', courseFileEl.files[0]);
+            }
+        }
+        catch (e) {
+            if (msgEl) {
+                msgEl.className = 'small fw-bold text-danger mb-3';
+                msgEl.textContent = e.message || 'Branding upload failed';
+            }
+            return;
+        }
+        const payload = {
+            institution_official_name: (document.getElementById('inst-official-name').value || '').trim(),
+            institution_visual_name: (document.getElementById('inst-visual-name').value || '').trim(),
+            institution_brief_details: (document.getElementById('inst-brief').value || '').trim(),
+            institution_type: (document.getElementById('inst-type').value || '').trim(),
+            institution_structure: structure,
+            state: (document.getElementById('inst-state').value || 'Trial').trim(),
+            addresses: institutionEditAddresses.map((a, idx) => ({
+                address_line: String(a.address_line || '').trim(),
+                region: String(a.region || '').trim(),
+                timezone: String(a.timezone || '').trim(),
+                language: String(a.language || 'English').trim(),
+                is_primary: idx === 0
+            })),
+            key_individuals: collectInstitutionContacts(),
+            security: {
+                auth_mode: (document.getElementById('inst-auth-mode').value || 'password_only').trim(),
+                recommendation_text: (document.getElementById('inst-security-recommendation').value || '').trim()
+            },
+            branding: {
+                logo_url: logoUrl,
+                color_theme: (document.getElementById('inst-color-theme').value || '').trim(),
+                default_course_image_url: courseImageUrl
+            },
+            locale: {
+                date_format: (document.getElementById('inst-date-format').value || 'YYYY-MM-DD').trim(),
+                time_format: (document.getElementById('inst-time-format').value || '24h').trim(),
+                currency_code: (document.getElementById('inst-currency-code').value || 'USD').trim().toUpperCase()
+            }
+        };
+        try {
+            const res = yield fetchAPI(`/admin/institutions/${schoolId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const err = yield res.json();
+                throw new Error(err.detail || 'Update failed');
+            }
+            if (msgEl) {
+                msgEl.className = 'small fw-bold text-success mb-3';
+                msgEl.textContent = 'The institution has been successfully updated.';
+            }
+            loadSuperAdminDashboard().then(() => {
+                const toast = document.createElement('div');
+                toast.className = 'alert alert-success position-fixed';
+                toast.style.top = '16px';
+                toast.style.right = '16px';
+                toast.style.zIndex = '9999';
+                toast.textContent = 'The institution has been successfully updated.';
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 3000);
+            });
+        }
+        catch (e) {
+            if (msgEl) {
+                msgEl.className = 'small fw-bold text-danger mb-3';
+                msgEl.textContent = e.message || 'Update failed';
+            }
+        }
+    });
+}
+let institutionWizardAddresses = [];
+let institutionEditAddresses = [];
+function resetInstitutionWizardAddresses() {
+    institutionWizardAddresses = [{
+        address_line: '',
+        region: '',
+        timezone: '',
+        language: 'English',
+        is_primary: true
+    }];
+}
+function renderInstitutionWizardAddresses() {
+    const host = document.getElementById('new-school-address-list');
+    if (!host)
+        return;
+    host.innerHTML = institutionWizardAddresses.map((a, idx) => `
+        <div class="border rounded-3 p-3 mb-2">
+            <div class="row g-2">
+                <div class="col-md-4"><input class="form-control wiz-address-line" data-idx="${idx}" placeholder="Address" value="${a.address_line || ''}"></div>
+                <div class="col-md-3"><input class="form-control wiz-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}"></div>
+                <div class="col-md-2"><input class="form-control wiz-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}"></div>
+                <div class="col-md-2"><input class="form-control wiz-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}"></div>
+                <div class="col-md-1 d-grid">${idx === 0 ? '<button type="button" class="btn btn-outline-secondary btn-sm" disabled>Primary</button>' : `<button type="button" class="btn btn-outline-danger btn-sm" onclick="removeInstitutionWizardAddress(${idx})">X</button>`}</div>
+            </div>
+        </div>
+    `).join('');
+    host.querySelectorAll('.wiz-address-line').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionWizardAddresses[idx].address_line = e.target.value;
+        institutionWizardStep1Saved = false;
+    }));
+    host.querySelectorAll('.wiz-region').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionWizardAddresses[idx].region = e.target.value;
+        institutionWizardStep1Saved = false;
+    }));
+    host.querySelectorAll('.wiz-timezone').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionWizardAddresses[idx].timezone = e.target.value;
+        institutionWizardStep1Saved = false;
+    }));
+    host.querySelectorAll('.wiz-language').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionWizardAddresses[idx].language = e.target.value;
+        institutionWizardStep1Saved = false;
+    }));
+}
+function addInstitutionWizardAddress() {
+    institutionWizardAddresses.push({
+        address_line: '',
+        region: '',
+        timezone: '',
+        language: 'English',
+        is_primary: false
+    });
+    institutionWizardStep1Saved = false;
+    renderInstitutionWizardAddresses();
+}
+function removeInstitutionWizardAddress(index) {
+    institutionWizardAddresses.splice(index, 1);
+    if (institutionWizardAddresses.length === 0)
+        resetInstitutionWizardAddresses();
+    institutionWizardAddresses[0].is_primary = true;
+    institutionWizardStep1Saved = false;
+    renderInstitutionWizardAddresses();
+}
+function renderInstitutionEditAddresses() {
+    const host = document.getElementById('inst-address-list');
+    if (!host)
+        return;
+    host.innerHTML = institutionEditAddresses.map((a, idx) => `
+        <div class="border rounded-3 p-3 mb-2">
+            <div class="row g-2">
+                <div class="col-md-4"><input class="form-control inst-edit-address-line" data-idx="${idx}" placeholder="Address" value="${a.address_line || ''}"></div>
+                <div class="col-md-3"><input class="form-control inst-edit-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}"></div>
+                <div class="col-md-3"><input class="form-control inst-edit-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}"></div>
+                <div class="col-md-2"><input class="form-control inst-edit-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}"></div>
+                <div class="col-md-1 d-grid">${idx === 0 ? '<button type="button" class="btn btn-outline-secondary btn-sm" disabled>Primary</button>' : `<button type="button" class="btn btn-outline-danger btn-sm" onclick="removeInstitutionEditAddress(${idx})">X</button>`}</div>
+            </div>
+        </div>
+    `).join('');
+    host.querySelectorAll('.inst-edit-address-line').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionEditAddresses[idx].address_line = e.target.value;
+    }));
+    host.querySelectorAll('.inst-edit-region').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionEditAddresses[idx].region = e.target.value;
+    }));
+    host.querySelectorAll('.inst-edit-timezone').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionEditAddresses[idx].timezone = e.target.value;
+    }));
+    host.querySelectorAll('.inst-edit-language').forEach((el) => el.addEventListener('input', (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        institutionEditAddresses[idx].language = e.target.value;
+    }));
+}
+function addInstitutionEditAddress() {
+    const structure = (document.getElementById('inst-structure').value || '').trim();
+    if (structure === 'Sole Entity' && institutionEditAddresses.length >= 1) {
+        alert('Sole Entity supports one address only. Switch to Union to add multiple addresses.');
+        return;
+    }
+    institutionEditAddresses.push({ address_line: '', region: '', timezone: '', language: 'English', is_primary: false });
+    renderInstitutionEditAddresses();
+}
+function removeInstitutionEditAddress(index) {
+    institutionEditAddresses.splice(index, 1);
+    if (institutionEditAddresses.length === 0) {
+        institutionEditAddresses = [{ address_line: '', region: '', timezone: '', language: 'English', is_primary: true }];
+    }
+    institutionEditAddresses[0].is_primary = true;
+    renderInstitutionEditAddresses();
+}
+function getSecurityRecommendation(institutionType, authMode) {
+    const t = String(institutionType || '').trim();
+    const m = String(authMode || '').trim();
+    let base = 'Recommended: Email OTP for balanced security.';
+    if (['Secondary School', 'K12 School', 'College'].includes(t))
+        base = 'Recommended: Authenticator app for stronger security at scale.';
+    if (t === 'Company')
+        base = 'Recommended: Authenticator app for enterprise-grade protection.';
+    if (m === 'password_only')
+        return `${base} Password-only is the least secure option.`;
+    if (m === 'email_otp')
+        return `${base} Email OTP balances usability and security.`;
+    if (m === 'authenticator_app')
+        return `${base} Authenticator app is the strongest option.`;
+    return base;
+}
+function goInstitutionCreateStep(step) {
+    const details = document.getElementById('institution-step-details');
+    const contacts = document.getElementById('institution-step-contacts');
+    const detailsTab = document.getElementById('wizard-step-details');
+    const contactsTab = document.getElementById('wizard-step-contacts');
+    if (!details || !contacts || !detailsTab || !contactsTab)
+        return;
+    if (step === 2 && !institutionWizardStep1Saved) {
+        alert('Please save Section 1 before proceeding to Section 2.');
+        return;
+    }
+    if (step === 1) {
+        details.classList.remove('d-none');
+        contacts.classList.add('d-none');
+        detailsTab.classList.add('active');
+        contactsTab.classList.remove('active');
+    }
+    else {
+        details.classList.add('d-none');
+        contacts.classList.remove('d-none');
+        detailsTab.classList.remove('active');
+        contactsTab.classList.add('active');
+    }
+}
+function saveInstitutionWizardStep1AndContinue() {
+    if (!validateInstitutionWizardStep1())
+        return;
+    institutionWizardStep1Saved = true;
+    goInstitutionCreateStep(2);
+}
+function validateInstitutionWizardStep1() {
+    const name = (document.getElementById('new-school-name').value || '').trim();
+    const type = (document.getElementById('institution-type').value || '').trim();
+    const structure = (document.getElementById('institution-structure').value || '').trim();
+    if (!name || !type || !structure) {
+        alert('Please complete Institution Details before continuing.');
+        return false;
+    }
+    if (!institutionWizardAddresses.length || !institutionWizardAddresses[0].address_line.trim()) {
+        alert('Primary address is required.');
+        return false;
+    }
+    if (structure === 'Sole Entity' && institutionWizardAddresses.length > 1) {
+        alert('Sole Entity supports one address only. Use Union for multiple addresses.');
+        return false;
+    }
+    for (let i = 0; i < institutionWizardAddresses.length; i++) {
+        if (!(institutionWizardAddresses[i].address_line || '').trim()) {
+            alert(`Address is required for entry #${i + 1}.`);
+            return false;
+        }
+    }
+    return true;
 }
 function showCreateSchoolModal() {
     // Append to body if not exists
@@ -4316,18 +5537,96 @@ function showCreateSchoolModal() {
                   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
+                  <div class="d-flex gap-2 mb-3">
+                    <button id="wizard-step-details" type="button" class="btn btn-sm btn-primary active" onclick="goInstitutionCreateStep(1)">Step 1: Details + Address</button>
+                    <button id="wizard-step-contacts" type="button" class="btn btn-sm btn-outline-primary" onclick="goInstitutionCreateStep(2)">Step 2: Contacts + Security + Branding</button>
+                  </div>
                   <form id="create-school-form">
-                    <div class="form-floating mb-3">
-                        <input type="text" id="new-school-name" class="form-control bg-light border-0" placeholder="Institution Name" required>
-                        <label>Institution Name</label>
+                    <div id="institution-step-details">
+                        <div class="form-floating mb-3">
+                            <select id="institution-structure" class="form-select bg-light border-0">
+                                <option value="Sole Entity">Sole Entity</option>
+                                <option value="Union">Union</option>
+                            </select>
+                            <label>Institution Structure</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="text" id="new-school-name" class="form-control bg-light border-0" placeholder="Institution Name" required>
+                            <label>Institution Official Name</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="text" id="new-school-visual-name" class="form-control bg-light border-0" placeholder="Visual Name">
+                            <label>Institution Visual Name</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="text" id="new-school-brief" class="form-control bg-light border-0" placeholder="Brief Details">
+                            <label>Institution Brief Details</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <select id="institution-type" class="form-select bg-light border-0">
+                                <option value="Pre school">Pre school</option>
+                                <option value="Primary School">Primary School</option>
+                                <option value="Secondary School">Secondary School</option>
+                                <option value="K12 School" selected>K12 School</option>
+                                <option value="College">College</option>
+                                <option value="Company">Company</option>
+                            </select>
+                            <label>Institution Type</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <select id="institution-state" class="form-select bg-light border-0">
+                                <option value="Trial" selected>Trial</option>
+                                <option value="Active">Active</option>
+                                <option value="Suspended">Suspended</option>
+                                <option value="Archived">Archived</option>
+                                <option value="Deleted">Deleted</option>
+                            </select>
+                            <label>State</label>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label fw-bold mb-0">Institution Address(es)</label>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInstitutionWizardAddress()">Add Address</button>
+                        </div>
+                        <div id="new-school-address-list"></div>
+                        <div class="d-grid mt-3">
+                            <button type="button" class="btn btn-outline-primary" onclick="saveInstitutionWizardStep1AndContinue()">Save & Continue</button>
+                        </div>
                     </div>
-                    <div class="form-floating mb-3">
-                        <input type="text" id="new-school-address" class="form-control bg-light border-0" placeholder="Address" required>
-                        <label>Address</label>
-                    </div>
-                    <div class="form-floating mb-3">
-                        <input type="email" id="new-school-email" class="form-control bg-light border-0" placeholder="Email" required>
-                        <label>Contact Email</label>
+                    <div id="institution-step-contacts" class="d-none">
+                        <div class="card border-0 shadow-sm rounded-4 mb-3">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="fw-bold mb-0">Section 3: Primary Contacts</h6>
+                                    <button class="btn btn-outline-primary btn-sm" type="button" onclick="addInstitutionContactRow()">Add Key Individual</button>
+                                </div>
+                                <div id="institution-contacts-list"></div>
+                            </div>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="email" id="new-school-email" class="form-control bg-light border-0" placeholder="Email" required>
+                            <label>Primary Contact Email</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <select id="wizard-security-mode" class="form-select bg-light border-0">
+                                <option value="password_only">Option 1: User ID + Password</option>
+                                <option value="email_otp" selected>Option 2: Email OTP</option>
+                                <option value="authenticator_app">Option 3: Authenticator App</option>
+                            </select>
+                            <label>Tenant Security</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="text" id="wizard-security-recommendation" class="form-control bg-light border-0" placeholder="Recommendation">
+                            <label>Security Recommendation</label>
+                        </div>
+                        <div class="form-floating mb-3">
+                            <input type="text" id="wizard-color-theme" class="form-control bg-light border-0" placeholder="Color Theme">
+                            <label>Branding Color Theme</label>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4"><input type="text" id="wizard-date-format" class="form-control bg-light border-0" placeholder="Date Format" value="YYYY-MM-DD"></div>
+                            <div class="col-md-4"><input type="text" id="wizard-time-format" class="form-control bg-light border-0" placeholder="Time Format" value="24h"></div>
+                            <div class="col-md-4"><input type="text" id="wizard-currency-code" class="form-control bg-light border-0" placeholder="Currency" value="USD"></div>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary-custom w-100 py-3 rounded-pill fw-bold">Create Institution</button>
                   </form>
@@ -4338,21 +5637,129 @@ function showCreateSchoolModal() {
         `;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         document.getElementById('create-school-form').addEventListener('submit', handleCreateSchool);
+        const structureEl = document.getElementById('institution-structure');
+        if (structureEl) {
+            structureEl.addEventListener('change', () => {
+                institutionWizardStep1Saved = false;
+                if (structureEl.value === 'Sole Entity' && institutionWizardAddresses.length > 1) {
+                    institutionWizardAddresses = [institutionWizardAddresses[0]];
+                    institutionWizardAddresses[0].is_primary = true;
+                    renderInstitutionWizardAddresses();
+                }
+            });
+        }
+        ['new-school-name', 'new-school-visual-name', 'new-school-brief', 'institution-type', 'institution-state'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el)
+                el.addEventListener('input', () => {
+                    institutionWizardStep1Saved = false;
+                });
+        });
+        const typeElInit = document.getElementById('institution-type');
+        const secElInit = document.getElementById('wizard-security-mode');
+        const recElInit = document.getElementById('wizard-security-recommendation');
+        const syncWizardRec = () => {
+            if (recElInit) {
+                recElInit.value = getSecurityRecommendation(typeElInit ? typeElInit.value : '', secElInit ? secElInit.value : '');
+            }
+        };
+        if (typeElInit)
+            typeElInit.addEventListener('change', syncWizardRec);
+        if (secElInit)
+            secElInit.addEventListener('change', syncWizardRec);
+        syncWizardRec();
+        ensureInstitutionContactModal();
     }
+    resetInstitutionWizardAddresses();
+    institutionWizardStep1Saved = false;
+    institutionContactsDraft = [{
+        individual_type: 'Tenant Admin',
+        custom_type: '',
+        first_name: 'Tenant',
+        middle_name: '',
+        last_name: 'Admin',
+        email: '',
+        status: 'Active',
+        contact_number: '',
+        mobile_number: '',
+        address: ''
+    }];
+    renderInstitutionContactRows(institutionContactsDraft);
+    renderInstitutionWizardAddresses();
+    goInstitutionCreateStep(1);
     openView('createSchoolModal');
 }
 function handleCreateSchool(e) {
     return __awaiter(this, void 0, void 0, function* () {
         if (e)
             e.preventDefault();
-        const name = document.getElementById('new-school-name').value;
-        const address = document.getElementById('new-school-address').value;
-        const email = document.getElementById('new-school-email').value;
-        try {
-            const res = yield fetchAPI('/admin/schools', {
-                method: 'POST',
-                body: JSON.stringify({ name, address, contact_email: email })
+        if (!validateInstitutionWizardStep1())
+            return;
+        const name = (document.getElementById('new-school-name').value || '').trim();
+        const email = (document.getElementById('new-school-email').value || '').trim();
+        const structureEl = document.getElementById('institution-structure');
+        const typeEl = document.getElementById('institution-type');
+        const stateEl = document.getElementById('institution-state');
+        const visualNameEl = document.getElementById('new-school-visual-name');
+        const briefEl = document.getElementById('new-school-brief');
+        const securityModeEl = document.getElementById('wizard-security-mode');
+        const securityRecEl = document.getElementById('wizard-security-recommendation');
+        const colorThemeEl = document.getElementById('wizard-color-theme');
+        const dateFmtEl = document.getElementById('wizard-date-format');
+        const timeFmtEl = document.getElementById('wizard-time-format');
+        const currencyEl = document.getElementById('wizard-currency-code');
+        const primaryAddress = institutionWizardAddresses[0] || { address_line: '' };
+        const contacts = collectInstitutionContacts();
+        if (!contacts.length) {
+            contacts.push({
+                individual_type: 'Tenant Admin',
+                custom_type: '',
+                first_name: 'Tenant',
+                middle_name: '',
+                last_name: 'Admin',
+                email: email,
+                status: 'Active',
+                contact_number: '',
+                mobile_number: '',
+                address: primaryAddress.address_line || ''
             });
+        }
+        try {
+            let res = yield fetchAPI('/admin/institutions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    institution_official_name: name,
+                    institution_visual_name: visualNameEl ? String(visualNameEl.value || '').trim() : name,
+                    institution_brief_details: briefEl ? String(briefEl.value || '').trim() : '',
+                    institution_type: typeEl ? String(typeEl.value || 'K12 School').trim() : 'K12 School',
+                    institution_structure: structureEl ? String(structureEl.value || 'Sole Entity').trim() : 'Sole Entity',
+                    state: stateEl ? String(stateEl.value || 'Trial').trim() : 'Trial',
+                    addresses: institutionWizardAddresses.map((a, idx) => ({
+                        address_line: String(a.address_line || '').trim(),
+                        region: String(a.region || '').trim(),
+                        timezone: String(a.timezone || '').trim(),
+                        language: String(a.language || 'English').trim(),
+                        is_primary: idx === 0
+                    })),
+                    key_individuals: contacts,
+                    security: {
+                        auth_mode: securityModeEl ? String(securityModeEl.value || 'email_otp').trim() : 'email_otp',
+                        recommendation_text: securityRecEl ? String(securityRecEl.value || '').trim() : ''
+                    },
+                    branding: { logo_url: '', color_theme: colorThemeEl ? String(colorThemeEl.value || '').trim() : '', default_course_image_url: '' },
+                    locale: {
+                        date_format: dateFmtEl ? String(dateFmtEl.value || 'YYYY-MM-DD').trim() : 'YYYY-MM-DD',
+                        time_format: timeFmtEl ? String(timeFmtEl.value || '24h').trim() : '24h',
+                        currency_code: currencyEl ? String(currencyEl.value || 'USD').trim().toUpperCase() : 'USD'
+                    }
+                })
+            });
+            if (!res.ok) {
+                res = yield fetchAPI('/admin/schools', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, address: primaryAddress.address_line || '', contact_email: email })
+                });
+            }
             if (res.ok) {
                 alert("Institution Created Successfully!");
                 closeView();
@@ -4375,6 +5782,7 @@ function handleCreateSchool(e) {
 function openSchoolDashboard(schoolId, schoolName) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log(`Switching to School: ${schoolName} (${schoolId})`);
+        setSuperAdminInstitutionListMode(false);
         // Set Context
         appState.activeSchoolId = schoolId;
         appState.schoolName = schoolName;
@@ -4389,6 +5797,7 @@ function openSchoolDashboard(schoolId, schoolName) {
         // Render Dashboard
         renderTeacherControls();
         renderTeacherDashboard();
+        renderSuperAdminBackToInstitutionList();
         // Toast Feedback
         const msg = document.createElement('div');
         msg.className = 'alert alert-info fixed-top m-3 text-center fw-bold shadow';
@@ -4400,6 +5809,7 @@ function openSchoolDashboard(schoolId, schoolName) {
 }
 function handleLogout() {
     return __awaiter(this, void 0, void 0, function* () {
+        setSuperAdminInstitutionListMode(false);
         if (appState.isLoggedIn && appState.userId) {
             try {
                 yield fetchAPI('/auth/logout', {
@@ -4411,7 +5821,7 @@ function handleLogout() {
                 console.error("Logout log failed", e);
             }
         }
-        Object.assign(appState, { isLoggedIn: false, role: null, userId: null, activeStudentId: null, chatMessages: {}, activeSchoolId: null, schoolName: null });
+        Object.assign(appState, { isLoggedIn: false, role: null, userId: null, activeStudentId: null, chatMessages: {}, activeSchoolId: null, schoolName: null, tempUserId: null, tempSecurityMode: null });
         localStorage.removeItem('classbridge_session');
         localStorage.removeItem('user_id');
         localStorage.removeItem('user_role');
@@ -4926,14 +6336,27 @@ function getSidebarConfig(role) {
         ]
     });
     items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
-    if (hasPermission('role_management')) {
+    // Role Management Menu — gated by view_role_management per PRD
+    if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
         items.push({
-            label: 'sidebar_roles_perms',
-            icon: 'security',
-            view: 'role-management-view',
+            label: 'Role Management',
+            icon: 'manage_accounts',
+            view: 'roles-view',
             onClick: () => {
-                handleTeacherViewToggle('role-management-view');
+                switchView('roles-view');
                 loadRoles();
+            }
+        });
+    }
+    // Permission Setup — visible to anyone with view_permissions or edit_permissions
+    if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
+        items.push({
+            label: 'Permission Setup',
+            icon: 'vpn_key',
+            view: 'permissions-view',
+            onClick: () => {
+                switchView('permissions-view');
+                loadPermissionsSetup();
             }
         });
     }
@@ -4941,6 +6364,28 @@ function getSidebarConfig(role) {
         items.push({ label: 'sidebar_staff_faculty', icon: 'people_alt', view: 'staff-view', onClick: () => handleTeacherViewToggle('staff-view') });
     }
     if (appState.isSuperAdmin) {
+        // Root Admin Panel — merged into Super Admin sidebar
+        items.push({
+            label: 'Root Admin Panel',
+            icon: 'admin_panel_settings',
+            view: 'root-admin-view',
+            onClick: () => {
+                ensureRootAdminView();
+                switchView('root-admin-view');
+                loadRootAdminPanel();
+            }
+        });
+        // Database Explorer — merged into Super Admin sidebar
+        items.push({
+            label: 'Database Explorer',
+            icon: 'storage',
+            view: 'root-admin-db-view',
+            onClick: () => {
+                ensureRootAdminDatabaseView();
+                switchView('root-admin-db-view');
+                loadRootAdminDatabase();
+            }
+        });
         items.push({ label: 'sidebar_system_settings', icon: 'settings', view: 'settings-view', onClick: () => handleTeacherViewToggle('settings-view') });
     }
     return items;
@@ -5145,8 +6590,7 @@ function handleHashRouting() {
         }, 100);
     }
 }
-// Listen for PopState (Back/Forward)
-window.addEventListener('popstate', handleHashRouting);
+// Popstate is handled by the primary router listener to avoid duplicate navigation calls.
 function renderTeacherControls() {
     elements.userControls.innerHTML = '';
     // Show Invite Generator
@@ -5491,7 +6935,7 @@ function loadReportsData() {
                     xaxis: { title: 'Month' },
                     yaxis: { title: 'Percentage (%)', range: [0, 100] }
                 };
-                Plotly.newPlot('attendance-chart', [attTrace], attLayout, { displayModeBar: false });
+                loadPlotlyAndRender(() => Plotly.newPlot('attendance-chart', [attTrace], attLayout, { displayModeBar: false }));
             }
             // 2. Academic Performance (Bar Chart by Subject)
             if (academicContainer) {
@@ -5509,7 +6953,7 @@ function loadReportsData() {
                     plot_bgcolor: 'rgba(0,0,0,0)',
                     yaxis: { title: 'Average Score', range: [0, 100] }
                 };
-                Plotly.newPlot('academic-chart', [acTrace], acLayout, { displayModeBar: false });
+                loadPlotlyAndRender(() => Plotly.newPlot('academic-chart', [acTrace], acLayout, { displayModeBar: false }));
             }
         }
         catch (e) {
@@ -5767,7 +7211,7 @@ function handleEditStudentSubmit(e) {
         }
     });
 }
-let studentToDeleteId = null;
+var studentToDeleteId = null;
 function handleDeleteStudent(studentId, studentName) {
     studentToDeleteId = studentId;
     document.getElementById('delete-modal-text').textContent = `Are you sure you want to delete ${studentName} (${studentId})?`;
@@ -5927,9 +7371,11 @@ function handleAddActivity(e) {
 function renderTeacherDashboard() {
     return __awaiter(this, void 0, void 0, function* () {
         switchView('teacher-view');
+        setSuperAdminInstitutionListMode(false);
+        renderSuperAdminBackToInstitutionList();
         elements.teacherMetrics.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
         elements.rosterTable.innerHTML = '';
-        Plotly.purge(elements.classPerformanceChart);
+        if (window.Plotly) Plotly.purge(elements.classPerformanceChart);
         try {
             const response = yield fetchAPI('/teacher/overview');
             if (!response.ok) {
@@ -6003,13 +7449,13 @@ function renderTeacherDashboard() {
                 type: 'bar',
                 name: 'Average Activity Score'
             }];
-            Plotly.newPlot(elements.classPerformanceChart, plotData, {
+            loadPlotlyAndRender(() => Plotly.newPlot(elements.classPerformanceChart, plotData, {
                 title: 'Class Average Activity Score',
                 height: 350,
                 margin: { t: 40, b: 60, l: 40, r: 10 },
                 xaxis: { title: 'Student Name' },
                 yaxis: { title: 'Score (%)', range: [0, 100] }
-            });
+            }));
         }
         catch (error) {
             console.error(error);
@@ -6071,11 +7517,21 @@ function loadStudentDashboard(studentId) {
             }
         }
         const student = appState.allStudents.find(s => s.id == studentId) || { name: studentId, grade: '?', attendance_rate: '?' };
-        if (elements.studentNameHeader) {
-            elements.studentNameHeader.innerHTML = `Student Dashboard: <span class="text-primary-custom">${student.name}</span> <span class="badge bg-secondary fs-6 align-middle">Grade ${student.grade}</span>`;
+        // --- Dynamic Greeting ---
+        const greetingEl = document.getElementById('student-greeting-text');
+        const nameHeaderEl = document.getElementById('student-name-header');
+        if (greetingEl) {
+            const hour = new Date().getHours();
+            const greetEmoji = hour < 12 ? '☀️' : hour < 17 ? '🌤️' : '🌙';
+            const greetWord = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+            greetingEl.textContent = `${greetWord} ${greetEmoji}`;
         }
-        if (elements.studentMetrics) {
-            elements.studentMetrics.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 text-muted">Loading student data...</p></div>';
+        if (nameHeaderEl) {
+            nameHeaderEl.innerHTML = `Welcome back, <span style="color:#28245D;">${student.name}</span> <span class="badge ms-2 align-middle" style="background:#28245D;font-size:0.65rem;vertical-align:middle;">Grade ${student.grade}</span>`;
+        }
+        const metricsContainer = document.getElementById('student-metrics');
+        if (metricsContainer) {
+            metricsContainer.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 text-muted small">Loading your dashboard...</p></div>';
         }
         if (elements.recommendationBox)
             elements.recommendationBox.style.display = 'none';
@@ -6092,14 +7548,37 @@ function loadStudentDashboard(studentId) {
             console.log("Student Data Received:", data);
             const summary = data.summary;
             const history = data.history;
-            if (elements.studentMetrics) {
-                elements.studentMetrics.innerHTML = '';
-                renderMetric(elements.studentMetrics, "Overall Activity Avg", `${summary.avg_score || 0}%`, 'border-primary');
-                renderMetric(elements.studentMetrics, "Total Activities", summary.total_activities || 0, 'border-info');
-                renderMetric(elements.studentMetrics, "Math Initial", `${summary.math_score || 0}%`);
-                renderMetric(elements.studentMetrics, "Science Initial", `${summary.science_score || 0}%`);
-                renderMetric(elements.studentMetrics, "English Initial", `${summary.english_language_score || 0}%`);
-                renderMetric(elements.studentMetrics, "Attendance", `${student.attendance_rate || 0}%`, 'border-success');
+            // --- Render Premium Gradient Stat Cards ---
+            if (metricsContainer) {
+                metricsContainer.innerHTML = '';
+                const cards = [
+                    { label: 'Overall Activity Avg', value: `${summary.avg_score || 0}%`, icon: 'trending_up', bg: 'linear-gradient(135deg, #4f8ef7 0%, #3b75e0 100%)', shadow: 'rgba(79,142,247,0.35)' },
+                    { label: 'Total Activities', value: summary.total_activities || 0, icon: 'assignment_turned_in', bg: 'linear-gradient(135deg, #a855f7 0%, #9333ea 100%)', shadow: 'rgba(168,85,247,0.35)' },
+                    { label: 'Attendance Rate', value: `${student.attendance_rate || 0}%`, icon: 'event_available', bg: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)', shadow: 'rgba(34,197,94,0.35)' },
+                    { label: 'Math Score', value: `${summary.math_score || 0}%`, icon: 'calculate', bg: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', shadow: 'rgba(245,158,11,0.35)' },
+                    { label: 'Science Score', value: `${summary.science_score || 0}%`, icon: 'science', bg: 'linear-gradient(135deg, #f43f5e 0%, #e11d48 100%)', shadow: 'rgba(244,63,94,0.35)' },
+                    { label: 'English Score', value: `${summary.english_language_score || 0}%`, icon: 'menu_book', bg: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', shadow: 'rgba(239,68,68,0.35)' }
+                ];
+                cards.forEach(card => {
+                    const col = document.createElement('div');
+                    col.className = 'col-lg-4 col-md-6 col-6';
+                    col.innerHTML = `
+                        <div class="rounded-4 p-3 p-md-4 position-relative overflow-hidden"
+                            style="background:${card.bg}; box-shadow: 0 6px 20px ${card.shadow}; min-height:120px;">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="text-white fw-bold" style="font-size:1.9rem;line-height:1.1;">${card.value}</div>
+                                    <div class="text-white mt-2" style="font-size:0.82rem;opacity:0.9;font-weight:500;">${card.label}</div>
+                                </div>
+                                <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                                    style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
+                                    <span class="material-icons text-white" style="font-size:26px;opacity:0.85;">${card.icon}</span>
+                                </div>
+                            </div>
+                            <div class="position-absolute rounded-circle" style="width:80px;height:80px;background:rgba(255,255,255,0.07);bottom:-20px;right:-20px;"></div>
+                        </div>`;
+                    metricsContainer.appendChild(col);
+                });
             }
             if (summary.recommendation && elements.recommendationBox) {
                 elements.recommendationBox.style.display = 'block';
@@ -6114,10 +7593,8 @@ function loadStudentDashboard(studentId) {
             const xpEl = document.getElementById('student-xp');
             const barEl = document.getElementById('student-xp-bar');
             const badgesContainer = document.getElementById('student-badges');
-            if (levelEl)
-                levelEl.textContent = String(level);
-            if (xpEl)
-                xpEl.textContent = xp;
+            if (levelEl) levelEl.textContent = String(level);
+            if (xpEl) xpEl.textContent = xp;
             if (barEl) {
                 barEl.style.width = `${progress}%`;
                 barEl.setAttribute('aria-valuenow', String(progress));
@@ -6129,20 +7606,11 @@ function loadStudentDashboard(studentId) {
                 }
                 else {
                     badges.forEach(badge => {
-                        let icon = 'military_tech'; // default
+                        let icon = 'military_tech';
                         let color = 'text-warning';
-                        if (badge === 'Rookie') {
-                            icon = 'star_rate';
-                            color = 'text-light';
-                        }
-                        if (badge === 'Scholar') {
-                            icon = 'school';
-                            color = 'text-info';
-                        }
-                        if (badge === 'High Achiever') {
-                            icon = 'emoji_events';
-                            color = 'text-warning';
-                        }
+                        if (badge === 'Rookie') { icon = 'star_rate'; color = 'text-light'; }
+                        if (badge === 'Scholar') { icon = 'school'; color = 'text-info'; }
+                        if (badge === 'High Achiever') { icon = 'emoji_events'; color = 'text-warning'; }
                         const span = document.createElement('span');
                         span.className = 'badge bg-white text-dark shadow-sm d-flex align-items-center gap-1';
                         span.innerHTML = `<span class="material-icons ${color} fs-6">${icon}</span> ${badge}`;
@@ -6154,43 +7622,41 @@ function loadStudentDashboard(studentId) {
             let historyHTML = '';
             if (history.length > 0) {
                 history.forEach(act => {
-                    historyHTML += `
-                        <tr>
-                            <td>${act.date}</td>
-                            <td>${act.topic}</td>
-                            <td><span class="badge ${act.difficulty === 'Hard' ? 'bg-danger' : act.difficulty === 'Medium' ? 'bg-warning text-dark' : 'bg-success'}">${act.difficulty}</span></td>
-                            <td>${act.score}%</td>
-                            <td>${act.time_spent_min} min</td>
-                        </tr>
-                    `;
+                    historyHTML += `<tr>
+                        <td class="small">${act.date}</td>
+                        <td class="small">${act.topic}</td>
+                        <td><span class="badge rounded-pill ${act.difficulty === 'Hard' ? 'bg-danger' : act.difficulty === 'Medium' ? 'bg-warning text-dark' : 'bg-success'}">${act.difficulty}</span></td>
+                        <td class="fw-bold">${act.score}%</td>
+                        <td class="small text-muted">${act.time_spent_min} min</td>
+                    </tr>`;
                 });
             }
             else {
-                historyHTML = '<tr><td colspan="5" class="text-center text-muted">No activity history available.</td></tr>';
+                historyHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No activity history available.</td></tr>';
             }
             if (elements.historyTable)
                 elements.historyTable.innerHTML = historyHTML;
-            // Progress Chart
+            // Progress Chart (Plotly - improved)
             if (elements.studentProgressChart) {
                 const dates = history.map(h => h.date);
                 const scores = history.map(h => h.score);
                 const trace = {
-                    x: dates,
-                    y: scores,
-                    mode: 'lines+markers',
-                    type: 'scatter',
-                    name: 'Score',
-                    line: { color: '#4f46e5', width: 2 }
+                    x: dates, y: scores,
+                    mode: 'lines+markers', type: 'scatter', name: 'Score',
+                    line: { color: '#4f46e5', width: 2.5, shape: 'spline' },
+                    marker: { size: 5, color: '#4f46e5' },
+                    fill: 'tozeroy', fillcolor: 'rgba(79,70,229,0.07)'
                 };
                 const layout = {
-                    title: 'Activity Score History',
-                    height: 350,
-                    margin: { t: 40, b: 60, l: 40, r: 10 },
-                    xaxis: { title: 'Date' },
-                    yaxis: { title: 'Score (%)', range: [0, 100] }
+                    title: 'Activity Score History', height: 300,
+                    margin: { t: 40, b: 60, l: 45, r: 15 },
+                    xaxis: { title: 'Date', gridcolor: '#f0f0f0' },
+                    yaxis: { title: 'Score (%)', range: [0, 100], gridcolor: '#f0f0f0' },
+                    plot_bgcolor: '#ffffff', paper_bgcolor: '#ffffff',
+                    font: { family: 'Inter, sans-serif', size: 12, color: '#555' }
                 };
                 try {
-                    Plotly.newPlot(elements.studentProgressChart, [trace], layout, { responsive: true });
+                    loadPlotlyAndRender(() => Plotly.newPlot(elements.studentProgressChart, [trace], layout, { responsive: true, displayModeBar: false }));
                 }
                 catch (e) {
                     console.error("Plotly Error:", e);
@@ -6199,20 +7665,17 @@ function loadStudentDashboard(studentId) {
             }
             // LMS: Load Groups & Assignments
             loadStudentGroups();
-
             loadStudentDashboardAssignments(studentId);
             loadStudentQuizResults(studentId);
-
         }
         catch (error) {
             console.error("Dashboard Load Error:", error);
-            if (elements.studentMetrics) {
-                elements.studentMetrics.innerHTML = `
+            if (metricsContainer) {
+                metricsContainer.innerHTML = `
                 <div class="col-12">
-                    <div class="alert alert-danger shadow-sm">
+                    <div class="alert alert-danger shadow-sm rounded-4">
                         <h4 class="alert-heading"><span class="material-icons align-middle">error</span> Error Loading Dashboard</h4>
-                        <p>${error.message}</p>
-                        <hr>
+                        <p>${error.message}</p><hr>
                         <button class="btn btn-sm btn-outline-danger" onclick="loadStudentDashboard('${studentId}')">Retry</button>
                     </div>
                 </div>`;
@@ -6221,6 +7684,7 @@ function loadStudentDashboard(studentId) {
         scrollChatToBottom();
     });
 }
+
 function loadStudentDashboardAssignments(studentId) {
     return __awaiter(this, void 0, void 0, function* () {
         const container = document.getElementById('student-upcoming-assignments');
@@ -6235,22 +7699,50 @@ function loadStudentDashboardAssignments(studentId) {
                     container.innerHTML = '<p class="text-muted small">Hooray! No pending assignments.</p>';
                     return;
                 }
-                container.innerHTML = assignments.map(a => `
-                <div class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-bold">${a.title}</div>
-                        <div class="small text-muted">
-                            <span class="badge bg-light text-dark border me-1">${a.course_name}</span>
-                            Due: ${a.due_date}
+                container.innerHTML = assignments.map(a => {
+                    let desc = a.description || '';
+                    let fileUrl = '';
+                    let note = '';
+                    try {
+                        const parsed = JSON.parse(desc);
+                        note = parsed.note || '';
+                        fileUrl = parsed.file_url || '';
+                    } catch (e) {
+                        note = desc;
+                    }
+
+                    let fileLink = '';
+                    if (fileUrl) {
+                        fileLink = `
+                            <div class="mt-1">
+                                <a href="${fileUrl}" target="_blank" class="text-primary small text-decoration-none d-inline-flex align-items-center gap-1">
+                                    <span class="material-icons" style="font-size:14px;">download</span> Attached File
+                                </a>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">${a.title}</div>
+                            <div class="small text-muted">
+                                <span class="badge bg-light text-dark border me-1">${a.course_name || 'Assignment'}</span>
+                                ${a.due_date ? `Due: <span class="text-danger fw-bold">${a.due_date}</span>` : ''}
+                            </div>
+                            ${fileLink}
+                        </div>
+                        <div class="ms-2">
+                            ${a.type === 'Quiz' ?
+                            `<button class="btn btn-sm btn-primary" onclick="takeQuiz('${a.id}')">Start Quiz</button>` :
+                            `<button class="btn btn-sm btn-success" onclick="openSubmitModal(${a.id}, '${(a.title || '').replace(/'/g, "\\'")}', 'student-view')">
+                                    <span class="material-icons align-middle" style="font-size:14px;">send</span> Submit
+                                </button>`
+                        }
                         </div>
                     </div>
-                    ${a.type === 'Quiz' ?
-                        `<button class="btn btn-sm btn-primary-custom" onclick="takeQuiz('${a.id}')">Start Quiz</button>` :
-                        (a.type === 'Assignment' || a.type === 'Project' ?
-                            `<button class="btn btn-sm btn-outline-success" onclick="openSubmitModal(${a.id}, '${a.title.replace(/'/g, "\\'")}')">Submit</button>` : '')
-                    }
-                </div>
-            `).join('');
+                `;
+                }).join('');
             }
             else {
                 container.innerHTML = '<p class="text-danger small">Failed to load assignments.</p>';
@@ -6360,13 +7852,13 @@ function loadParentChildData() {
                     name: 'Score',
                     line: { color: '#198754', width: 2 } // Green for parents
                 };
-                Plotly.newPlot(chartDiv, [trace], {
+                loadPlotlyAndRender(() => Plotly.newPlot(chartDiv, [trace], {
                     title: 'Child\'s Academic Progress',
                     height: 300,
                     margin: { t: 40, b: 30, l: 40, r: 10 },
                     xaxis: { title: 'Date' },
                     yaxis: { title: 'Score (%)', range: [0, 100] }
-                }, { responsive: true });
+                }, { responsive: true }));
             }
         }
         catch (e) {
@@ -6392,8 +7884,8 @@ function appendChatMessage(sender, message) {
     scrollChatToBottom();
 }
 // Voice Recognition Setup
-let recognition;
-let isListening = false;
+var recognition;
+var isListening = false;
 if ('webkitSpeechRecognition' in window) {
     recognition = new webkitSpeechRecognition();
     recognition.continuous = false;
@@ -7397,7 +8889,7 @@ function toggleSidebar() {
     }
 }
 // --- WHITEBOARD LOGIC ---
-let whiteboardManager = {
+var whiteboardManager = {
     socket: null,
     canvas: null,
     ctx: null,
@@ -8274,17 +9766,34 @@ function loadAssignments(sectionId) {
                 return;
             }
             const assignments = yield res.json();
-            if (!assignments || assignments.length === 0) {
-                list.innerHTML = `<p class="text-muted text-center py-4">${t('msg_no_assignments')}</p>`;
-                return;
-            }
             list.innerHTML = assignments.map(a => {
+                let desc = a.description || '';
+                let fileUrl = '';
+                let note = '';
+                try {
+                    const parsed = JSON.parse(desc);
+                    note = parsed.note || '';
+                    fileUrl = parsed.file_url || '';
+                } catch (e) {
+                    note = desc;
+                }
+
                 const due = formatDueDate(a.due_date);
                 const sectionLabel = a.section_name ? `Section: ${a.section_name}` : (a.grade_level ? `Grade ${a.grade_level}` : 'All Grades');
                 const submissions = typeof a.submission_count === 'number' ? `${a.submission_count} Submission${a.submission_count === 1 ? '' : 's'}` : '';
+
+                let fileBtn = '';
+                if (fileUrl) {
+                    fileBtn = `<a href="${fileUrl}" target="_blank" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 mb-2">
+                            <span class="material-icons" style="font-size:16px;">download</span>
+                            Download Attachment
+                        </a>`;
+                }
+
                 const actionBtn = canCreateAssignments()
-                    ? `<button class="btn btn-sm btn-outline-dark rounded-pill" onclick="viewSubmissions(${a.id})">${t('btn_view_submissions')}</button>`
+                    ? `<button class="btn btn-sm btn-primary rounded-pill px-3" onclick="viewSubmissions(${a.id})">${t('btn_view_submissions')}</button>`
                     : '';
+
                 return `
                     <div class="card mb-3 border-0 shadow-sm border-start border-4 border-primary">
                         <div class="card-body">
@@ -8295,11 +9804,14 @@ function loadAssignments(sectionId) {
                                 </div>
                                 <span class="badge bg-light text-dark">${a.type || 'Assignment'}</span>
                             </div>
-                            <p class="text-muted small mb-2">${a.description || 'No description provided.'}</p>
+                            <div class="mb-2">
+                                ${note ? `<p class="text-muted small mb-2">${note}</p>` : ''}
+                                ${fileBtn}
+                            </div>
                             <div class="d-flex flex-wrap gap-3 text-muted small mb-3">
-                                <span>Due: ${due}</span>
-                                <span>Points: ${a.points || 0}</span>
-                                ${submissions ? `<span>${submissions}</span>` : ''}
+                                <span><i class="material-icons align-middle small" style="font-size:14px;">event</i> Due: ${due}</span>
+                                <span><i class="material-icons align-middle small" style="font-size:14px;">star_outline</i> Points: ${a.points || 0}</span>
+                                ${submissions ? `<span><i class="material-icons align-middle small" style="font-size:14px;">groups</i> ${submissions}</span>` : ''}
                             </div>
                             ${actionBtn ? `<div class="d-flex justify-content-end">${actionBtn}</div>` : ''}
                         </div>
@@ -8495,30 +10007,28 @@ function loadCourseAssignments(groupId) {
     });
 }
 function openCreateAssignmentModal() {
+    // Reset the form
     const form = document.getElementById('create-assignment-form');
-    if (form)
-        form.reset();
-    loadSectionsForDropdown();
-    const modalEl = document.getElementById('createAssignmentModal');
-    const submitBtn = document.getElementById('create-assignment-submit-btn');
+    if (form) form.reset();
+    // Clear error
     const messageEl = document.getElementById('asg-error');
     if (messageEl) {
         messageEl.classList.add('d-none');
         messageEl.textContent = '';
     }
-    if (submitBtn)
-        submitBtn.removeAttribute('disabled');
-    if (modalEl) {
-        if (typeof bootstrap !== 'undefined' && bootstrap.Modal && modalEl.classList.contains('modal')) {
-            new bootstrap.Modal(modalEl).show();
-        }
-        else {
-            openView(modalEl.id);
-        }
-    }
-    else {
-        alert('Create Assignment form is not available on this page.');
-    }
+    // Re-enable button
+    const submitBtn = document.getElementById('create-assignment-submit-btn');
+    if (submitBtn) submitBtn.removeAttribute('disabled');
+    // Store the current view so Cancel/back can return to it
+    const previousViewId = document.querySelector('.view.active')?.id || 'assignment-view-view';
+    openCreateAssignmentModal._goBack = () => {
+        switchView(previousViewId);
+        if (previousViewId === 'assignment-view-view') loadAssignments();
+    };
+    // Load grade/section dropdowns
+    loadSectionsForDropdown();
+    // Navigate to the full-page view
+    switchView('createAssignmentModal');
 }
 function loadSectionsForDropdown() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -8590,113 +10100,167 @@ function handleCreateAssignment() {
             messageEl.classList.add('d-none');
             messageEl.textContent = '';
         }
-        const data = {
-            title: document.getElementById('asg-title').value.trim(),
-            description: document.getElementById('asg-desc').value.trim(),
-            points: parseInt(document.getElementById('asg-points').value),
-            due_date: document.getElementById('asg-date').value,
-            grade_level: gradeEl ? parseInt(gradeEl.value) : null,
-            section_id: sectionEl && sectionEl.value ? parseInt(sectionEl.value) : null
-        };
-        if (!data.grade_level && data.section_id && sectionEl) {
+        const title = document.getElementById('asg-title').value.trim();
+        const description = document.getElementById('asg-desc').value.trim();
+        const points = parseInt(document.getElementById('asg-points').value);
+        const due_date = document.getElementById('asg-date').value;
+        const grade_level = gradeEl ? parseInt(gradeEl.value) : null;
+        const section_id = sectionEl && sectionEl.value ? parseInt(sectionEl.value) : null;
+        let finalGrade = grade_level;
+        if (!finalGrade && section_id && sectionEl) {
             const opt = sectionEl.options[sectionEl.selectedIndex];
             if (opt && opt.dataset && opt.dataset.grade) {
-                data.grade_level = parseInt(opt.dataset.grade);
+                finalGrade = parseInt(opt.dataset.grade);
             }
         }
-        if (!data.title || !data.due_date || !data.grade_level) {
+        if (!title || !due_date || !finalGrade) {
             if (messageEl) {
                 messageEl.textContent = t('msg_fill_assignment_fields');
                 messageEl.classList.remove('d-none');
-            }
-            else {
+            } else {
                 alert(t('msg_fill_assignment_fields'));
             }
             return;
         }
-        if (!Number.isFinite(data.points) || data.points <= 0) {
-            data.points = 100;
+
+        const fileInput = document.getElementById('asg-file-input');
+        const hasFile = fileInput && fileInput.files && fileInput.files[0];
+
+        if (!description && !hasFile) {
+            if (messageEl) {
+                messageEl.textContent = "Please provide either a note or an assignment file.";
+                messageEl.classList.remove('d-none');
+            } else {
+                alert("Please provide either a note or an assignment file.");
+            }
+            return;
         }
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('description', description);
+        formData.append('points', (isFinite(points) && points > 0) ? points : 100);
+        formData.append('due_date', due_date);
+        formData.append('grade_level', finalGrade);
+        if (section_id) formData.append('section_id', section_id);
+
+        if (hasFile) {
+            formData.append('file', fileInput.files[0]);
+        }
+        const submitBtn = document.getElementById('create-assignment-submit-btn');
+        const origHtml = submitBtn ? submitBtn.innerHTML : '';
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...'; }
         try {
-            const res = yield fetchAPI(`/assignments`, {
+            const res = yield fetchAPI('/assignments', {
                 method: 'POST',
-                body: JSON.stringify(data)
+                body: formData
             });
             if (res.ok) {
+                clearAsgFile();
+                const form = document.getElementById('create-assignment-form');
+                if (form) form.reset();
+                switchView('assignment-view-view');
                 loadAssignments();
-                const modalEl = document.getElementById('createAssignmentModal');
-                if (modalEl && typeof bootstrap !== 'undefined' && bootstrap.Modal && modalEl.classList.contains('modal')) {
-                    const instance = bootstrap.Modal.getOrCreateInstance(modalEl);
-                    instance.hide();
-                }
-                else {
-                    closeView();
-                }
-            }
-            else {
+            } else {
                 let msg = t('msg_create_assignment_failed');
                 const contentType = res.headers.get('content-type') || '';
                 if (contentType.includes('application/json')) {
                     const payload = yield res.json().catch(() => ({}));
                     msg = payload.detail || msg;
-                }
-                else {
+                } else {
                     const text = yield res.text().catch(() => '');
-                    if (text)
-                        msg = text;
+                    if (text) msg = text;
                 }
-                if (messageEl) {
-                    messageEl.textContent = msg;
-                    messageEl.classList.remove('d-none');
-                }
-                else {
-                    alert(msg);
-                }
+                if (messageEl) { messageEl.textContent = msg; messageEl.classList.remove('d-none'); }
+                else { alert(msg); }
             }
-        }
-        catch (e) {
+        } catch (e) {
             console.error(e);
-            if (messageEl) {
-                messageEl.textContent = t('msg_create_assignment_network_error');
-                messageEl.classList.remove('d-none');
-            }
-            else {
-                alert(t('msg_create_assignment_network_error'));
-            }
+            if (messageEl) { messageEl.textContent = t('msg_create_assignment_network_error'); messageEl.classList.remove('d-none'); }
+            else { alert(t('msg_create_assignment_network_error')); }
+        } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = origHtml; }
         }
     });
 }
+/* ---- File-picker helpers for Create Assignment ---- */
+function handleAsgFileSelect(input) {
+    if (input.files && input.files[0]) { _showAsgFilePreview(input.files[0]); }
+}
+function handleAsgFileDrop(event) {
+    event.preventDefault();
+    const dz = document.getElementById('asg-file-dropzone');
+    if (dz) { dz.style.borderColor = '#c7d2e8'; dz.style.background = '#f8faff'; }
+    const file = event.dataTransfer && event.dataTransfer.files[0];
+    if (!file) return;
+    if (!/\.(pdf|doc|docx)$/i.test(file.name)) { alert('Please upload a PDF or Word (.doc/.docx) file.'); return; }
+    try { const dt = new DataTransfer(); dt.items.add(file); const fi = document.getElementById('asg-file-input'); if (fi) fi.files = dt.files; } catch (e) { }
+    _showAsgFilePreview(file);
+}
+function _showAsgFilePreview(file) {
+    const preview = document.getElementById('asg-file-preview');
+    const nameEl = document.getElementById('asg-file-name');
+    if (preview) preview.classList.remove('d-none');
+    if (nameEl) nameEl.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+}
+function clearAsgFile() {
+    const fi = document.getElementById('asg-file-input'); if (fi) fi.value = '';
+    const preview = document.getElementById('asg-file-preview'); if (preview) preview.classList.add('d-none');
+    const nameEl = document.getElementById('asg-file-name'); if (nameEl) nameEl.textContent = '';
+}
 // 4. Student: Open Submit Modal
-function openSubmitModal(id, title) {
+function openSubmitModal(id, title, returnView) {
     document.getElementById('submit-asg-id').value = id;
-    document.getElementById('submit-asg-title').textContent = title;
+    document.getElementById('submit-asg-title').textContent = title || 'Assignment';
     document.getElementById('submit-content').value = '';
-    openView('submitAssignmentModal');
+    const submitErr = document.getElementById('submit-asg-error');
+    if (submitErr) { submitErr.classList.add('d-none'); submitErr.textContent = ''; }
+    const submitBtn = document.getElementById('submit-asg-btn');
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Assignment'; }
+    // Remember which view to return to after submission
+    appState.submissionReturnView = returnView || document.querySelector('.view.active')?.id || 'student-exams-view';
+    // Use switchView so it works inside the student-view container
+    switchView('submitAssignmentModal');
 }
 // 5. Student: Submit
 function handleSubmitAssignment() {
     return __awaiter(this, void 0, void 0, function* () {
         const id = document.getElementById('submit-asg-id').value;
         const content = document.getElementById('submit-content').value;
-        if (!content) {
-            alert(t('msg_assignment_submit_required'));
+        const submitErr = document.getElementById('submit-asg-error');
+        const submitBtn = document.getElementById('submit-asg-btn');
+        if (!content.trim()) {
+            if (submitErr) { submitErr.textContent = t('msg_assignment_submit_required'); submitErr.classList.remove('d-none'); }
+            else alert(t('msg_assignment_submit_required'));
             return;
         }
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting...'; }
         try {
             const res = yield fetchAPI(`/assignments/${id}/submit`, {
                 method: 'POST',
                 body: JSON.stringify({ student_id: appState.userId, content: content })
             });
             if (res.ok) {
-                alert(t('msg_assignment_submit_success'));
-                closeView();
+                // Go back to student exams/assignments view and show success toast
+                const prevView = appState.submissionReturnView || 'student-exams-view';
+                switchView(prevView);
+                // Reload assignments in the destination view
+                if (typeof loadStudentAssignmentsAndResults === 'function') loadStudentAssignmentsAndResults();
+                if (typeof loadStudentDashboardAssignments === 'function') loadStudentDashboardAssignments(appState.userId);
+                // Show a friendly success toast
+                showToast('✅ Assignment submitted successfully!', 'success');
             }
             else {
-                alert(t('msg_assignment_submit_failed'));
+                const errText = yield res.text().catch(() => '');
+                if (submitErr) { submitErr.textContent = errText || t('msg_assignment_submit_failed'); submitErr.classList.remove('d-none'); }
+                else alert(t('msg_assignment_submit_failed'));
             }
         }
         catch (e) {
-            alert(t('msg_assignment_submit_network_error'));
+            if (submitErr) { submitErr.textContent = t('msg_assignment_submit_network_error'); submitErr.classList.remove('d-none'); }
+            else alert(t('msg_assignment_submit_network_error'));
+        }
+        finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit Assignment'; }
         }
     });
 }
@@ -9633,6 +11197,8 @@ function handleEngagementChat(e) {
 }
 // --- AUTH RESTORATION & NAVIGATION ---
 document.addEventListener('DOMContentLoaded', () => __awaiter(this, void 0, void 0, function* () {
+    if (window.__cbInitialBootComplete)
+        return;
     updateTranslations();
     // Restore Session
     if (restoreAuthState() && appState.isLoggedIn) {
@@ -9643,13 +11209,16 @@ document.addEventListener('DOMContentLoaded', () => __awaiter(this, void 0, void
         const targetView = urlParams.get('view');
         if (targetView && document.getElementById(targetView)) {
             // Fix Navigation: Ensure current history entry has state
-            window.history.replaceState({ view: targetView }, '', window.location.href);
+            window.history.replaceState({ viewId: targetView }, '', window.location.href);
             // Slight delay to ensure dashboard render doesn't override
             setTimeout(() => switchView(targetView, false), 100);
         }
         else {
             // Default logged in view
-            window.history.replaceState({ view: 'dashboard-view' }, '', window.location.href);
+            const fallbackView = appState.role === 'Student'
+                ? 'student-view'
+                : (isParentRole(appState.role) ? 'parent-dashboard-view' : (appState.isSuperAdmin ? 'super-admin-view' : 'teacher-view'));
+            window.history.replaceState({ viewId: fallbackView }, '', window.location.href);
         }
     }
 }));
@@ -12971,7 +14540,7 @@ function canManageResources() {
     const adminRoles = ['Admin', 'Principal', 'Tenant_Admin', 'Root_Super_Admin', 'Super Admin'];
     return !!appState.isSuperAdmin || adminRoles.includes(appState.role || '');
 }
-let resourceFormTemplatesCache = [];
+var resourceFormTemplatesCache = [];
 function normalizeResourceCategory(rawCategory) {
     const value = String(rawCategory || 'All').trim();
     const normalized = value.toLowerCase();
@@ -13558,8 +15127,8 @@ function appendSidebarMessage(sender, text, isTyping = false) {
 // --- ENGAGEMENT HELPER LOGIC REMOVED ---
 // --- LMS INTERNAL LOGIC ---
 // Global State for LMS
-let currentLMSCourse = null;
-let currentLMSSection = null;
+var currentLMSCourse = null;
+var currentLMSSection = null;
 function loadLMSCatalog() {
     return __awaiter(this, void 0, void 0, function* () {
         const search = document.getElementById('lms-search').value;
@@ -13786,7 +15355,7 @@ function submitLMSSection() {
     });
 }
 // --- LMS FIELD LOGIC ---
-let quizQuestionCount = 0;
+var quizQuestionCount = 0;
 function toggleLMSModuleFields() {
     const type = document.getElementById('lms-module-type').value;
     document.getElementById('lms-field-url').classList.add('d-none');
@@ -14618,7 +16187,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const d = document.getElementById('att-view-date');
     if (d) {
         d.valueAsDate = new Date();
-        loadAttendanceViewList();
+        const activeView = (document.querySelector('.view.active') || {}).id || '';
+        if (activeView === 'attendance-view') {
+            loadAttendanceViewList();
+        }
     }
 });
 // --- TIMETABLE & LEAVE ---
@@ -15001,7 +16573,7 @@ function loadStudentAttendanceView() {
                 const tracePresent = { x, y: presentY, mode: 'lines+markers', type: 'scatter', name: 'Present', line: { color: '#198754', width: 2 } };
                 const traceAbsent = { x, y: absentY, mode: 'lines+markers', type: 'scatter', name: 'Absent', line: { color: '#dc3545', width: 2 } };
                 const layout = { margin: { t: 20, r: 20, b: 50, l: 40 }, xaxis: { title: 'Date' }, yaxis: { title: 'Flag', range: [-0.1, 1.1], dtick: 1 }, legend: { orientation: 'h' } };
-                Plotly.newPlot(trendChart, [tracePresent, traceAbsent], layout, { displayModeBar: false, responsive: true });
+                loadPlotlyAndRender(() => Plotly.newPlot(trendChart, [tracePresent, traceAbsent], layout, { displayModeBar: false, responsive: true }));
             }
         }
         catch (e) {
@@ -16648,16 +18220,52 @@ async function loadStudentAssignmentsAndResults() {
             else {
                 homeworkTab.innerHTML = `
                     <div class="list-group">
-                        ${assignments.map(a => `
-                            <div class="list-group-item p-3 border-start border-4 border-warning mb-2 rounded">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h5 class="mb-1 fw-bold">${a.title || 'Assignment'}</h5>
-                                    <small class="text-danger fw-bold">${a.due_date ? `Due ${a.due_date}` : 'No due date'}</small>
+                        ${assignments.map(a => {
+                    let desc = a.description || '';
+                    let fileUrl = '';
+                    let note = '';
+                    try {
+                        const parsed = JSON.parse(desc);
+                        note = parsed.note || '';
+                        fileUrl = parsed.file_url || '';
+                    } catch (e) {
+                        note = desc;
+                    }
+
+                    let fileBtn = '';
+                    if (fileUrl) {
+                        fileBtn = `
+                            <a href="${fileUrl}" target="_blank" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 mt-2">
+                                <span class="material-icons" style="font-size:14px;">download</span>
+                                Download File
+                            </a>
+                        `;
+                    }
+
+                    return `
+                            <div class="list-group-item p-3 border-start border-4 border-warning mb-2 rounded shadow-sm">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex w-100 justify-content-between">
+                                            <h5 class="mb-1 fw-bold">${a.title || 'Assignment'}</h5>
+                                        </div>
+                                        <p class="mb-1 text-muted small">${a.type || 'Assignment'} &bull; ${a.course_name || 'Class Assignment'}</p>
+                                        ${note ? `<p class="mb-1 text-dark small">${note}</p>` : ''}
+                                        ${a.due_date ? `<div class="text-danger small fw-bold">Due: ${a.due_date}</div>` : ''}
+                                        ${fileBtn}
+                                    </div>
+                                    <div class="ms-3">
+                                        ${a.type === 'Quiz' ?
+                            `<button class="btn btn-sm btn-primary" onclick="takeQuiz('${a.id}')">Start Quiz</button>` :
+                            `<button class="btn btn-sm btn-success" onclick="openSubmitModal(${a.id}, '${(a.title || '').replace(/'/g, "\\'")}', 'student-exams-view')">
+                                                <span class="material-icons align-middle" style="font-size:14px;">send</span> Submit
+                                            </button>`
+                        }
+                                    </div>
                                 </div>
-                                <p class="mb-1">${a.type || 'Assignment'}</p>
-                                <small class="text-muted">${a.course_name || 'Class Assignment'}</small>
                             </div>
-                        `).join('')}
+                        `;
+                }).join('')}
                     </div>
                 `;
             }
@@ -16777,7 +18385,7 @@ function ensureParentExamScheduleLayout() {
     return tbody;
 }
 
-let examTimerInterval;
+var examTimerInterval;
 
 function startPDFExam(id, title, filePath, timeLimitMins) {
     if (!confirm("Are you sure you want to start the exam? The timer will start immediately.")) return;
@@ -17515,3 +19123,4 @@ async function loadAttendanceSheetData() {
         tbody.innerHTML = `<tr><td colspan="3" class="text-center p-5 text-danger">Error loading data: ${e.message}</td></tr>`;
     }
 }
+

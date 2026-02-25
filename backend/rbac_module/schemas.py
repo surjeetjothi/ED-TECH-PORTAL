@@ -40,7 +40,7 @@ class StudentPasswordUpdateRequest(BaseModel):
 class StudentOut(BaseModel):
     id: int
     full_name: str
-    email: EmailStr
+    email: str
     school_id: int
 
 

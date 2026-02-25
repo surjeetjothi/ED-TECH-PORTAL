@@ -3,6 +3,7 @@ import secrets
 import time
 import hmac
 import hashlib
+import base64
 # Trigger Reload (Last updated: School Fix)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
@@ -29,6 +30,7 @@ import re
 from fastapi.staticfiles import StaticFiles
 import random
 import smtplib
+from urllib.parse import quote
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 try:
@@ -50,6 +52,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# IN-MEMORY TTL CACHE — avoids repeated identical DB queries within a session
+# ─────────────────────────────────────────────────────────────────────────────
+_api_cache: dict = {}
+
+def api_ttl_cache(key: str, ttl_seconds: int, fn):
+    """Return cached value if fresh, else run fn(), cache and return result."""
+    entry = _api_cache.get(key)
+    if entry and (time.time() - entry['ts']) < ttl_seconds:
+        return entry['val']
+    val = fn()
+    _api_cache[key] = {'val': val, 'ts': time.time()}
+    return val
+
+def _clear_student_cache(student_id: str = None):
+    """Invalidate student-related cache entries (call on any student mutation)."""
+    keys_to_del = [
+        k for k in list(_api_cache.keys())
+        if k.startswith('students_all') or (student_id and k.startswith(f'student_data_{student_id}'))
+    ]
+    for k in keys_to_del:
+        _api_cache.pop(k, None)
+
+
 from dotenv import load_dotenv
 # Force load .env from the script's directory
 env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -69,6 +95,9 @@ def load_psycopg2():
     try:
         import psycopg2 as _psycopg2
         from psycopg2.extras import DictCursor as _DictCursor
+        from psycopg2.extras import execute_batch as _execute_batch
+        global execute_batch
+        execute_batch = _execute_batch
         psycopg2 = _psycopg2
         DictCursor = _DictCursor
         PSYCOPG2_LOADED = True
@@ -472,7 +501,7 @@ app = FastAPI(title="EdTech AI Portal API - Enhanced", lifespan=lifespan)
 origins = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "null",
+    "null",  # file:// origin
     "https://classbridge-backend-bqj3.onrender.com",
     "https://ed-tech-portal.vercel.app",
     "https://www.ed-tech-portal.vercel.app",
@@ -497,14 +526,18 @@ else:
 print(f"Using database backend: {'Postgres' if USE_POSTGRES and 'postgres' in DATABASE_URL.lower() else 'SQLite'} ({DATABASE_URL if USE_POSTGRES and 'postgres' in DATABASE_URL.lower() else SQLITE_DB_PATH})")
 
 # For production, also allow Vercel preview URLs via regex.
-# We keep explicit origins to avoid accidental CORS denial for main domains.
 IS_PRODUCTION = os.getenv("RENDER") == "true" or (USE_POSTGRES and "postgres" in DATABASE_URL.lower())
+
+# Use allow_origins=["*"] when running locally to prevent null-origin CORS blocks
+# (null origin happens when opening file:// URLs or when the page is not served from a web server)
+_cors_origins = ["*"] if not IS_PRODUCTION else origins
+_cors_origin_regex = r"https://.*\.vercel\.app" if IS_PRODUCTION else None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app" if IS_PRODUCTION else None,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
+    allow_credentials=False,  # Cannot use credentials with allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -530,6 +563,11 @@ if os.path.isdir(FRONTEND_STATIC_DIR):
         pass
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Mount uploads directory for assignment files
+UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.include_router(rbac_router)
 
 
@@ -606,9 +644,9 @@ class PostgresCursorWrapper:
                 try:
                     if isinstance(e, psycopg2.errors.DuplicateColumn):
                         return self
-                    if isinstance(e, psycopg2.errors.UndefinedColumn) and is_insert and query.endswith(" RETURNING id"):
+                    if isinstance(e, psycopg2.errors.UndefinedColumn) and is_insert and "RETURNING ID" in query.upper():
                         self.cursor.connection.rollback()
-                        query_clean = query[:-13] # strip " RETURNING id"
+                        query_clean = re.sub(r"\s+RETURNING\s+id\s*;?\s*$", "", query, flags=re.IGNORECASE)
                         self.cursor.execute(query_clean, params)
                         self._lastrowid = None
                         return self
@@ -621,7 +659,10 @@ class PostgresCursorWrapper:
 
     def executemany(self, query, params):
         query = query.replace('?', '%s')
-        self.cursor.executemany(query, params)
+        if type(self.cursor.connection).__name__ == "connection" and execute_batch:
+            execute_batch(self.cursor, query, params)
+        else:
+            self.cursor.executemany(query, params)
         # executemany doesn 't support RETURNING easily with single lastrowid conceptual mapping
         self._lastrowid = None 
         return self
@@ -646,6 +687,7 @@ class PostgresConnectionWrapper:
             raise RuntimeError("Postgres requested but psycopg2 is not available.")
         try:
             self.conn = psycopg2.connect(dsn, cursor_factory=DictCursor)
+            self.conn.autocommit = True
         except Exception as e:
             logger.error(f"DB Connection Error: {e}")
             raise e
@@ -690,10 +732,14 @@ class LoginResponse(BaseModel):
     is_super_admin: bool = False 
     related_student_id: Optional[str] = None 
     email_masked: Optional[str] = None 
+    security_mode: Optional[str] = None
 
 class Verify2FARequest(BaseModel):
     user_id: str
     code: str
+
+class AuthenticatorSetupRequest(BaseModel):
+    user_id: str
 
 class AddStudentRequest(BaseModel):
     id: str
@@ -846,6 +892,70 @@ class SchoolResponse(BaseModel):
     address: str
     contact_email: str
     created_at: str 
+
+class InstitutionAddressInput(BaseModel):
+    address_line: str
+    region: Optional[str] = ""
+    timezone: Optional[str] = ""
+    language: Optional[str] = "English"
+    is_primary: Optional[bool] = True
+
+class InstitutionKeyIndividualInput(BaseModel):
+    individual_type: str
+    custom_type: Optional[str] = ""
+    first_name: str
+    middle_name: Optional[str] = ""
+    last_name: str
+    email: str
+    status: Optional[str] = "Active"
+    contact_number: Optional[str] = ""
+    mobile_number: Optional[str] = ""
+    address: Optional[str] = ""
+
+class InstitutionSecurityInput(BaseModel):
+    auth_mode: Optional[str] = "password_only"
+    recommendation_text: Optional[str] = ""
+
+class InstitutionBrandingInput(BaseModel):
+    logo_url: Optional[str] = ""
+    color_theme: Optional[str] = ""
+    default_course_image_url: Optional[str] = ""
+
+class InstitutionLocaleInput(BaseModel):
+    date_format: Optional[str] = "YYYY-MM-DD"
+    time_format: Optional[str] = "24h"
+    currency_code: Optional[str] = "USD"
+
+class InstitutionCreateRequest(BaseModel):
+    institution_official_name: str
+    institution_visual_name: Optional[str] = ""
+    institution_brief_details: Optional[str] = ""
+    institution_type: str
+    institution_structure: str
+    state: Optional[str] = "Trial"
+    addresses: List[InstitutionAddressInput]
+    key_individuals: Optional[List[InstitutionKeyIndividualInput]] = []
+    security: Optional[InstitutionSecurityInput] = InstitutionSecurityInput()
+    branding: Optional[InstitutionBrandingInput] = InstitutionBrandingInput()
+    locale: Optional[InstitutionLocaleInput] = InstitutionLocaleInput()
+
+class InstitutionUpdateRequest(BaseModel):
+    institution_official_name: Optional[str] = None
+    institution_visual_name: Optional[str] = None
+    institution_brief_details: Optional[str] = None
+    institution_type: Optional[str] = None
+    institution_structure: Optional[str] = None
+    state: Optional[str] = None
+    addresses: Optional[List[InstitutionAddressInput]] = None
+    key_individuals: Optional[List[InstitutionKeyIndividualInput]] = None
+    security: Optional[InstitutionSecurityInput] = None
+    branding: Optional[InstitutionBrandingInput] = None
+    locale: Optional[InstitutionLocaleInput] = None
+
+INSTITUTION_TYPES = {"Pre school", "Primary School", "Secondary School", "K12 School", "College", "Company"}
+INSTITUTION_STRUCTURES = {"Sole Entity", "Union"}
+INSTITUTION_STATES = {"Trial", "Active", "Suspended", "Archived", "Deleted"}
+SECURITY_AUTH_MODES = {"password_only", "email_otp", "authenticator_app"}
 
 class GroupMemberUpdateRequest(BaseModel):
     student_ids: List[str]
@@ -1216,19 +1326,30 @@ class LMSModuleResponse(BaseModel):
 
 
 def get_db_connection():
+    # Refresh DB config from env to avoid stale globals if .env was updated
+    use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
+    db_url = os.getenv("DATABASE_URL", "class_bridge.db")
+    
     # Check if DATABASE_URL is set to Postgres
-    if USE_POSTGRES and "postgres" in DATABASE_URL:
+    if use_pg and "postgres" in db_url.lower():
         if load_psycopg2():
             try:
-                return PostgresConnectionWrapper(DATABASE_URL)
+                return PostgresConnectionWrapper(db_url)
             except Exception as e:
                 logger.error(f"Failed to connect to Postgres, falling back to SQLite: {e}")
         else:
             logger.warning("USE_POSTGRES=true but psycopg2 could not be loaded. Falling back to SQLite.")
     
     # Use SQLite DB path from DATABASE_URL env (or default class_bridge.db)
-    db_path = SQLITE_DB_PATH or os.path.join(os.path.dirname(os.path.abspath(__file__)), "class_bridge.db")
-    # print(f"DEBUG: sqlite3 object: {sqlite3}")
+    sqlite_candidate = db_url.strip()
+    if sqlite_candidate.startswith("sqlite:///"):
+        sqlite_candidate = sqlite_candidate.replace("sqlite:///", "", 1)
+    
+    if not sqlite_candidate or "postgres" in sqlite_candidate.lower():
+        sqlite_candidate = "class_bridge.db"
+        
+    db_path = sqlite_candidate if os.path.isabs(sqlite_candidate) else os.path.join(os.path.dirname(os.path.abspath(__file__)), sqlite_candidate)
+    
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
@@ -1242,18 +1363,38 @@ ENGINE = None
 
 def get_db_engine():
     global ENGINE
+    # Refresh DB config from env
+    use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
+    db_url = os.getenv("DATABASE_URL", "class_bridge.db")
+    
+    # If settings changed, we might need to recreate engine, but for simplicity let's just use current
     if ENGINE is None:
-        # Use the same DB target as get_db_connection
-        db_path = SQLITE_DB_PATH or os.path.join(os.path.dirname(os.path.abspath(__file__)), "class_bridge.db")
-        ENGINE = create_engine(f"sqlite:///{db_path}")
+        if use_pg and "postgres" in db_url.lower():
+            # Use the Postgres connection URL (SQLAlchemy needs postgresql:// not postgres://)
+            pg_url = db_url.replace("postgres://", "postgresql://", 1) if db_url.startswith("postgres://") else db_url
+            ENGINE = create_engine(pg_url, connect_args={"connect_timeout": 10})
+        else:
+            # Use SQLite
+            sqlite_candidate = db_url.strip()
+            if sqlite_candidate.startswith("sqlite:///"):
+                sqlite_candidate = sqlite_candidate.replace("sqlite:///", "", 1)
+            if not sqlite_candidate or "postgres" in sqlite_candidate.lower():
+                sqlite_candidate = "class_bridge.db"
+            db_path = sqlite_candidate if os.path.isabs(sqlite_candidate) else os.path.join(os.path.dirname(os.path.abspath(__file__)), sqlite_candidate)
+            ENGINE = create_engine(f"sqlite:///{db_path}")
     return ENGINE
 
 def fetch_data_df(query, params=()):
     import pandas as pd
     try:
         engine = get_db_engine()
+        # Refresh current settings
+        use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
+        db_url = os.getenv("DATABASE_URL", "class_bridge.db")
+
         # Fix for Postgres: Replace '?' with '%s' because we use ? style in the codebase
-        # query = query.replace('?', '%s') # Not needed for SQLite
+        if use_pg and "postgres" in db_url.lower():
+            query = query.replace('?', '%s')
         
         # pd.read_sql_query supports params with SQLAlchemy engine
         df = pd.read_sql_query(query, engine, params=params)
@@ -1356,8 +1497,21 @@ def ensure_root_admin_user(conn, user_id: str):
     user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    if user["role"] != "Root_Super_Admin":
+    # Allow both Root_Super_Admin role AND Super Admin users (is_super_admin=1)
+    is_root = user["role"] == "Root_Super_Admin"
+    is_super = bool(user["is_super_admin"])
+    if not is_root and not is_super:
         raise HTTPException(status_code=403, detail="Root Admin access required")
+    return user
+
+def ensure_super_admin_user(conn, user_id: str):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not bool(user["is_super_admin"]):
+        raise HTTPException(status_code=403, detail="Super Admin access required")
     return user
 
 ROOT_ADMIN_MANAGED_ROLES = {
@@ -1435,20 +1589,19 @@ def initialize_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Helper for migrations
     def safe_migrate(sql):
+        is_wrapper = type(conn).__name__ == 'PostgresConnectionWrapper'
         try:
-            conn.commit() # Commit previous valid state
+            if not is_wrapper: conn.commit() # Commit previous valid state
             cursor.execute(sql)
-            conn.commit() # Commit new change
+            if not is_wrapper: conn.commit() # Commit new change
         except Exception as e:
-            conn.rollback() # Rollback to previous valid state if this fails
-            # print(f"Migration ignored: {e}") # Debug
+            if not is_wrapper: conn.rollback() # Rollback to previous valid state if this fails
             pass
 
     
     # Determine Primary Key Syntax based on DB
-    is_postgres = "psycopg2" in str(type(conn)).lower()
+    is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
     # For Postgres, use SERIAL PRIMARY KEY. For SQLite, INTEGER PRIMARY KEY AUTOINCREMENT
     pk_def = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
@@ -1468,6 +1621,80 @@ def initialize_db():
         is_active BOOLEAN DEFAULT FALSE,
         activation_otp_hash TEXT,
         activation_otp_expires_at TEXT
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_profiles (
+        school_id INTEGER PRIMARY KEY,
+        institution_code TEXT UNIQUE,
+        institution_visual_name TEXT,
+        institution_brief_details TEXT,
+        institution_type TEXT,
+        institution_structure TEXT,
+        state TEXT DEFAULT 'Trial',
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_addresses (
+        id {pk_def},
+        school_id INTEGER NOT NULL,
+        address_line TEXT NOT NULL,
+        region TEXT,
+        timezone TEXT,
+        language TEXT,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_key_individuals (
+        id {pk_def},
+        school_id INTEGER NOT NULL,
+        individual_type TEXT NOT NULL,
+        custom_type TEXT,
+        first_name TEXT NOT NULL,
+        middle_name TEXT,
+        last_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        status TEXT DEFAULT 'Active',
+        contact_number TEXT,
+        mobile_number TEXT,
+        address TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_security_settings (
+        school_id INTEGER PRIMARY KEY,
+        auth_mode TEXT DEFAULT 'password_only',
+        recommendation_text TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_branding_settings (
+        school_id INTEGER PRIMARY KEY,
+        logo_url TEXT,
+        color_theme TEXT,
+        default_course_image_url TEXT,
+        date_format TEXT DEFAULT 'YYYY-MM-DD',
+        time_format TEXT DEFAULT '24h',
+        currency_code TEXT DEFAULT 'USD',
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
     )
     """)
 
@@ -1936,10 +2163,109 @@ def initialize_db():
     safe_migrate("ALTER TABLE schools ADD COLUMN is_active BOOLEAN DEFAULT FALSE")
     safe_migrate("ALTER TABLE schools ADD COLUMN activation_otp_hash TEXT")
     safe_migrate("ALTER TABLE schools ADD COLUMN activation_otp_expires_at TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN institution_visual_name TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN institution_brief_details TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN institution_type TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN institution_structure TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN state TEXT DEFAULT 'Trial'")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN created_at TEXT")
+    safe_migrate("ALTER TABLE institution_profiles ADD COLUMN updated_at TEXT")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN region TEXT")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN timezone TEXT")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN language TEXT")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN is_primary BOOLEAN DEFAULT FALSE")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN created_at TEXT")
+    safe_migrate("ALTER TABLE institution_addresses ADD COLUMN updated_at TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN custom_type TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN middle_name TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN status TEXT DEFAULT 'Active'")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN contact_number TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN mobile_number TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN address TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN created_at TEXT")
+    safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN updated_at TEXT")
+    safe_migrate("ALTER TABLE institution_security_settings ADD COLUMN recommendation_text TEXT")
+    safe_migrate("ALTER TABLE institution_security_settings ADD COLUMN updated_at TEXT")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN logo_url TEXT")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN color_theme TEXT")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN default_course_image_url TEXT")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN date_format TEXT DEFAULT 'YYYY-MM-DD'")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN time_format TEXT DEFAULT '24h'")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN currency_code TEXT DEFAULT 'USD'")
+    safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN updated_at TEXT")
     
     # Auth logs migration
     safe_migrate("ALTER TABLE auth_logs ADD COLUMN logout_time TEXT")
     safe_migrate("ALTER TABLE auth_logs ADD COLUMN duration_minutes INTEGER")
+
+    # Backfill institution setup records for legacy schools.
+    try:
+        schools = cursor.execute("SELECT id, name, address, created_at FROM schools").fetchall()
+        now_iso = datetime.now().isoformat()
+        for s in schools:
+            school_id = int(s["id"])
+            created_ts = s["created_at"] or now_iso
+            code = f"CB_INT_{school_id:06d}"
+
+            profile = cursor.execute(
+                "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+                (school_id,)
+            ).fetchone()
+            if not profile:
+                cursor.execute(
+                    """
+                    INSERT INTO institution_profiles (
+                        school_id, institution_code, institution_visual_name, institution_brief_details,
+                        institution_type, institution_structure, state, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (school_id, code, s["name"], "", "K12 School", "Sole Entity", "Trial", created_ts, now_iso)
+                )
+
+            addr = cursor.execute(
+                "SELECT id FROM institution_addresses WHERE school_id = ?",
+                (school_id,)
+            ).fetchone()
+            if not addr:
+                cursor.execute(
+                    """
+                    INSERT INTO institution_addresses (
+                        school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (school_id, s["address"] or "", "", "", "English", True, created_ts, now_iso)
+                )
+
+            sec = cursor.execute(
+                "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+                (school_id,)
+            ).fetchone()
+            if not sec:
+                cursor.execute(
+                    """
+                    INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (school_id, "password_only", "", now_iso)
+                )
+
+            branding = cursor.execute(
+                "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+                (school_id,)
+            ).fetchone()
+            if not branding:
+                cursor.execute(
+                    """
+                    INSERT INTO institution_branding_settings (
+                        school_id, logo_url, color_theme, default_course_image_url,
+                        date_format, time_format, currency_code, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (school_id, "", "", "", "YYYY-MM-DD", "24h", "USD", now_iso)
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     # Backfill legacy users so existing accounts remain active.
     try:
@@ -3259,6 +3585,12 @@ def seed_rbac_data(conn):
         ('user_management', 'Manage Users (Create/Edit/Delete)', 'User Management'),
         ('role_management', 'Manage Roles & Permissions', 'Role Management'),
         ('permission_management', 'View Platform Permissions', 'Permission Management'),
+        ('view_permissions', 'View Permission Listing', 'Permission Management'),
+        ('edit_permissions', 'Edit Permission Description', 'Permission Management'),
+        ('view_role_management', 'View Role Listing', 'Role Management'),
+        ('add_roles', 'Create New Roles', 'Role Management'),
+        ('edit_roles', 'Edit Role Details', 'Role Management'),
+        ('delete_roles', 'Delete Roles', 'Role Management'),
         ('school.manage', 'Manage Institutions', 'System'),
         ('class.view', 'View Classes', 'Academics'),
         ('class.create', 'Create/Schedule Classes', 'Academics'),
@@ -3327,8 +3659,7 @@ def seed_rbac_data(conn):
         if "duplicate column name" not in str(e).lower():
             logger.warning(f"Migration warning (resources.extracted_text): {e}")
 
-    for code, desc, group in perms:
-        cursor.execute("INSERT INTO permissions (code, description, group_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", (code, desc, group))
+    cursor.executemany("INSERT INTO permissions (code, description, group_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", perms)
     
     conn.commit()
     
@@ -3369,12 +3700,16 @@ def seed_rbac_data(conn):
         # Clear existing permissions for system roles to ensure update matches specs
         cursor.execute("DELETE FROM role_permissions WHERE role_id = ?", (r_id,))
         
+        inserts = []
         for p_code in perm_codes:
             if p_code == '*':
                  for p_id in all_perms.values():
-                     cursor.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", (r_id, p_id))
+                     inserts.append((r_id, p_id))
             elif p_code in all_perms:
-                cursor.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", (r_id, all_perms[p_code]))
+                inserts.append((r_id, all_perms[p_code]))
+                
+        if inserts:
+            cursor.executemany("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", inserts)
 
     # Root Super Admin (Restricted to student + school record management only)
     assign('Root_Super_Admin', [
@@ -3644,29 +3979,43 @@ async def get_roles(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
+    await verify_permission("view_role_management", x_user_id=x_user_id)
+
     conn = get_db_connection()
     try:
-        roles = conn.execute("SELECT * FROM roles").fetchall()
-        
+        # Determine if the caller is Root_Super_Admin
+        is_root = False
+        if x_user_id == "rootadmin":
+            is_root = True
+        else:
+            caller = conn.execute(
+                "SELECT role FROM students WHERE LOWER(id) = LOWER(?)", (x_user_id,)
+            ).fetchone()
+            if caller and caller["role"] == "Root_Super_Admin":
+                is_root = True
+
+        roles = conn.execute("SELECT * FROM roles ORDER BY id").fetchall()
+
         result = []
         for r in roles:
-            # Fetch permissions for each role
+            # PRD: Root_Super_Admin role only visible to Root_Super_Admin users
+            if r["name"] == "Root_Super_Admin" and not is_root:
+                continue
+
             perms = conn.execute("""
-                SELECT p.id, p.code, p.description 
+                SELECT p.id, p.code, p.description
                 FROM permissions p
                 JOIN role_permissions rp ON p.id = rp.permission_id
                 WHERE rp.role_id = ?
-            """, (r['id'],)).fetchall()
-            
+            """, (r["id"],)).fetchall()
+
             result.append(RoleResponse(
-                id=r['id'],
-                code=r['name'].replace(' ', '_').upper(), # Dynamic code generation if missing
-                name=r['name'],
-                description=r['description'] or "",
-                status=r['status'],
-                is_system=bool(r['is_system']),
+                id=r["id"],
+                code=f"R-{r['id']:03d}",   # PRD: system-generated R-xxx format
+                name=r["name"],
+                description=r["description"] or "",
+                status=r["status"],
+                is_system=bool(r["is_system"]),
                 permissions=[dict(p) for p in perms]
             ))
         return result
@@ -3712,6 +4061,36 @@ async def get_permissions_list(x_user_id: str = Header(None, alias="X-User-Id"))
     conn.close()
     return result
 
+@app.get("/api/admin/permissions/summary")
+async def get_permissions_summary(x_user_id: str = Header(None, alias="X-User-Id")):
+    """Returns 3 summary cards for the Permission Setup view."""
+    await verify_permission("permission_management", x_user_id=x_user_id)
+
+    conn = get_db_connection()
+    try:
+        # Total permissions
+        total = conn.execute("SELECT COUNT(*) as cnt FROM permissions").fetchone()["cnt"]
+
+        # Distinct groups
+        groups = conn.execute("SELECT COUNT(DISTINCT group_name) as cnt FROM permissions").fetchone()["cnt"]
+
+        # Permissions that have a non-empty description
+        with_desc = conn.execute(
+            "SELECT COUNT(*) as cnt FROM permissions WHERE description IS NOT NULL AND TRIM(description) != ''"
+        ).fetchone()["cnt"]
+
+        # Without description (needs attention)
+        without_desc = total - with_desc
+
+        return {
+            "total_permissions": total,
+            "total_groups": groups,
+            "with_description": with_desc,
+            "without_description": without_desc,
+        }
+    finally:
+        conn.close()
+
 class UpdatePermissionRequest(BaseModel):
     description: str
 
@@ -3734,30 +4113,32 @@ async def update_permission(perm_id: int, req: UpdatePermissionRequest, x_user_i
         conn.close()
 
 @app.get("/api/admin/roles/{role_id}")
-async def get_role_details(role_id: int):
+async def get_role_details(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("edit_roles", x_user_id=x_user_id)
     conn = get_db_connection()
-    role = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
-    if not role:
+    try:
+        role = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+
+        perms = conn.execute("""
+            SELECT p.id, p.code, p.description
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            WHERE rp.role_id = ?
+        """, (role_id,)).fetchall()
+
+        return {
+            "id": role["id"],
+            "code": f"R-{role['id']:03d}",
+            "name": role["name"],
+            "description": role["description"] or "",
+            "status": role["status"],
+            "is_system": bool(role["is_system"]),
+            "permissions": [{"id": p["id"], "code": p["code"], "description": p["description"]} for p in perms]
+        }
+    finally:
         conn.close()
-        raise HTTPException(status_code=404, detail="Role not found")
-        
-    perms = conn.execute("""
-        SELECT p.id, p.code, p.description 
-        FROM permissions p
-        JOIN role_permissions rp ON p.id = rp.permission_id
-        WHERE rp.role_id = ?
-    """, (role_id,)).fetchall()
-    
-    conn.close()
-    return {
-        "id": role['id'],
-        "code": f"R-{role['id']:03d}",
-        "name": role['name'],
-        "description": role['description'],
-        "status": role['status'],
-        "is_system": role['is_system'],
-        "permissions": [{"id": p['id'], "code": p['code'], "description": p['description']} for p in perms]
-    }
 
 class ReportsSummaryResponse(BaseModel):
     academic_performance: Dict[str, float]
@@ -3833,30 +4214,43 @@ async def get_reports_summary(user_id: str = Header(None, alias="X-User-Id"), ro
 
 
 @app.post("/api/admin/roles")
-async def create_role(req: RoleCreateRequest):
+async def create_role(req: RoleCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("add_roles", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Create Role
         cur = conn.cursor()
-        cur.execute("INSERT INTO roles (name, description, status, is_system) VALUES (?, ?, ?, FALSE) RETURNING id", (req.name, req.description, req.status))
-        role_id = cur.fetchone()['id']
+        cur.execute(
+            "INSERT INTO roles (name, description, status, is_system) VALUES (?, ?, ?, FALSE)", 
+            (req.name, req.description, req.status)
+        )
+        role_id = cur.lastrowid
+        
+        if not role_id:
+            raise HTTPException(status_code=500, detail="Failed to create role record.")
         
         # Add perms
-        for p_code in req.permissions:
-            perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
-            if perm:
-                cur.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", (role_id, perm['id']))
+        if req.permissions:
+            for p_code in req.permissions:
+                perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
+                if perm and perm['id']:
+                    cur.execute(
+                        "INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", 
+                        (role_id, perm['id'])
+                    )
         
         conn.commit()
         return {"success": True, "role_id": role_id}
     except Exception as e:
         conn.rollback()
+        print(f"Error creating role: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
 @app.put("/api/admin/roles/{role_id}")
-async def update_role(role_id: int, req: RoleCreateRequest):
+async def update_role(role_id: int, req: RoleCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("edit_roles", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Update Role Info
@@ -3865,10 +4259,11 @@ async def update_role(role_id: int, req: RoleCreateRequest):
         
         # Update Perms (Wipe and recreate)
         cur.execute("DELETE FROM role_permissions WHERE role_id = ?", (role_id,))
-        for p_code in req.permissions:
-            perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
-            if perm:
-                cur.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", (role_id, perm['id']))
+        if req.permissions:
+            for p_code in req.permissions:
+                perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
+                if perm and perm['id']:
+                    cur.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", (role_id, perm['id']))
                 
         conn.commit()
         return {"success": True}
@@ -3879,7 +4274,8 @@ async def update_role(role_id: int, req: RoleCreateRequest):
         conn.close()
         
 @app.delete("/api/admin/roles/{role_id}")
-async def delete_role(role_id: int):
+async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("delete_roles", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cur = conn.cursor()
@@ -4123,6 +4519,10 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
     if not x_user_id:
          raise HTTPException(status_code=401, detail="Authentication required")
 
+    # Special bypass for the hardcoded Root Admin account (not in students table)
+    if x_user_id == "rootadmin":
+        return True
+
     conn = get_db_connection()
     try:
         user = conn.execute("SELECT role, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
@@ -4134,7 +4534,7 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
         is_super = user['is_super_admin']
 
         # 1. Super Admin Override
-        if is_super or current_role == 'Super Admin':
+        if is_super or current_role in ('Super Admin', 'Root_Super_Admin'):
             return True
 
         # 2. Check DB Permissions
@@ -4190,10 +4590,12 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = FRONTEND_INDEX if os.path.exists(FRONTEND_INDEX) else os.path.join(base_dir, "index.html")
+    # Priority: project root index.html → frontend/static_app/index.html → backend/index.html
+    root_index = os.path.abspath(os.path.join(base_dir, "..", "index.html"))
+    candidates = [root_index, FRONTEND_INDEX, os.path.join(base_dir, "index.html")]
+    file_path = next((p for p in candidates if os.path.exists(p)), None)
     
-    if not os.path.exists(file_path):
-        # Graceful Fallback: If index.html is missing (e.g. separate frontend), just show API status
+    if not file_path:
         return HTMLResponse(content="""
             <html>
                 <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
@@ -4208,14 +4610,44 @@ async def read_root():
         return f.read()
 
 @app.get("/script.js")
+@app.get("/frontend/script.js")
 async def read_script():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = FRONTEND_SCRIPT if os.path.exists(FRONTEND_SCRIPT) else os.path.join(base_dir, "script.js")
-    if not os.path.exists(file_path):
+    # Try root-level frontend/script.js first (used by root index.html)
+    root_script = os.path.abspath(os.path.join(base_dir, "..", "frontend", "script.js"))
+    candidates = [root_script, FRONTEND_SCRIPT, os.path.join(base_dir, "script.js")]
+    file_path = next((p for p in candidates if os.path.exists(p)), None)
+    if not file_path:
         return Response(content="console.error('script.js not found');", media_type="text/javascript")
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
     return Response(content=content, media_type="text/javascript")
+
+@app.get("/frontend/static/{filename:path}")
+async def serve_frontend_static(filename: str):
+    """Serves static assets referenced by the root index.html as ./frontend/static/..."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.abspath(os.path.join(base_dir, "..", "frontend", "static", filename))
+    if not os.path.exists(file_path):
+        from fastapi.responses import Response as FR
+        return FR(content="Not found", status_code=404)
+    import mimetypes
+    mime, _ = mimetypes.guess_type(file_path)
+    with open(file_path, "rb") as f:
+        return Response(content=f.read(), media_type=mime or "application/octet-stream")
+
+@app.get("/frontend/modules/{filepath:path}")
+async def serve_frontend_modules(filepath: str):
+    """Serves feature module JS files referenced as ./frontend/modules/... in index.html."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.abspath(os.path.join(base_dir, "..", "frontend", "modules", filepath))
+    if not os.path.exists(file_path):
+        return Response(content=f"Module not found: {filepath}", status_code=404)
+    import mimetypes
+    mime, _ = mimetypes.guess_type(file_path)
+    with open(file_path, "rb") as f:
+        return Response(content=f.read(), media_type=mime or "text/javascript")
+
 
 # Health check endpoint for debugging connection issues
 @app.get("/api/health")
@@ -6424,6 +6856,51 @@ async def get_moodle_grades(x_user_id: str = Header(None, alias="X-User-Id")):
         {"course": "HIST101", "itemname": "Ancient Civ Essay", "grade": 95.0, "range": "0-100", "feedback": "Very detailed."}
     ]
 
+def _ensure_authenticator_table(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_authenticator_secrets (
+            user_id TEXT PRIMARY KEY,
+            secret_key TEXT NOT NULL,
+            is_enabled BOOLEAN DEFAULT FALSE,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.commit()
+
+def _generate_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("utf-8").replace("=", "")
+
+def _normalize_base32_secret(secret_key: str) -> bytes:
+    clean = (secret_key or "").strip().replace(" ", "").upper()
+    if not clean:
+        return b""
+    padding = "=" * ((8 - len(clean) % 8) % 8)
+    return base64.b32decode(clean + padding, casefold=True)
+
+def _totp_for_counter(secret_key: str, counter: int, digits: int = 6) -> str:
+    key = _normalize_base32_secret(secret_key)
+    if not key:
+        return ""
+    msg = counter.to_bytes(8, byteorder="big")
+    h = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = h[-1] & 0x0F
+    binary = ((h[offset] & 0x7F) << 24) | ((h[offset + 1] & 0xFF) << 16) | ((h[offset + 2] & 0xFF) << 8) | (h[offset + 3] & 0xFF)
+    return str(binary % (10 ** digits)).zfill(digits)
+
+def _verify_totp_code(secret_key: str, submitted_code: str, step_seconds: int = 30, skew_steps: int = 1) -> bool:
+    code = "".join(ch for ch in str(submitted_code or "") if ch.isdigit())
+    if len(code) != 6:
+        return False
+    counter = int(time.time() // step_seconds)
+    for delta in range(-skew_steps, skew_steps + 1):
+        if _totp_for_counter(secret_key, counter + delta) == code:
+            return True
+    return False
+
 @app.post("/api/auth/login", response_model=LoginResponse)
 async def login_user(request: LoginRequest):
     # Reload .env on each login so auth toggles (like ENABLE_2FA) take effect immediately.
@@ -6608,8 +7085,54 @@ async def login_user(request: LoginRequest):
 
         # --- 2FA / EMAIL OTP FLOW ---
         ENABLE_2FA = os.getenv("ENABLE_2FA", "false").lower() == "true"
+        tenant_auth_mode = "password_only"
+        try:
+            sec_row = cursor.execute(
+                "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
+                (user["school_id"] if user["school_id"] else 1,)
+            ).fetchone()
+            if sec_row and sec_row["auth_mode"]:
+                tenant_auth_mode = sec_row["auth_mode"]
+        except Exception:
+            tenant_auth_mode = "password_only"
+
+        if tenant_auth_mode == "authenticator_app":
+            try:
+                _ensure_authenticator_table(conn)
+                auth_row = cursor.execute(
+                    "SELECT user_id, secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
+                    (auth_user_id,)
+                ).fetchone()
+                if not auth_row:
+                    now_iso = datetime.now().isoformat()
+                    cursor.execute(
+                        """
+                        INSERT INTO user_authenticator_secrets (user_id, secret_key, is_enabled, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (auth_user_id, _generate_totp_secret(), False, now_iso, now_iso)
+                    )
+                    conn.commit()
+                log_auth_event(auth_user_id, "2FA Required", "Authenticator app verification required")
+                conn.close()
+                return LoginResponse(
+                    user_id=user['id'],
+                    success=True,
+                    requires_2fa=True,
+                    email_masked=mask_email(login_email) if login_email else None,
+                    security_mode=tenant_auth_mode
+                )
+            except HTTPException:
+                conn.close()
+                raise
+            except Exception as e:
+                conn.close()
+                logger.error(f"Authenticator setup check failed: {e}")
+                raise HTTPException(status_code=500, detail="Unable to initialize authenticator setup.")
+
         require_email_otp = (
             ENABLE_2FA
+            or tenant_auth_mode == "email_otp"
             or auth_user_id in ("teacher", "admin")
             or username_lower in STUDENT_LOGIN_ALIASES
             or auth_user_id in STUDENT_OTP_EMAIL_OVERRIDES
@@ -6650,7 +7173,8 @@ async def login_user(request: LoginRequest):
                     user_id=user['id'], 
                     success=True,
                     requires_2fa=True,
-                    email_masked=mask_email(login_email)
+                    email_masked=mask_email(login_email),
+                    security_mode=tenant_auth_mode
                 )
             except HTTPException:
                 conn.close()
@@ -6699,6 +7223,11 @@ async def login_user(request: LoginRequest):
         """, (auth_user_id,)).fetchall()
         perm_codes = [p['code'] for p in perms_data]
 
+        # Root_Super_Admin always gets wildcard permissions
+        if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
+            perm_codes = ['*']
+            is_super_admin = True  # ensure flag is set
+
         related_student_id = None
         try:
             if 'Parent' in role_names or 'Parent_Guardian' in role_names or role == 'Parent':
@@ -6725,7 +7254,8 @@ async def login_user(request: LoginRequest):
             school_id=school_id,
             school_name=school_name,
             is_super_admin=bool(is_super_admin),
-            related_student_id=related_student_id
+            related_student_id=related_student_id,
+            security_mode=tenant_auth_mode
         )
 
     else:
@@ -6754,23 +7284,61 @@ async def login_user(request: LoginRequest):
 async def verify_backup_code(request: Verify2FARequest):
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    code_entry = cursor.execute("SELECT code FROM backup_codes WHERE user_id = ? AND code = ?", 
-                               (request.user_id, request.code)).fetchone()
-                               
-    if not code_entry:
+
+    user = cursor.execute("SELECT * FROM students WHERE id = ?", (request.user_id,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    school_id = user["school_id"] if user["school_id"] else 1
+    tenant_auth_mode = "password_only"
+    try:
+        sec = cursor.execute(
+            "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if sec and sec["auth_mode"]:
+            tenant_auth_mode = sec["auth_mode"]
+    except Exception:
+        tenant_auth_mode = "password_only"
+
+    verified = False
+    if tenant_auth_mode == "authenticator_app":
+        try:
+            _ensure_authenticator_table(conn)
+            row = cursor.execute(
+                "SELECT secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
+                (request.user_id,)
+            ).fetchone()
+            if row and _verify_totp_code(row["secret_key"], request.code):
+                verified = True
+                if not bool(row["is_enabled"]):
+                    cursor.execute(
+                        "UPDATE user_authenticator_secrets SET is_enabled = ?, updated_at = ? WHERE user_id = ?",
+                        (True, datetime.now().isoformat(), request.user_id)
+                    )
+                    conn.commit()
+        except Exception:
+            verified = False
+    else:
+        code_entry = cursor.execute(
+            "SELECT code FROM backup_codes WHERE user_id = ? AND code = ?",
+            (request.user_id, request.code)
+        ).fetchone()
+        verified = bool(code_entry)
+
+    if not verified:
         conn.close()
         log_auth_event(request.user_id, "2FA Failed", "Invalid or used code")
         raise HTTPException(status_code=401, detail="Invalid one-time code.")
         
     # cursor.execute("DELETE FROM backup_codes WHERE user_id = ? AND code = ?", (request.user_id, request.code))
-    user = cursor.execute("SELECT * FROM students WHERE id = ?", (request.user_id,)).fetchone()
-    
     user_dict = dict(user)
     role = user_dict.get('role', 'Student')
     school_name = "Independent"
     school_id = user_dict.get('school_id', 1)
     is_super_admin = user_dict.get('is_super_admin', False)
+
     if school_id:
             sch = cursor.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
             if sch: school_name = sch['name']
@@ -6799,6 +7367,11 @@ async def verify_backup_code(request: Verify2FARequest):
     """, (request.user_id,)).fetchall()
     perm_codes = [p['code'] for p in perms_data]
 
+    # Root_Super_Admin always gets wildcard permissions
+    if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
+        perm_codes = ['*']
+        is_super_admin = True
+
     related_student_id = None
     try:
         if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
@@ -6819,9 +7392,6 @@ async def verify_backup_code(request: Verify2FARequest):
     conn.commit()
     conn.close()
     
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-        
     logger.info(f"2FA Successful for user: {request.user_id}")
     log_auth_event(request.user_id, "Login Success", "2FA Verified")
 
@@ -6835,8 +7405,77 @@ async def verify_backup_code(request: Verify2FARequest):
         school_id=school_id,
         school_name=school_name,
         is_super_admin=bool(is_super_admin),
-        related_student_id=related_student_id
+        related_student_id=related_student_id,
+        security_mode=tenant_auth_mode
     )
+
+@app.post("/api/auth/authenticator/setup")
+async def setup_authenticator(request: AuthenticatorSetupRequest):
+    user_id = (request.user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required.")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        user = cursor.execute("SELECT id, school_id FROM students WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        school_id = user["school_id"] if user["school_id"] else 1
+        sec = cursor.execute(
+            "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        auth_mode = (sec["auth_mode"] if sec and sec["auth_mode"] else "password_only").strip()
+        if auth_mode != "authenticator_app":
+            raise HTTPException(status_code=400, detail="Authenticator setup is not enabled for this institution.")
+
+        _ensure_authenticator_table(conn)
+        row = cursor.execute(
+            "SELECT secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
+            (user_id,)
+        ).fetchone()
+        now_iso = datetime.now().isoformat()
+        if row:
+            secret_key = (row["secret_key"] or "").strip() or _generate_totp_secret()
+            if not row["secret_key"]:
+                cursor.execute(
+                    "UPDATE user_authenticator_secrets SET secret_key = ?, updated_at = ? WHERE user_id = ?",
+                    (secret_key, now_iso, user_id)
+                )
+                conn.commit()
+            is_enabled = bool(row["is_enabled"])
+        else:
+            secret_key = _generate_totp_secret()
+            cursor.execute(
+                """
+                INSERT INTO user_authenticator_secrets (user_id, secret_key, is_enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, secret_key, False, now_iso, now_iso)
+            )
+            conn.commit()
+            is_enabled = False
+
+        issuer = "ClassBridge"
+        account = user_id
+        otpauth_url = f"otpauth://totp/{issuer}:{account}?secret={secret_key}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
+        qr_url = "https://chart.googleapis.com/chart?cht=qr&chs=220x220&chl=" + quote(otpauth_url, safe="")
+        return {
+            "message": "Authenticator setup ready.",
+            "user_id": user_id,
+            "secret_key": secret_key,
+            "otpauth_url": otpauth_url,
+            "qr_url": qr_url,
+            "is_enabled": is_enabled
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unable to load authenticator setup: {str(e)}")
+    finally:
+        conn.close()
 
 @app.post("/api/auth/register", status_code=201)
 async def register_user(request: RegisterRequest):
@@ -7166,6 +7805,8 @@ async def root_list_schools(x_user_id: str = Header(None, alias="X-User-Id")):
     finally:
         conn.close()
 
+# (duplicate route removed — see root_view_database below which handles both Postgres and SQLite)
+
 @app.post("/api/root-admin/schools", status_code=201)
 async def root_create_school_account(
     req: RootAdminSchoolCreateRequest,
@@ -7294,11 +7935,37 @@ async def root_view_database(x_user_id: str = Header(None, alias="X-User-Id")):
             ).fetchall()
             table_names = [t["name"] for t in tables]
 
+        is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
         for table_name in table_names:
             try:
-                rows = conn.execute(f'SELECT * FROM "{table_name}"').fetchall()
-                row_dicts = [dict(r) for r in rows]
-                columns = list(row_dicts[0].keys()) if row_dicts else []
+                if is_postgres:
+                    # Get columns from information_schema so empty tables still show columns
+                    col_rows = conn.execute(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = %s
+                        ORDER BY ordinal_position
+                        """,
+                        (table_name,)
+                    ).fetchall()
+                    columns = [c["column_name"] for c in col_rows]
+                    rows_raw = conn.execute(
+                        f'SELECT * FROM "{table_name}" LIMIT 200'
+                    ).fetchall()
+                    row_dicts = [dict(r) for r in rows_raw]
+                else:
+                    rows_raw = conn.execute(
+                        f'SELECT * FROM "{table_name}" LIMIT 200'
+                    ).fetchall()
+                    row_dicts = [dict(r) for r in rows_raw]
+                    if row_dicts:
+                        columns = list(row_dicts[0].keys())
+                    else:
+                        # Use PRAGMA for column names even when table is empty
+                        pragma_rows = conn.execute(
+                            f'PRAGMA table_info("{table_name}")'
+                        ).fetchall()
+                        columns = [p[1] for p in pragma_rows]
                 payload.append({
                     "table": table_name,
                     "row_count": len(row_dicts),
@@ -8512,20 +9179,20 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
         return []
 
     school_id = user['school_id'] if user['school_id'] else 1
-    grade = user['grade'] if user['grade'] is not None else 0
+    grade     = user['grade'] if user['grade'] is not None else 0
     is_super_admin = bool(user['is_super_admin'])
 
-    query = "SELECT id, name, attendance_rate, grade FROM students WHERE role = 'Student' AND school_id = ?"
-    params = [school_id]
-
-    if not is_super_admin:
-        if grade > 0:
+    cache_key = f'students_all_{school_id}_{grade}_{is_super_admin}'
+    def _fetch():
+        query  = "SELECT id, name, attendance_rate, grade FROM students WHERE role = 'Student' AND school_id = ?"
+        params = [school_id]
+        if not is_super_admin and grade > 0:
             query += " AND grade = ?"
             params.append(grade)
-        # else: grade 0 -> view all (implicitly allows head teachers to see all)
+        df = fetch_data_df(query, params=tuple(params))
+        return df.to_dict('records')
 
-    df = fetch_data_df(query, params=tuple(params))
-    return df.to_dict('records') 
+    return api_ttl_cache(cache_key, ttl_seconds=30, fn=_fetch)
 
 # --- USER MANAGEMENT (ADMIN) ---
 
@@ -8922,9 +9589,8 @@ async def get_student_assignments(student_id: str):
     grade = student['grade'] if student else 0
     section_id = student['section_id'] if student else None
 
-    # 1. Standard Assignments (via Groups OR Class/Section)
     assignments = c.execute("""
-        SELECT a.id, a.title, a.due_date, a.type,
+        SELECT a.id, a.title, a.description, a.due_date, a.type,
                COALESCE(g.name, sec.name, 'Class') as course_name
         FROM assignments a
         LEFT JOIN group_members gm ON a.group_id = gm.group_id AND gm.student_id = ?
@@ -9578,6 +10244,857 @@ async def get_quiz_results(
         conn.close()
 
 # --- SCHOOL MANAGEMENT ---
+
+def _institution_code_for_school(school_id: int) -> str:
+    return f"CB_INT_{int(school_id):06d}"
+
+def _security_recommendation_for_type(institution_type: str, auth_mode: str) -> str:
+    clean_type = (institution_type or "").strip()
+    clean_mode = (auth_mode or "").strip()
+    if clean_type in {"Pre school", "Primary School"}:
+        base = "Recommended: Email OTP for low-friction account security."
+    elif clean_type in {"Secondary School", "K12 School", "College"}:
+        base = "Recommended: Authenticator app for stronger protection at scale."
+    else:
+        base = "Recommended: Authenticator app for enterprise-grade protection."
+    if clean_mode == "password_only":
+        return f"{base} Password-only login is the least secure option."
+    if clean_mode == "email_otp":
+        return f"{base} Email OTP balances usability and security."
+    if clean_mode == "authenticator_app":
+        return f"{base} Authenticator app provides the strongest security."
+    return base
+
+def _repair_postgres_pk_sequence(conn, table_name: str, pk_col: str = "id") -> None:
+    if not (USE_POSTGRES and "postgres" in DATABASE_URL.lower()):
+        return
+    try:
+        seq_name = f"{table_name}_{pk_col}_seq"
+        conn.execute(
+            f"SELECT setval('{seq_name}', COALESCE((SELECT MAX({pk_col}) FROM {table_name}), 1), true)"
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+def _validate_institution_request(request: InstitutionCreateRequest) -> None:
+    if not request.institution_official_name or not request.institution_official_name.strip():
+        raise HTTPException(status_code=400, detail="Institution official name is required.")
+    if request.institution_type not in INSTITUTION_TYPES:
+        raise HTTPException(status_code=400, detail=f"Institution type must be one of: {', '.join(sorted(INSTITUTION_TYPES))}")
+    if request.institution_structure not in INSTITUTION_STRUCTURES:
+        raise HTTPException(status_code=400, detail=f"Institution structure must be one of: {', '.join(sorted(INSTITUTION_STRUCTURES))}")
+    if (request.state or "Trial") not in INSTITUTION_STATES:
+        raise HTTPException(status_code=400, detail=f"State must be one of: {', '.join(sorted(INSTITUTION_STATES))}")
+    if not request.addresses or len(request.addresses) == 0:
+        raise HTTPException(status_code=400, detail="At least one institution address is required.")
+    if request.institution_structure == "Sole Entity" and len(request.addresses) > 1:
+        raise HTTPException(status_code=400, detail="Sole Entity supports one address. Use Union for multiple addresses.")
+    if request.institution_structure == "Union" and len(request.addresses) < 1:
+        raise HTTPException(status_code=400, detail="Union requires at least one address.")
+    for idx, addr in enumerate(request.addresses):
+        if not (addr.address_line or "").strip():
+            raise HTTPException(status_code=400, detail=f"Address is required for entry #{idx + 1}.")
+    sec_mode = (request.security.auth_mode if request.security else "password_only") or "password_only"
+    if sec_mode not in SECURITY_AUTH_MODES:
+        raise HTTPException(status_code=400, detail=f"Security auth mode must be one of: {', '.join(sorted(SECURITY_AUTH_MODES))}")
+
+def _validate_institution_update_request(request: InstitutionUpdateRequest) -> None:
+    if request.institution_type is not None and request.institution_type not in INSTITUTION_TYPES:
+        raise HTTPException(status_code=400, detail=f"Institution type must be one of: {', '.join(sorted(INSTITUTION_TYPES))}")
+    if request.institution_structure is not None and request.institution_structure not in INSTITUTION_STRUCTURES:
+        raise HTTPException(status_code=400, detail=f"Institution structure must be one of: {', '.join(sorted(INSTITUTION_STRUCTURES))}")
+    if request.state is not None and request.state not in INSTITUTION_STATES:
+        raise HTTPException(status_code=400, detail=f"State must be one of: {', '.join(sorted(INSTITUTION_STATES))}")
+    if request.addresses is not None:
+        if len(request.addresses) == 0:
+            raise HTTPException(status_code=400, detail="At least one institution address is required.")
+        for idx, addr in enumerate(request.addresses):
+            if not (addr.address_line or "").strip():
+                raise HTTPException(status_code=400, detail=f"Address is required for entry #{idx + 1}.")
+    if request.security is not None:
+        sec_mode = (request.security.auth_mode or "password_only").strip()
+        if sec_mode not in SECURITY_AUTH_MODES:
+            raise HTTPException(status_code=400, detail=f"Security auth mode must be one of: {', '.join(sorted(SECURITY_AUTH_MODES))}")
+
+def _ensure_institution_schema(conn) -> None:
+    """
+    Ensure tenant configuration tables exist in the active database.
+    This keeps Super Admin views working even if older DBs missed migrations.
+    """
+    cursor = conn.cursor()
+    is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
+    pk_def = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    ret_school = " RETURNING school_id" if is_postgres else ""
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_profiles (
+        school_id INTEGER PRIMARY KEY,
+        institution_code TEXT UNIQUE,
+        institution_visual_name TEXT,
+        institution_brief_details TEXT,
+        institution_type TEXT,
+        institution_structure TEXT,
+        state TEXT DEFAULT 'Trial',
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_addresses (
+        id {pk_def},
+        school_id INTEGER NOT NULL,
+        address_line TEXT NOT NULL,
+        region TEXT,
+        timezone TEXT,
+        language TEXT,
+        is_primary BOOLEAN DEFAULT FALSE,
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_key_individuals (
+        id {pk_def},
+        school_id INTEGER NOT NULL,
+        individual_type TEXT NOT NULL,
+        custom_type TEXT,
+        first_name TEXT NOT NULL,
+        middle_name TEXT,
+        last_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        status TEXT DEFAULT 'Active',
+        contact_number TEXT,
+        mobile_number TEXT,
+        address TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_security_settings (
+        school_id INTEGER PRIMARY KEY,
+        auth_mode TEXT DEFAULT 'password_only',
+        recommendation_text TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS institution_branding_settings (
+        school_id INTEGER PRIMARY KEY,
+        logo_url TEXT,
+        color_theme TEXT,
+        default_course_image_url TEXT,
+        date_format TEXT DEFAULT 'YYYY-MM-DD',
+        time_format TEXT DEFAULT '24h',
+        currency_code TEXT DEFAULT 'USD',
+        updated_at TEXT,
+        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    now_iso = datetime.now().isoformat()
+    schools = cursor.execute("SELECT id, name, address, created_at FROM schools").fetchall()
+    for s in schools:
+        school_id = int(s["id"])
+        created_ts = s["created_at"] or now_iso
+        code = _institution_code_for_school(school_id)
+
+        profile = cursor.execute(
+            "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if not profile:
+            cursor.execute(
+                """
+                INSERT INTO institution_profiles (
+                    school_id, institution_code, institution_visual_name, institution_brief_details,
+                    institution_type, institution_structure, state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """ + ret_school,
+                (school_id, code, s["name"], "", "K12 School", "Sole Entity", "Trial", created_ts, now_iso)
+            )
+
+        addr = cursor.execute(
+            "SELECT id FROM institution_addresses WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if not addr:
+            cursor.execute(
+                """
+                INSERT INTO institution_addresses (
+                    school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (school_id, s["address"] or "", "", "", "English", True, created_ts, now_iso)
+            )
+
+        sec = cursor.execute(
+            "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if not sec:
+            cursor.execute(
+                """
+                INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
+                VALUES (?, ?, ?, ?)
+                """ + ret_school,
+                (school_id, "password_only", "", now_iso)
+            )
+
+        branding = cursor.execute(
+            "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if not branding:
+            cursor.execute(
+                """
+                INSERT INTO institution_branding_settings (
+                    school_id, logo_url, color_theme, default_course_image_url,
+                    date_format, time_format, currency_code, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """ + ret_school,
+                (school_id, "", "", "", "YYYY-MM-DD", "24h", "USD", now_iso)
+            )
+
+    conn.commit()
+
+def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
+    _ensure_institution_schema(conn)
+    school = conn.execute(
+        "SELECT id, name, address, contact_email, created_at FROM schools WHERE id = ?",
+        (school_id,)
+    ).fetchone()
+    if not school:
+        raise HTTPException(status_code=404, detail="Institution not found.")
+
+    profile = conn.execute(
+        """
+        SELECT institution_code, institution_visual_name, institution_brief_details,
+               institution_type, institution_structure, state, created_at, updated_at
+        FROM institution_profiles
+        WHERE school_id = ?
+        """,
+        (school_id,)
+    ).fetchone()
+
+    addresses = conn.execute(
+        """
+        SELECT id, address_line, region, timezone, language, is_primary, created_at, updated_at
+        FROM institution_addresses
+        WHERE school_id = ?
+        ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, id ASC
+        """,
+        (school_id,)
+    ).fetchall()
+
+    key_individuals = conn.execute(
+        """
+        SELECT id, individual_type, custom_type, first_name, middle_name, last_name,
+               email, status, contact_number, mobile_number, address, created_at, updated_at
+        FROM institution_key_individuals
+        WHERE school_id = ?
+        ORDER BY id ASC
+        """,
+        (school_id,)
+    ).fetchall()
+
+    security = conn.execute(
+        """
+        SELECT auth_mode, recommendation_text, updated_at
+        FROM institution_security_settings
+        WHERE school_id = ?
+        """,
+        (school_id,)
+    ).fetchone()
+
+    branding = conn.execute(
+        """
+        SELECT logo_url, color_theme, default_course_image_url,
+               date_format, time_format, currency_code, updated_at
+        FROM institution_branding_settings
+        WHERE school_id = ?
+        """,
+        (school_id,)
+    ).fetchone()
+
+    return {
+        "id": school["id"],
+        "institution_id": profile["institution_code"] if profile and profile["institution_code"] else _institution_code_for_school(school_id),
+        "institution_official_name": school["name"] or "",
+        "institution_visual_name": profile["institution_visual_name"] if profile else "",
+        "institution_brief_details": profile["institution_brief_details"] if profile else "",
+        "institution_type": profile["institution_type"] if profile else "K12 School",
+        "institution_structure": profile["institution_structure"] if profile else "Sole Entity",
+        "state": profile["state"] if profile else "Trial",
+        "contact_email": school["contact_email"] or "",
+        "created_at": school["created_at"] or datetime.now().isoformat(),
+        "updated_at": profile["updated_at"] if profile else None,
+        "addresses": [
+            {
+                "id": a["id"],
+                "address_line": a["address_line"] or "",
+                "region": a["region"] or "",
+                "timezone": a["timezone"] or "",
+                "language": a["language"] or "English",
+                "is_primary": bool(a["is_primary"]),
+                "created_at": a["created_at"],
+                "updated_at": a["updated_at"],
+            }
+            for a in addresses
+        ],
+        "key_individuals": [
+            {
+                "id": k["id"],
+                "individual_type": k["individual_type"] or "",
+                "custom_type": k["custom_type"] or "",
+                "first_name": k["first_name"] or "",
+                "middle_name": k["middle_name"] or "",
+                "last_name": k["last_name"] or "",
+                "email": k["email"] or "",
+                "status": k["status"] or "Active",
+                "contact_number": k["contact_number"] or "",
+                "mobile_number": k["mobile_number"] or "",
+                "address": k["address"] or "",
+                "created_at": k["created_at"],
+                "updated_at": k["updated_at"],
+            }
+            for k in key_individuals
+        ],
+        "security": {
+            "auth_mode": security["auth_mode"] if security else "password_only",
+            "recommendation_text": security["recommendation_text"] if security else "",
+            "updated_at": security["updated_at"] if security else None,
+        },
+        "branding": {
+            "logo_url": branding["logo_url"] if branding else "",
+            "color_theme": branding["color_theme"] if branding else "",
+            "default_course_image_url": branding["default_course_image_url"] if branding else "",
+            "updated_at": branding["updated_at"] if branding else None,
+        },
+        "locale": {
+            "date_format": branding["date_format"] if branding and branding["date_format"] else "YYYY-MM-DD",
+            "time_format": branding["time_format"] if branding and branding["time_format"] else "24h",
+            "currency_code": branding["currency_code"] if branding and branding["currency_code"] else "USD",
+        },
+    }
+
+@app.get("/api/admin/institutions")
+async def list_institutions(x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        ensure_super_admin_user(conn, x_user_id)
+        _ensure_institution_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT
+                s.id,
+                s.name,
+                s.address,
+                s.contact_email,
+                s.created_at,
+                p.institution_code,
+                p.institution_type,
+                p.institution_structure,
+                p.state,
+                p.institution_visual_name
+            FROM schools s
+            LEFT JOIN institution_profiles p ON p.school_id = s.id
+            ORDER BY s.id ASC
+            """
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "institution_id": r["institution_code"] or _institution_code_for_school(r["id"]),
+                "institution_official_name": r["name"] or "",
+                "institution_visual_name": r["institution_visual_name"] or "",
+                "institution_type": r["institution_type"] or "K12 School",
+                "institution_structure": r["institution_structure"] or "Sole Entity",
+                "state": r["state"] or "Trial",
+                "address": r["address"] or "",
+                "contact_email": r["contact_email"] or "",
+                "created_at": r["created_at"] or datetime.now().isoformat(),
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+@app.get("/api/admin/institutions/{school_id}")
+async def get_institution_details(
+    school_id: int,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    conn = get_db_connection()
+    try:
+        ensure_super_admin_user(conn, x_user_id)
+        _ensure_institution_schema(conn)
+        return _fetch_institution_detail(conn, school_id)
+    finally:
+        conn.close()
+
+@app.post("/api/admin/institutions/{school_id}/branding/upload")
+async def upload_institution_branding_asset(
+    school_id: int,
+    asset_type: str = Form(...),  # logo | default_course_image
+    file: UploadFile = File(...),
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    conn = get_db_connection()
+    try:
+        ensure_super_admin_user(conn, x_user_id)
+        _ensure_institution_schema(conn)
+        school = conn.execute("SELECT id FROM schools WHERE id = ?", (school_id,)).fetchone()
+        if not school:
+            raise HTTPException(status_code=404, detail="Institution not found.")
+        clean_type = (asset_type or "").strip()
+        if clean_type not in {"logo", "default_course_image"}:
+            raise HTTPException(status_code=400, detail="asset_type must be 'logo' or 'default_course_image'.")
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="File is required.")
+        content = await file.read()
+        if len(content) > 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Max file size is 1MB.")
+
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in {".png", ".jpg", ".jpeg", ".webp", ".svg"}:
+            raise HTTPException(status_code=400, detail="Only PNG/JPG/JPEG/WEBP/SVG files are allowed.")
+
+        branding_dir = os.path.join(STATIC_DIR, "uploads", "institution_branding", str(school_id))
+        os.makedirs(branding_dir, exist_ok=True)
+        safe_name = f"{clean_type}_{int(time.time())}{ext}"
+        full_path = os.path.join(branding_dir, safe_name)
+        with open(full_path, "wb") as f:
+            f.write(content)
+
+        web_path = f"/static/uploads/institution_branding/{school_id}/{safe_name}"
+        now_iso = datetime.now().isoformat()
+
+        exists = conn.execute(
+            "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        if exists:
+            if clean_type == "logo":
+                conn.execute(
+                    "UPDATE institution_branding_settings SET logo_url = ?, updated_at = ? WHERE school_id = ?",
+                    (web_path, now_iso, school_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE institution_branding_settings SET default_course_image_url = ?, updated_at = ? WHERE school_id = ?",
+                    (web_path, now_iso, school_id)
+                )
+        else:
+            logo_url = web_path if clean_type == "logo" else ""
+            default_course_image_url = web_path if clean_type == "default_course_image" else ""
+            conn.execute(
+                """
+                INSERT INTO institution_branding_settings (
+                    school_id, logo_url, color_theme, default_course_image_url,
+                    date_format, time_format, currency_code, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (school_id, logo_url, "", default_course_image_url, "YYYY-MM-DD", "24h", "USD", now_iso)
+            )
+        conn.commit()
+        return {"message": "Branding file uploaded successfully.", "asset_type": clean_type, "url": web_path}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Unable to upload branding file: {str(e)}")
+    finally:
+        conn.close()
+
+@app.post("/api/admin/institutions", status_code=201)
+async def create_institutions(
+    request: InstitutionCreateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    _validate_institution_request(request)
+
+    conn = get_db_connection()
+    try:
+        ensure_super_admin_user(conn, x_user_id)
+        _ensure_institution_schema(conn)
+        _repair_postgres_pk_sequence(conn, "schools", "id")
+        now_iso = datetime.now().isoformat()
+        is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
+        ret_school = " RETURNING school_id" if is_postgres else ""
+        created: List[Dict[str, Any]] = []
+        primary_contact_email = ""
+        if request.key_individuals and len(request.key_individuals) > 0:
+            primary_contact_email = normalize_and_validate_email(request.key_individuals[0].email)
+
+        for idx, addr in enumerate(request.addresses):
+            official_name = request.institution_official_name.strip()
+            school_name = official_name if idx == 0 else f"{official_name}_{idx + 1:04d}"
+            school_address = (addr.address_line or "").strip()
+
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO schools (name, address, contact_email, created_at) VALUES (?, ?, ?, ?)",
+                (school_name, school_address, primary_contact_email, now_iso)
+            )
+            school_id = int(cursor.lastrowid)
+
+            cursor.execute(
+                """
+                INSERT INTO institution_profiles (
+                    school_id, institution_code, institution_visual_name, institution_brief_details,
+                    institution_type, institution_structure, state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """ + ret_school,
+                (
+                    school_id,
+                    _institution_code_for_school(school_id),
+                    (request.institution_visual_name or "").strip(),
+                    (request.institution_brief_details or "").strip(),
+                    request.institution_type.strip(),
+                    request.institution_structure.strip(),
+                    (request.state or "Trial").strip(),
+                    now_iso,
+                    now_iso,
+                )
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO institution_addresses (
+                    school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    school_id,
+                    school_address,
+                    (addr.region or "").strip(),
+                    (addr.timezone or "").strip(),
+                    (addr.language or "English").strip(),
+                    True,
+                    now_iso,
+                    now_iso,
+                )
+            )
+
+            for contact in (request.key_individuals or []):
+                cursor.execute(
+                    """
+                    INSERT INTO institution_key_individuals (
+                        school_id, individual_type, custom_type, first_name, middle_name,
+                        last_name, email, status, contact_number, mobile_number, address, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        school_id,
+                        (contact.individual_type or "").strip(),
+                        (contact.custom_type or "").strip(),
+                        (contact.first_name or "").strip(),
+                        (contact.middle_name or "").strip(),
+                        (contact.last_name or "").strip(),
+                        normalize_and_validate_email(contact.email),
+                        (contact.status or "Active").strip(),
+                        (contact.contact_number or "").strip(),
+                        (contact.mobile_number or "").strip(),
+                        (contact.address or "").strip(),
+                        now_iso,
+                        now_iso,
+                    )
+                )
+
+            security = request.security or InstitutionSecurityInput()
+            rec_text = (security.recommendation_text or "").strip()
+            if not rec_text:
+                rec_text = _security_recommendation_for_type(request.institution_type, security.auth_mode or "password_only")
+            cursor.execute(
+                """
+                INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
+                VALUES (?, ?, ?, ?)
+                """ + ret_school,
+                (
+                    school_id,
+                    (security.auth_mode or "password_only").strip(),
+                    rec_text,
+                    now_iso,
+                )
+            )
+
+            branding = request.branding or InstitutionBrandingInput()
+            locale = request.locale or InstitutionLocaleInput()
+            cursor.execute(
+                """
+                INSERT INTO institution_branding_settings (
+                    school_id, logo_url, color_theme, default_course_image_url,
+                    date_format, time_format, currency_code, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """ + ret_school,
+                (
+                    school_id,
+                    (branding.logo_url or "").strip(),
+                    (branding.color_theme or "").strip(),
+                    (branding.default_course_image_url or "").strip(),
+                    (locale.date_format or "YYYY-MM-DD").strip(),
+                    (locale.time_format or "24h").strip(),
+                    (locale.currency_code or "USD").strip().upper(),
+                    now_iso,
+                )
+            )
+
+            created.append(_fetch_institution_detail(conn, school_id))
+
+        conn.commit()
+        return {"message": "Institution(s) created successfully.", "institutions": created}
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Unable to create institution: {str(e)}")
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Unable to create institution: {str(e)}")
+    finally:
+        conn.close()
+
+@app.put("/api/admin/institutions/{school_id}")
+async def update_institution(
+    school_id: int,
+    request: InstitutionUpdateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    conn = get_db_connection()
+    try:
+        ensure_super_admin_user(conn, x_user_id)
+        _ensure_institution_schema(conn)
+        _validate_institution_update_request(request)
+        is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
+        ret_school = " RETURNING school_id" if is_postgres else ""
+        school = conn.execute("SELECT id, name, address, contact_email FROM schools WHERE id = ?", (school_id,)).fetchone()
+        if not school:
+            raise HTTPException(status_code=404, detail="Institution not found.")
+
+        now_iso = datetime.now().isoformat()
+        current = _fetch_institution_detail(conn, school_id)
+
+        updated_name = request.institution_official_name.strip() if request.institution_official_name is not None else current["institution_official_name"]
+        updated_address = current["addresses"][0]["address_line"] if current["addresses"] else (school["address"] or "")
+        if request.addresses is not None:
+            if len(request.addresses) == 0:
+                raise HTTPException(status_code=400, detail="At least one institution address is required.")
+            updated_address = (request.addresses[0].address_line or "").strip()
+
+        effective_structure = request.institution_structure if request.institution_structure is not None else current["institution_structure"]
+        if request.addresses is not None and effective_structure == "Sole Entity" and len(request.addresses) > 1:
+            raise HTTPException(status_code=400, detail="Sole Entity supports one address. Use Union for multiple addresses.")
+
+        updated_contact_email = school["contact_email"] or ""
+        if request.key_individuals is not None:
+            if len(request.key_individuals) > 0:
+                updated_contact_email = normalize_and_validate_email(request.key_individuals[0].email)
+
+        conn.execute(
+            "UPDATE schools SET name = ?, address = ?, contact_email = ? WHERE id = ?",
+            (updated_name, updated_address, updated_contact_email, school_id)
+        )
+
+        profile_exists = conn.execute(
+            "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        profile_values = {
+            "institution_visual_name": request.institution_visual_name if request.institution_visual_name is not None else current["institution_visual_name"],
+            "institution_brief_details": request.institution_brief_details if request.institution_brief_details is not None else current["institution_brief_details"],
+            "institution_type": request.institution_type if request.institution_type is not None else current["institution_type"],
+            "institution_structure": request.institution_structure if request.institution_structure is not None else current["institution_structure"],
+            "state": request.state if request.state is not None else current["state"],
+        }
+        if profile_exists:
+            conn.execute(
+                """
+                UPDATE institution_profiles
+                SET institution_visual_name = ?, institution_brief_details = ?, institution_type = ?,
+                    institution_structure = ?, state = ?, updated_at = ?
+                WHERE school_id = ?
+                """,
+                (
+                    profile_values["institution_visual_name"],
+                    profile_values["institution_brief_details"],
+                    profile_values["institution_type"],
+                    profile_values["institution_structure"],
+                    profile_values["state"],
+                    now_iso,
+                    school_id,
+                )
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO institution_profiles (
+                    school_id, institution_code, institution_visual_name, institution_brief_details,
+                    institution_type, institution_structure, state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """ + ret_school,
+                (
+                    school_id,
+                    _institution_code_for_school(school_id),
+                    profile_values["institution_visual_name"],
+                    profile_values["institution_brief_details"],
+                    profile_values["institution_type"],
+                    profile_values["institution_structure"],
+                    profile_values["state"],
+                    now_iso,
+                    now_iso,
+                )
+            )
+
+        if request.addresses is not None:
+            conn.execute("DELETE FROM institution_addresses WHERE school_id = ?", (school_id,))
+            for idx, addr in enumerate(request.addresses):
+                conn.execute(
+                    """
+                    INSERT INTO institution_addresses (
+                        school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        school_id,
+                        (addr.address_line or "").strip(),
+                        (addr.region or "").strip(),
+                        (addr.timezone or "").strip(),
+                        (addr.language or "English").strip(),
+                        True if idx == 0 else bool(addr.is_primary),
+                        now_iso,
+                        now_iso,
+                    )
+                )
+
+        if request.key_individuals is not None:
+            conn.execute("DELETE FROM institution_key_individuals WHERE school_id = ?", (school_id,))
+            for contact in request.key_individuals:
+                conn.execute(
+                    """
+                    INSERT INTO institution_key_individuals (
+                        school_id, individual_type, custom_type, first_name, middle_name,
+                        last_name, email, status, contact_number, mobile_number, address, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        school_id,
+                        (contact.individual_type or "").strip(),
+                        (contact.custom_type or "").strip(),
+                        (contact.first_name or "").strip(),
+                        (contact.middle_name or "").strip(),
+                        (contact.last_name or "").strip(),
+                        normalize_and_validate_email(contact.email),
+                        (contact.status or "Active").strip(),
+                        (contact.contact_number or "").strip(),
+                        (contact.mobile_number or "").strip(),
+                        (contact.address or "").strip(),
+                        now_iso,
+                        now_iso,
+                    )
+                )
+
+        if request.security is not None:
+            sec_exists = conn.execute(
+                "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+                (school_id,)
+            ).fetchone()
+            rec_text = (request.security.recommendation_text or "").strip()
+            if not rec_text:
+                inst_type_for_rec = request.institution_type if request.institution_type is not None else current["institution_type"]
+                rec_text = _security_recommendation_for_type(inst_type_for_rec, request.security.auth_mode or "password_only")
+            if sec_exists:
+                conn.execute(
+                    """
+                    UPDATE institution_security_settings
+                    SET auth_mode = ?, recommendation_text = ?, updated_at = ?
+                    WHERE school_id = ?
+                    """,
+                    (
+                        (request.security.auth_mode or "password_only").strip(),
+                        rec_text,
+                        now_iso,
+                        school_id,
+                    )
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """ + ret_school,
+                    (
+                        school_id,
+                        (request.security.auth_mode or "password_only").strip(),
+                        rec_text,
+                        now_iso,
+                    )
+                )
+
+        if request.branding is not None or request.locale is not None:
+            existing_branding = conn.execute(
+                """
+                SELECT logo_url, color_theme, default_course_image_url, date_format, time_format, currency_code
+                FROM institution_branding_settings
+                WHERE school_id = ?
+                """,
+                (school_id,)
+            ).fetchone()
+            merged_logo = request.branding.logo_url if request.branding and request.branding.logo_url is not None else (existing_branding["logo_url"] if existing_branding else "")
+            merged_theme = request.branding.color_theme if request.branding and request.branding.color_theme is not None else (existing_branding["color_theme"] if existing_branding else "")
+            merged_course_image = request.branding.default_course_image_url if request.branding and request.branding.default_course_image_url is not None else (existing_branding["default_course_image_url"] if existing_branding else "")
+            merged_date = request.locale.date_format if request.locale and request.locale.date_format is not None else (existing_branding["date_format"] if existing_branding else "YYYY-MM-DD")
+            merged_time = request.locale.time_format if request.locale and request.locale.time_format is not None else (existing_branding["time_format"] if existing_branding else "24h")
+            merged_currency = request.locale.currency_code if request.locale and request.locale.currency_code is not None else (existing_branding["currency_code"] if existing_branding else "USD")
+
+            if existing_branding:
+                conn.execute(
+                    """
+                    UPDATE institution_branding_settings
+                    SET logo_url = ?, color_theme = ?, default_course_image_url = ?,
+                        date_format = ?, time_format = ?, currency_code = ?, updated_at = ?
+                    WHERE school_id = ?
+                    """,
+                    (merged_logo, merged_theme, merged_course_image, merged_date, merged_time, (merged_currency or "USD").upper(), now_iso, school_id)
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO institution_branding_settings (
+                        school_id, logo_url, color_theme, default_course_image_url,
+                        date_format, time_format, currency_code, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """ + ret_school,
+                    (school_id, merged_logo, merged_theme, merged_course_image, merged_date, merged_time, (merged_currency or "USD").upper(), now_iso)
+                )
+
+        conn.commit()
+        return {
+            "message": "The institution has been successfully updated.",
+            "institution": _fetch_institution_detail(conn, school_id),
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except sqlite3.IntegrityError as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=f"Unable to update institution: {str(e)}")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Unable to update institution: {str(e)}")
+    finally:
+        conn.close()
 
 @app.get("/api/admin/schools", response_model=List[SchoolResponse])
 async def get_schools():
@@ -12821,30 +14338,65 @@ async def reassign_submission(sub_id: int,
         conn.close()
 
 @app.post("/api/assignments", status_code=201)
-async def create_assignment(req: AssignmentCreateRequest,
-                            x_user_role: str = Header(None, alias="X-User-Role"),
-                            x_user_id: str = Header(None, alias="X-User-Id"),
-                            x_school_id: Optional[int] = Header(None, alias="X-School-Id")):
+async def create_assignment(
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    due_date: str = Form(...),
+    points: int = Form(100),
+    grade_level: Optional[int] = Form(None),
+    section_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    x_user_role: str = Header(None, alias="X-User-Role"),
+    x_user_id: str = Header(None, alias="X-User-Id"),
+    x_school_id: Optional[int] = Header(None, alias="X-School-Id")
+):
     await verify_permission("assignment.create", x_user_role=x_user_role, x_user_id=x_user_id)
+
+    # --- Handle file upload ---
+    file_url = None
+    if file and file.filename:
+        allowed_exts = {".pdf", ".doc", ".docx"}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in allowed_exts:
+            raise HTTPException(status_code=400, detail="Only PDF or Word (.doc/.docx) files are allowed.")
+        uploads_dir = os.path.join(os.path.dirname(__file__), "uploads", "assignments")
+        os.makedirs(uploads_dir, exist_ok=True)
+        safe_name = f"{int(datetime.now().timestamp())}_{file.filename.replace(' ', '_')}"
+        file_path = os.path.join(uploads_dir, safe_name)
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+        file_url = f"/uploads/assignments/{safe_name}"
+
     conn = get_db_connection()
     try:
-        section_id = req.section_id
-        grade_level = req.grade_level
-        if section_id:
-            section = conn.execute("SELECT id, grade_level, school_id FROM sections WHERE id = ?", (section_id,)).fetchone()
+        final_grade = grade_level
+        final_section = section_id
+        if final_section:
+            section = conn.execute(
+                "SELECT id, grade_level, school_id FROM sections WHERE id = ?", (final_section,)
+            ).fetchone()
             if not section:
                 raise HTTPException(status_code=404, detail="Section not found.")
             if x_school_id and section["school_id"] != x_school_id:
                 raise HTTPException(status_code=403, detail="Section does not belong to your school.")
-            grade_level = section["grade_level"]
-        if not grade_level:
+            final_grade = section["grade_level"]
+        if not final_grade:
             raise HTTPException(status_code=400, detail="Grade level is required.")
+
+        # Store description + file_url together as JSON in the description column
+        import json as _json
+        desc_payload = _json.dumps({
+            "note": description or "",
+            "file_url": file_url or ""
+        })
+
         conn.execute("""
             INSERT INTO assignments (group_id, title, description, due_date, type, points, section_id, grade_level)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (None, req.title, req.description, req.due_date, "Assignment", req.points, section_id, grade_level))
+        """, (None, title, desc_payload, due_date, "Assignment", points, final_section, final_grade))
         conn.commit()
-        return {"success": True, "message": "Assignment created"}
+        return {"success": True, "message": "Assignment created", "file_url": file_url}
     finally:
         conn.close()
 

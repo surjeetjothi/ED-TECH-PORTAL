@@ -980,18 +980,22 @@
         .role-card {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
+
         #othersRoleModal .modal-title {
             color: #ffffff !important;
         }
+
         #othersRoleModal .role-card {
             background: rgba(255, 255, 255, 0.18) !important;
             border: 1px solid rgba(255, 255, 255, 0.45) !important;
         }
+
         #othersRoleModal .role-card h6 {
             color: #ffffff !important;
             font-size: 1.15rem;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
         }
+
         #othersRoleModal .role-card:hover {
             transform: translateY(-2px);
             background: rgba(255, 255, 255, 0.28) !important;
@@ -1825,17 +1829,6 @@
                                         </div>
                                     </div>
 
-                                    <div class="role-card p-4 rounded-4 cursor-pointer glass-card text-center"
-                                        onclick="selectLoginRole('Root_Super_Admin'); bootstrap.Modal.getInstance(document.getElementById('othersRoleModal')).hide(); showLogin();"
-                                        style="flex: 1; min-width: 140px; cursor: pointer;">
-                                        <div class="d-flex flex-column align-items-center gap-3">
-                                            <div class="icon-circle d-flex align-items-center justify-content-center rounded-circle mb-2"
-                                                style="width: 60px; height: 60px; background: rgba(255,255,255,0.2);">
-                                                <span class="material-icons" style="font-size: 30px;">admin_panel_settings</span>
-                                            </div>
-                                            <h6 class="fw-bold m-0">Root Admin</h6>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2472,20 +2465,57 @@
                     </div>
 
                     <!-- Section 2: Permission Association -->
-                    <h6 class="fw-bold text-primary mb-3">2. Permission Association</h6>
-                    <div class="bg-light rounded p-3 mb-4" style="max-height: 500px; overflow-y: auto;">
-                        <div id="role-perms-container">
-                            <!-- Perms populated via JS -->
-                            <div class="text-center p-3">
-                                <div class="spinner-border spinner-border-sm text-muted"></div>
+                    <div class="card border-0 shadow-sm rounded-4 mb-4">
+                        <div class="card-body p-4">
+                            <div class="d-flex align-items-center justify-content-between mb-3">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                                        style="width:36px;height:36px;background:linear-gradient(135deg,#0891b2,#0e7490);">
+                                        <span class="material-icons text-white" style="font-size:18px;">vpn_key</span>
+                                    </div>
+                                    <h6 class="fw-bold mb-0" style="color:#1e1b4b;">Section 2: Permission Association
+                                    </h6>
+                                </div>
+                                <span class="badge rounded-pill px-3 py-1 fw-semibold" id="selected-perms-count"
+                                    style="background:#e0e7ff;color:#4f46e5;font-size:0.75rem;">0 selected</span>
+                            </div>
+                            <!-- Search bar -->
+                            <div class="position-relative mb-3">
+                                <span class="material-icons position-absolute text-muted"
+                                    style="left:12px;top:50%;transform:translateY(-50%);font-size:18px;pointer-events:none;">search</span>
+                                <input type="text" id="perm-search-role" class="form-control ps-5 rounded-3"
+                                    placeholder="Search permissions by name or code..."
+                                    style="border:1.5px solid #e5e7eb;font-size:0.85rem;"
+                                    oninput="filterRolePermissions(this.value)">
+                            </div>
+                            <!-- Selected tags -->
+                            <div id="selected-perms-list" class="mb-3 d-flex flex-wrap gap-2"
+                                style="min-height:40px;padding:10px;background:#f8f7ff;border:1.5px dashed #c7d2fe;border-radius:10px;">
+                                <span class="text-muted small fst-italic" id="no-perms-hint" style="opacity:0.6;">
+                                    Selected permissions will appear here...
+                                </span>
+                            </div>
+                            <!-- Picker -->
+                            <div id="role-perms-container"
+                                style="max-height:340px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">
+                                <div class="text-center py-4">
+                                    <div class="spinner-border spinner-border-sm text-primary"></div>
+                                    <span class="text-muted small ms-2">Loading permissions...</span>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-end gap-2">
-                        <button type="button" class="btn btn-light" onclick="switchView('roles-view')">Cancel</button>
-                        <button type="button" class="btn btn-primary-custom px-4" onclick="handleSaveRole()">Save
-                            Role</button>
+                    <!-- Section 3: Actions -->
+                    <div class="d-flex justify-content-end gap-3">
+                        <button type="button" class="btn btn-light rounded-pill px-5 fw-semibold border"
+                            style="font-size:0.88rem;" onclick="switchView('roles-view')">Cancel</button>
+                        <button type="button" class="btn rounded-pill px-5 fw-bold shadow-sm"
+                            style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:0.88rem;border:none;"
+                            onclick="handleSaveRole()">
+                            <span class="material-icons align-middle me-1" style="font-size:16px;">save</span>
+                            Save Role
+                        </button>
                     </div>
                 </form>
             </div>
@@ -2512,19 +2542,15 @@
                 <div class="card-body py-3">
                     <div class="d-flex gap-3 align-items-center font-weight-bold">
                         <button class="btn btn-sm btn-outline-primary active rounded-pill px-3"
-                            data-resource-category="All"
-                            onclick="filterResources('All', this)">All</button>
-                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3"
-                            data-resource-category="Policy"
+                            data-resource-category="All" onclick="filterResources('All', this)">All</button>
+                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3" data-resource-category="Policy"
                             onclick="filterResources('Policy', this)">Policies</button>
                         <button class="btn btn-sm btn-outline-primary rounded-pill px-3"
-                            data-resource-category="Schedule"
-                            onclick="filterResources('Schedule', this)">Exam Schedules</button>
-                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3"
-                            data-resource-category="Form"
+                            data-resource-category="Schedule" onclick="filterResources('Schedule', this)">Exam
+                            Schedules</button>
+                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3" data-resource-category="Form"
                             onclick="filterResources('Form', this)">Forms</button>
-                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3"
-                            data-resource-category="Other"
+                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3" data-resource-category="Other"
                             onclick="filterResources('Other', this)">Other</button>
                     </div>
                 </div>
@@ -2647,7 +2673,7 @@
                                         <option value="Tenant_Admin">Tenant Admin (Principal)</option>
                                         <option value="Academic_Admin">Academic Admin</option>
                                         <option value="HR_Admin">HR Admin</option>
-                                        <option value="Root_Super_Admin">Root Super Admin</option>
+
                                     </select>
                                     <label>Role</label>
                                 </div>
@@ -2863,50 +2889,205 @@
             </div>
         </div>
 
-        <!-- Permission Edit Modal -->
-        <div class="modal fade" id="permEditModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow">
-                    <div class="modal-header border-bottom-0 pb-0">
-                        <h5 class="modal-title fw-bold" data-i18n="modal_edit_permission">Edit Permission</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <!-- Permission Edit Modal (Bootstrap popup) -->
+        <div class="modal fade" id="permEditModal" tabindex="-1" aria-labelledby="permEditModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" style="max-width:520px;">
+                <div class="modal-content border-0 rounded-4 overflow-hidden"
+                    style="box-shadow:0 25px 60px rgba(0,0,0,0.18);">
+
+                    <!-- Modal Header -->
+                    <div class="modal-header border-0 px-4 pt-4 pb-2"
+                        style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="d-flex align-items-center justify-content-center rounded-3"
+                                style="width:40px;height:40px;background:rgba(255,255,255,0.2);">
+                                <span class="material-icons text-white" style="font-size:20px;">vpn_key</span>
+                            </div>
+                            <div>
+                                <h5 class="modal-title fw-bold text-white mb-0" id="permEditModalLabel">Edit Permission
+                                </h5>
+                                <small class="text-white" style="opacity:0.75;font-size:0.78rem;">Update the description
+                                    for this permission</small>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"
+                            aria-label="Close"></button>
                     </div>
-                    <div class="modal-body pt-4">
-                        <form id="perm-edit-form">
+
+                    <!-- Modal Body -->
+                    <div class="modal-body px-4 pt-4 pb-2">
+                        <form id="perm-edit-form" onsubmit="event.preventDefault(); handleUpdatePermission();">
                             <input type="hidden" id="perm-edit-id">
 
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase"
-                                    data-i18n="label_perm_code">Permission
-                                    Code</label>
-                                <input type="text" class="form-control bg-light" id="perm-edit-code" disabled>
+                            <!-- Read-only info row -->
+                            <div class="p-3 rounded-3 mb-4" style="background:#f8f7ff;border:1px solid #e0e7ff;">
+                                <div class="row g-3">
+                                    <div class="col-6">
+                                        <label class="fw-bold text-uppercase mb-1"
+                                            style="font-size:0.66rem;letter-spacing:0.06em;color:#6366f1;">Permission
+                                            Code</label>
+                                        <div>
+                                            <span class="badge bg-white border font-monospace fw-bold px-2 py-1"
+                                                id="perm-edit-code-badge"
+                                                style="color:#4338ca;font-size:0.78rem;border-color:#c7d2fe!important;">—</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="fw-bold text-uppercase mb-1"
+                                            style="font-size:0.66rem;letter-spacing:0.06em;color:#6366f1;">Permission
+                                            Title</label>
+                                        <p class="mb-0 fw-semibold" id="perm-edit-title-display"
+                                            style="color:#1e1b4b;font-size:0.8rem;line-height:1.4;">—</p>
+                                    </div>
+                                </div>
+                                <input type="hidden" id="perm-edit-code">
+                                <input type="hidden" id="perm-edit-title">
                             </div>
 
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase"
-                                    data-i18n="label_perm_title">Permission
-                                    Title</label>
-                                <input type="text" class="form-control bg-light" id="perm-edit-title" disabled>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label small fw-bold text-muted text-uppercase"
-                                    data-i18n="label_res_desc">Description</label>
-                                <textarea class="form-control" id="perm-edit-desc" rows="3" required></textarea>
+                            <!-- Editable Description -->
+                            <div class="mb-2">
+                                <label class="form-label fw-bold mb-2" style="font-size:0.85rem;color:#374151;">
+                                    Description <span class="text-danger">*</span>
+                                </label>
+                                <textarea class="form-control rounded-3" id="perm-edit-desc" rows="4" required
+                                    placeholder="Describe what this permission allows..."
+                                    style="border:1.5px solid #e5e7eb;font-size:0.88rem;resize:vertical;transition:border .2s,box-shadow .2s;"
+                                    onfocus="this.style.borderColor='#6366f1';this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.12)'"
+                                    onblur="this.style.borderColor='#e5e7eb';this.style.boxShadow='none'"></textarea>
+                                <p class="text-muted mt-1 mb-0" style="font-size:0.73rem;">
+                                    Only the description can be edited. Code and title are system-defined.
+                                </p>
                             </div>
                         </form>
                     </div>
-                    <div class="modal-footer border-top-0 pt-0">
-                        <button type="button" class="btn btn-light rounded-pill px-4 fw-bold" data-bs-dismiss="modal"
-                            data-i18n="btn_cancel">Cancel</button>
-                        <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm"
-                            onclick="handleUpdatePermission()" data-i18n="btn_update">Update</button>
+
+                    <!-- Modal Footer -->
+                    <div class="modal-footer border-0 px-4 pb-4 pt-2 gap-2">
+                        <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold border"
+                            style="font-size:0.85rem;" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" id="perm-update-btn" class="btn rounded-pill px-5 fw-bold shadow-sm"
+                            style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:0.85rem;border:none;"
+                            onclick="handleUpdatePermission()">
+                            <span class="material-icons align-middle me-1" style="font-size:15px;">save</span>
+                            Update Description
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Role Modal -->
+        <!-- Permission Setup View (dedicated sidebar view) -->
+        <div id="permissions-view" class="view">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="fw-bold mb-1">Permission Setup</h2>
+                    <p class="text-muted mb-0 small">View and manage all system permissions available in the
+                        application.</p>
+                </div>
+                <button class="btn btn-outline-primary rounded-pill px-4 fw-medium d-flex align-items-center gap-2"
+                    onclick="loadPermissionsSetup()">
+                    <span class="material-icons fs-6">refresh</span> Refresh
+                </button>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="row g-3 mb-4" id="perm-summary-cards">
+                <div class="col-sm-4">
+                    <div class="card border-0 shadow-sm rounded-4 h-100"
+                        style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);color:#fff;min-height:100px;">
+                        <div class="card-body d-flex align-items-center gap-3 p-4">
+                            <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                                style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
+                                <span class="material-icons" style="font-size:24px;">vpn_key</span>
+                            </div>
+                            <div>
+                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-total">—
+                                </div>
+                                <div style="font-size:0.78rem;opacity:0.85;font-weight:600;letter-spacing:0.02em;">
+                                    Total Permissions</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="card border-0 shadow-sm rounded-4 h-100"
+                        style="background:linear-gradient(135deg,#0891b2 0%,#0e7490 100%);color:#fff;min-height:100px;">
+                        <div class="card-body d-flex align-items-center gap-3 p-4">
+                            <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                                style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
+                                <span class="material-icons" style="font-size:24px;">category</span>
+                            </div>
+                            <div>
+                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-groups">—
+                                </div>
+                                <div style="font-size:0.78rem;opacity:0.85;font-weight:600;letter-spacing:0.02em;">
+                                    Permission Groups</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="card border-0 shadow-sm rounded-4 h-100"
+                        style="background:linear-gradient(135deg,#059669 0%,#047857 100%);color:#fff;min-height:100px;">
+                        <div class="card-body d-flex align-items-center gap-3 p-4">
+                            <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                                style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
+                                <span class="material-icons" style="font-size:24px;">description</span>
+                            </div>
+                            <div>
+                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-desc">—</div>
+                                <div style="font-size:0.78rem;opacity:0.85;font-weight:600;letter-spacing:0.02em;">
+                                    With Descriptions</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search / Filter -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body py-3">
+                    <div class="input-group" style="max-width: 400px;">
+                        <span class="input-group-text bg-light border-0">
+                            <span class="material-icons text-muted fs-6">search</span>
+                        </span>
+                        <input type="text" id="perm-search-input" class="form-control bg-light border-0"
+                            placeholder="Search by code or title..." oninput="filterPermissionsTable(this.value)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Permissions Table -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0" id="permissions-setup-table">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th class="ps-4" style="width:120px;">Permission Code</th>
+                                    <th style="width:220px;">Permission Title</th>
+                                    <th>Description</th>
+                                    <th style="width:100px;">Group</th>
+                                    <th class="text-center" style="width:80px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="permissions-setup-body">
+                                <tr>
+                                    <td colspan="5" class="text-center py-5 text-muted">
+                                        <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                        Loading permissions...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Permission Edit Modal -->
 
 
         <div id="students-landing-view" class="view"
@@ -3491,25 +3672,27 @@
                                     <span class="text-muted small" data-i18n="login_not_a">Not a</span>
                                     <span class="text-muted small"><span id="login-role-label">Student</span>?</span>
                                     <a href="#" onclick="switchView('landing-view')"
-                                        class="text-primary-custom fw-bold small text-decoration-none bg-light px-3 py-1 rounded-pill border" data-i18n="login_switch_role">Switch
+                                        class="text-primary-custom fw-bold small text-decoration-none bg-light px-3 py-1 rounded-pill border"
+                                        data-i18n="login_switch_role">Switch
                                         Role</a>
                                 </div>
                             </div>
 
-                            <h2 class="fw-bold text-dark mb-2" id="login-title" data-i18n="login_student_login">Student Login</h2>
+                            <h2 class="fw-bold text-dark mb-2" id="login-title" data-i18n="login_student_login">Student
+                                Login</h2>
                             <p class="text-muted" data-i18n="login_subtitle">Sign in to your account</p>
                         </div>
 
                         <form id="login-form">
                             <input type="hidden" id="selected-role" value="Student">
                             <div class="form-floating mb-3">
-                                <input type="text" class="form-control bg-light border-0" id="username" autocomplete="off"
-                                    placeholder="Email" required aria-label="Email">
+                                <input type="text" class="form-control bg-light border-0" id="username"
+                                    autocomplete="off" placeholder="Email" required aria-label="Email">
                                 <label for="username" data-i18n="label_username">Email</label>
                             </div>
                             <div class="form-floating mb-3">
-                                <input type="password" class="form-control bg-light border-0" id="password" autocomplete="new-password"
-                                    placeholder="Password" required aria-label="Password">
+                                <input type="password" class="form-control bg-light border-0" id="password"
+                                    autocomplete="new-password" placeholder="Password" required aria-label="Password">
                                 <label for="password" data-i18n="label_password">Password</label>
                             </div>
                             <div class="text-end mb-4">
@@ -5094,177 +5277,224 @@
 
         <!-- Student View -->
         <!-- Student View -->
-        <div id="student-view" class="view">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 id="student-name-header" class="fw-bold mb-0" data-i18n="student_dashboard_title">Student Dashboard
-                </h2>
-                <button id="student-log-activity-btn" class="btn btn-primary-custom shadow-sm"
-                    onclick="openStudentAddActivityModal()">
-                    <span class="material-icons align-middle fs-5 me-1">add_task</span> <span
-                        data-i18n="btn_log_activity">Log Activity</span>
-                </button>
+        <div id="student-view" class="view student-persona-view"
+            style="background:#f4f6fb; min-height:100vh; padding: 0 0 40px 0;">
+
+            <!-- Top Header -->
+            <div class="student-dash-header px-4 pt-4 pb-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div id="student-greeting-text" class="text-muted mb-1" style="font-size:1rem;">Good Morning ☀️
+                        </div>
+                        <h2 id="student-name-header" class="fw-bold mb-0 text-dark" style="font-size:1.6rem;">
+                            Welcome back, Student
+                        </h2>
+                    </div>
+                    <button id="student-log-activity-btn" class="btn d-none" onclick="openStudentAddActivityModal()"
+                        style="background:#28245D; color:white; border-radius:12px; padding:10px 20px; font-weight:600;">
+                        <span class="material-icons align-middle me-1" style="font-size:18px;">add_task</span>
+                        Log Activity
+                    </button>
+                </div>
             </div>
 
             <!-- Live Class Banner -->
-
-
             <div id="student-live-banner"
-                class="alert alert-danger d-none d-flex justify-content-between align-items-center shadow-sm"
+                class="mx-4 mb-3 alert alert-danger d-none d-flex justify-content-between align-items-center shadow-sm rounded-4"
                 role="alert">
                 <div class="d-flex align-items-center gap-2">
                     <span class="spinner-grow spinner-grow-sm text-danger" role="status"></span>
-                    <strong data-i18n="student_live_class">🔴 Live Class in Progress!</strong>
+                    <strong>🔴 Live Class in Progress!</strong>
                 </div>
                 <div class="d-flex gap-2">
-                    <a id="student-join-link" href="#" target="_blank" class="btn btn-sm btn-danger fw-bold"
-                        data-i18n="btn_join_class">Join
+                    <a id="student-join-link" href="#" target="_blank" class="btn btn-sm btn-danger fw-bold">Join
                         Class</a>
-                    <button class="btn btn-sm btn-dark fw-bold" onclick="openWhiteboard()"
-                        data-i18n="btn_join_whiteboard">Join Whiteboard</button>
+                    <button class="btn btn-sm btn-dark fw-bold" onclick="openWhiteboard()">Join Whiteboard</button>
                 </div>
             </div>
 
-            <!-- Metrics -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <h3 class="h5 text-secondary fw-bold mb-3" data-i18n="student_key_metrics">Student Key Metrics</h3>
-                    <div id="student-metrics" class="row g-4">
-                        <!-- Metrics injected here -->
+            <!-- Stat Cards Grid -->
+            <div class="px-4 mb-3">
+                <div id="student-metrics" class="row g-3">
+                    <!-- Injected by renderStudentMetricCards() -->
+                    <div class="col-12 text-center py-4">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2 text-muted small">Loading your dashboard...</p>
                     </div>
                 </div>
-            </div>
-
-            <!-- Live Classes -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <h3 class="h5 text-danger fw-bold mb-3 d-flex align-items-center">
-                        <span class="material-icons me-2">live_tv</span> <span
-                            data-i18n="student_upcoming_live">Upcoming Live Classes</span>
-                    </h3>
-                    <div id="live-classes-list">
-                        <p class="text-muted" data-i18n="msg_no_live_classes">No live classes scheduled.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Live Banner -->
-            <div id="student-live-banner"
-                class="live-class-banner text-white p-3 rounded-3 mb-4 d-none justify-content-between align-items-center">
-                <div class="d-flex align-items-center gap-2 fw-bold">
-                    <span class="spinner-grow spinner-grow-sm bg-white" role="status"></span>
-                    <span data-i18n="live_class_session">LIVE CLASS IN SESSION</span>
-                </div>
-                <a id="student-join-link" href="#" target="_blank" class="btn btn-light text-danger fw-bold"
-                    data-i18n="btn_join_now">JOIN
-                    NOW</a>
             </div>
 
             <!-- Gamification Bar -->
-            <div class="card border-0 shadow-sm mb-4 bg-primary-custom text-white overflow-hidden position-relative">
-                <div class="card-body p-4 position-relative" style="z-index: 1;">
+            <div class="px-4 mb-3">
+                <div class="rounded-4 p-4 position-relative overflow-hidden"
+                    style="background: linear-gradient(135deg, #6c63ff 0%, #a855f7 100%); box-shadow: 0 8px 24px rgba(108,99,255,0.3);">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h4 class="mb-0 fw-bold d-flex align-items-center gap-2">
-                            <span class="material-icons text-warning">emoji_events</span> <span
-                                data-i18n="student_level">Level</span> <span id="student-level">1</span>
-                        </h4>
-                        <span class="badge bg-white text-primary fw-bold fs-6 shadow-sm"><span id="student-xp">0</span>
-                            XP</span>
-                    </div>
-                    <div class="progress bg-white bg-opacity-25" style="height: 10px; border-radius: 10px;">
-                        <div id="student-xp-bar" class="progress-bar bg-warning" role="progressbar" style="width: 0%">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center"
+                                style="width:44px;height:44px;background:rgba(255,255,255,0.2);">
+                                <span class="material-icons text-warning">emoji_events</span>
+                            </div>
+                            <div>
+                                <div class="text-white fw-bold fs-5">Level <span id="student-level">1</span></div>
+                                <div class="text-white-50 small">Keep learning to level up!</div>
+                            </div>
                         </div>
+                        <div class="d-flex align-items-center gap-1 px-3 py-1 rounded-pill"
+                            style="background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.3);">
+                            <span class="material-icons text-warning" style="font-size:16px;">bolt</span>
+                            <span class="text-white fw-bold small"><span id="student-xp">0</span> XP</span>
+                        </div>
+                    </div>
+                    <div class="progress" style="height:8px;border-radius:10px;background:rgba(255,255,255,0.25);">
+                        <div id="student-xp-bar" class="progress-bar"
+                            style="width:0%;border-radius:10px;background:linear-gradient(90deg,#fbbf24,#f59e0b);"
+                            role="progressbar"></div>
                     </div>
                     <div id="student-badges" class="d-flex mt-3 gap-2 flex-wrap">
-                        <!-- Badges injected here -->
+                        <span class="text-white-50 small fst-italic">No badges yet. Keep studying!</span>
                     </div>
-                </div>
-                <!-- Decorative Circles -->
-                <div class="position-absolute top-0 end-0 bg-white opacity-10 rounded-circle"
-                    style="width: 150px; height: 150px; transform: translate(30%, -30%);"></div>
-                <div class="position-absolute bottom-0 start-0 bg-white opacity-10 rounded-circle"
-                    style="width: 100px; height: 100px; transform: translate(-30%, 30%);"></div>
-            </div>
-
-            <!-- Student Groups (Subject Hubs) -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <h3 class="h5 text-primary-custom fw-bold mb-3 d-flex align-items-center">
-                        <span class="material-icons me-2">class</span> <span data-i18n="student_my_courses">My
-                            Courses</span>
-                    </h3>
-                    <div id="student-groups-list" class="row g-3">
-                        <p class="text-muted small" data-i18n="msg_no_courses">You are not enrolled in any courses yet.
-                        </p>
+                    <!-- Decorative bg circles -->
+                    <div class="position-absolute rounded-circle"
+                        style="width:160px;height:160px;background:rgba(255,255,255,0.07);top:-40px;right:-40px;"></div>
+                    <div class="position-absolute rounded-circle"
+                        style="width:100px;height:100px;background:rgba(255,255,255,0.07);bottom:-30px;left:-20px;">
                     </div>
                 </div>
             </div>
 
-            <!-- Upcoming Assignments -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <h3 class="h5 text-danger fw-bold mb-3 d-flex align-items-center">
-                        <span class="material-icons me-2">assignment_late</span> <span
-                            data-i18n="student_upcoming_assignments">Upcoming Assignments & Projects</span>
-                    </h3>
-                    <div id="student-upcoming-assignments" class="list-group list-group-flush">
-                        <p class="text-muted small" data-i18n="msg_loading_assignments">Loading assignments...</p>
+            <!-- Progress Graph + Activity History -->
+            <div class="px-4 mb-3">
+                <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+                    <div class="card-header bg-white border-bottom-0 px-4 pt-4 pb-0">
+                        <ul class="nav nav-tabs border-0" id="studentTabs" role="tablist">
+                            <li class="nav-item me-2">
+                                <button class="nav-link active fw-semibold px-3 py-2" id="progress-tab-btn"
+                                    data-bs-toggle="tab" data-bs-target="#progress-tab-pane" type="button"
+                                    style="border-radius:10px 10px 0 0; font-size:0.92rem;">
+                                    📈 Progress Graph
+                                </button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link fw-semibold px-3 py-2 text-muted" id="history-tab-btn"
+                                    data-bs-toggle="tab" data-bs-target="#history-tab-pane" type="button"
+                                    style="border-radius:10px 10px 0 0; font-size:0.92rem;">
+                                    📜 Activity History
+                                </button>
+                            </li>
+                        </ul>
                     </div>
-                </div>
-
-            </div>
-
-            <!-- Quiz Results -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-body p-4">
-                    <h3 class="h5 text-success fw-bold mb-3 d-flex align-items-center">
-                        <span class="material-icons me-2">fact_check</span> <span
-                            data-i18n="student_quiz_results">Recent Quiz Results</span>
-                    </h3>
-                    <div id="student-quiz-results-list" class="list-group list-group-flush">
-                        <p class="text-muted small">Loading results...</p>
-                    </div>
-                </div>
-            </div>
-
-
-            <!-- Recommendation Box -->
-            <div id="recommendation-box" class="alert alert-info border-start border-4 border-info shadow-sm mb-4"
-                style="display:none;"></div>
-
-            <!-- Progress & History Tabs -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-header bg-white border-bottom-0 pt-4 px-4">
-                    <ul class="nav nav-tabs card-header-tabs" id="studentTabs" role="tablist">
-                        <li class="nav-item">
-                            <button class="nav-link active fw-bold text-dark" id="progress-tab-btn" data-bs-toggle="tab"
-                                data-bs-target="#progress-tab-pane" type="button" data-i18n="tab_progress_graph">📈
-                                Progress Graph</button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link fw-bold text-muted" id="history-tab-btn" data-bs-toggle="tab"
-                                data-bs-target="#history-tab-pane" type="button" data-i18n="tab_activity_history">📜
-                                Activity History</button>
-                        </li>
-                    </ul>
-                </div>
-                <div class="card-body p-4">
-                    <div class="tab-content">
-                        <div class="tab-pane fade show active" id="progress-tab-pane" role="tabpanel">
-                            <div id="student-progress-chart" style="height: 350px;"></div>
-                        </div>
-                        <div class="tab-pane fade" id="history-tab-pane" role="tabpanel">
-                            <div class="table-responsive">
-                                <table class="table table-striped">
-                                    <tbody id="history-table"></tbody>
-                                </table>
+                    <div class="card-body p-0">
+                        <div class="tab-content">
+                            <div class="tab-pane fade show active" id="progress-tab-pane" role="tabpanel">
+                                <div id="student-progress-chart" style="height:320px; padding: 8px 8px 0 8px;"></div>
+                            </div>
+                            <div class="tab-pane fade" id="history-tab-pane" role="tabpanel">
+                                <div class="table-responsive px-4 py-3">
+                                    <table class="table table-hover align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Topic</th>
+                                                <th>Difficulty</th>
+                                                <th>Score</th>
+                                                <th>Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="history-table"></tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Removed AI Tutor Chat from here -->
+            <!-- Bottom 4 content cards -->
+            <div class="px-4">
+                <div class="row g-3">
+                    <!-- Upcoming Assignments -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm rounded-4 h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="rounded-3 d-flex align-items-center justify-content-center"
+                                        style="width:40px;height:40px;background:#fff0e6;">
+                                        <span class="material-icons"
+                                            style="color:#f97316;font-size:22px;">assignment</span>
+                                    </div>
+                                    <h5 class="fw-bold mb-0 text-dark">Upcoming Assignments &amp; Projects</h5>
+                                </div>
+                                <div id="student-upcoming-assignments" class="list-group list-group-flush">
+                                    <p class="text-muted small">Loading assignments...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- My Courses -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm rounded-4 h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="rounded-3 d-flex align-items-center justify-content-center"
+                                        style="width:40px;height:40px;background:#ede9fe;">
+                                        <span class="material-icons"
+                                            style="color:#7c3aed;font-size:22px;">menu_book</span>
+                                    </div>
+                                    <h5 class="fw-bold mb-0 text-dark">My Courses</h5>
+                                </div>
+                                <div id="student-groups-list" class="row g-2">
+                                    <p class="text-muted small">You are not enrolled in any courses yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Classes -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm rounded-4 h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="rounded-3 d-flex align-items-center justify-content-center"
+                                        style="width:40px;height:40px;background:#fce7f3;">
+                                        <span class="material-icons"
+                                            style="color:#db2777;font-size:22px;">live_tv</span>
+                                    </div>
+                                    <h5 class="fw-bold mb-0 text-dark">Live Classes</h5>
+                                </div>
+                                <div id="live-classes-list">
+                                    <p class="text-muted small">No live classes scheduled.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Quiz Results -->
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm rounded-4 h-100">
+                            <div class="card-body p-4">
+                                <div class="d-flex align-items-center gap-3 mb-3">
+                                    <div class="rounded-3 d-flex align-items-center justify-content-center"
+                                        style="width:40px;height:40px;background:#dcfce7;">
+                                        <span class="material-icons"
+                                            style="color:#16a34a;font-size:22px;">fact_check</span>
+                                    </div>
+                                    <h5 class="fw-bold mb-0 text-dark">Recent Quiz Results</h5>
+                                </div>
+                                <div id="student-quiz-results-list" class="list-group list-group-flush">
+                                    <p class="text-muted small">Loading results...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recommendation Box -->
+            <div id="recommendation-box" class="mx-4 mt-3 alert border-start border-4 border-info shadow-sm rounded-4"
+                style="display:none;"></div>
         </div>
+
 
         <!-- Parent View (Observer Mode) -->
         <div id="parent-dashboard-view" class="view">
@@ -5974,12 +6204,14 @@
                 <div class="card-header bg-white py-3 border-bottom border-light">
                     <ul class="nav nav-pills card-header-pills">
                         <li class="nav-item">
-                            <a id="leave-approval-pending-tab" class="nav-link active bg-primary text-white shadow-sm rounded-pill px-4"
-                                href="#" role="button">Pending
+                            <a id="leave-approval-pending-tab"
+                                class="nav-link active bg-primary text-white shadow-sm rounded-pill px-4" href="#"
+                                role="button">Pending
                                 (2)</a>
                         </li>
                         <li class="nav-item">
-                            <a id="leave-approval-history-tab" class="nav-link text-muted px-4" href="#" role="button">History</a>
+                            <a id="leave-approval-history-tab" class="nav-link text-muted px-4" href="#"
+                                role="button">History</a>
                         </li>
                     </ul>
                 </div>
@@ -6198,18 +6430,165 @@
             </div>
         </div>
 
+        <!-- Active Assignments List Panel -->
         <div id="assignment-view-view" class="view container-fluid p-4">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h3 class="fw-bold mb-1 text-dark" data-i18n="asg_active_title">Active Assignments</h3>
-                    <div class="text-muted small" data-i18n="asg_active_subtitle">Create, review submissions, and track progress by class.</div>
+                    <div class="text-muted small" data-i18n="asg_active_subtitle">Create, review submissions, and track
+                        progress by class.</div>
                 </div>
                 <button id="create-assignment-btn" class="btn btn-primary-custom d-none"
-                    onclick="openCreateAssignmentModal()">
-                    <span class="material-icons align-middle fs-5 me-1">add_circle</span> <span data-i18n="btn_create_assignment">Create Assignment</span>
+                    onclick="openCreateAssignmentInline()">
+                    <span class="material-icons align-middle fs-5 me-1">add_circle</span> <span
+                        data-i18n="btn_create_assignment">Create Assignment</span>
                 </button>
             </div>
             <div id="academics-assignments-list" class="mt-2"></div>
+        </div>
+
+        <!-- Create New Assignment Inline View -->
+        <div id="create-assignment-inline-view" class="container-fluid p-4" style="display:none;">
+            <!-- Header with back button -->
+            <div class="d-flex align-items-center mb-4 gap-3">
+                <button class="btn btn-light rounded-circle p-2 shadow-sm border" style="width:40px;height:40px;"
+                    onclick="closeCreateAssignmentInline()" title="Back">
+                    <span class="material-icons" style="font-size:20px;line-height:1;">arrow_back</span>
+                </button>
+                <div>
+                    <h3 class="fw-bold mb-0 text-dark">📝 Create New Assignment</h3>
+                    <p class="text-muted small mb-0">Fill in the details below to assign work to your class.</p>
+                </div>
+            </div>
+
+            <div class="row g-4">
+                <!-- Left: Form -->
+                <div class="col-lg-8">
+                    <div class="card border-0 shadow-sm rounded-4 p-4">
+                        <form id="create-assignment-inline-form">
+                            <!-- Assignment Title -->
+                            <div class="mb-4">
+                                <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                    <span style="color:#28245D;font-weight:700;">T</span> Assignment Title <span
+                                        class="text-danger">*</span>
+                                </label>
+                                <input type="text" id="asg-inline-title"
+                                    class="form-control form-control-lg bg-light border-0 rounded-3"
+                                    placeholder="e.g. Chapter 5 - Quadratic Equations" required>
+                            </div>
+
+                            <!-- Description -->
+                            <div class="mb-4">
+                                <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                    <span class="material-icons text-muted" style="font-size:18px;">description</span>
+                                    Description / Instructions
+                                </label>
+                                <textarea id="asg-inline-desc" class="form-control bg-light border-0 rounded-3" rows="4"
+                                    placeholder="Write detailed instructions, include references or links..."></textarea>
+                            </div>
+
+                            <!-- Class/Grade and Section -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                        <span class="material-icons text-muted" style="font-size:18px;">school</span>
+                                        Class / Grade <span class="text-danger">*</span>
+                                    </label>
+                                    <select id="asg-inline-grade" class="form-select bg-light border-0 rounded-3"
+                                        required>
+                                        <option value="">Select Grade</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                        <span class="material-icons text-muted" style="font-size:18px;">group</span>
+                                        Section <span class="text-muted small fw-normal">(optional)</span>
+                                    </label>
+                                    <select id="asg-inline-section" class="form-select bg-light border-0 rounded-3">
+                                        <option value="">All Sections</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Total Points and Due Date -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                        <span class="material-icons text-primary" style="font-size:18px;">star</span>
+                                        Total Points
+                                    </label>
+                                    <input type="number" id="asg-inline-points"
+                                        class="form-control bg-light border-0 rounded-3" value="100" min="1">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                        <span class="material-icons text-muted" style="font-size:18px;">event</span>
+                                        Due Date <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="date" id="asg-inline-date"
+                                        class="form-control bg-light border-0 rounded-3" required>
+                                </div>
+                            </div>
+
+                            <!-- Error message -->
+                            <div id="asg-inline-error" class="text-danger small d-none mb-3"></div>
+
+                            <!-- Form Actions -->
+                            <div class="d-flex justify-content-end gap-3 mt-2">
+                                <button type="button" class="btn btn-light rounded-pill px-4 fw-medium"
+                                    onclick="closeCreateAssignmentInline()">
+                                    <span class="material-icons align-middle me-1" style="font-size:16px;">close</span>
+                                    Cancel
+                                </button>
+                                <button type="button" id="asg-inline-submit-btn"
+                                    class="btn btn-primary-custom rounded-pill px-5 fw-bold shadow-sm"
+                                    style="background-color:#28245D;" onclick="handleCreateAssignmentInline()">
+                                    <span class="material-icons align-middle me-1"
+                                        style="font-size:18px;">check_circle</span>
+                                    Create Assignment
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Right: Tips Panel -->
+                <div class="col-lg-4">
+                    <div class="card border-0 shadow-sm rounded-4 p-4 h-100"
+                        style="background: linear-gradient(135deg, #f8f9ff 0%, #eef2ff 100%);">
+                        <h6 class="fw-bold mb-3 d-flex align-items-center gap-2" style="color:#28245D;">
+                            <span>💡</span> Tips
+                        </h6>
+                        <ul class="list-unstyled mb-0" style="font-size:0.88rem;">
+                            <li class="d-flex align-items-start gap-2 mb-3">
+                                <span class="text-success fw-bold mt-1">✓</span>
+                                <span class="text-muted">Choose a clear, descriptive title so students know exactly
+                                    what's expected.</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2 mb-3">
+                                <span class="text-success fw-bold mt-1">✓</span>
+                                <span class="text-muted">Include instructions about format: essay, short answer,
+                                    multiple choice, etc.</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2 mb-3">
+                                <span class="text-success fw-bold mt-1">✓</span>
+                                <span class="text-muted">Set a realistic due date giving students enough time to
+                                    complete the work.</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2 mb-3">
+                                <span class="text-success fw-bold mt-1">✓</span>
+                                <span class="text-muted">If you select a section, only students in that section will see
+                                    the assignment.</span>
+                            </li>
+                            <li class="d-flex align-items-start gap-2">
+                                <span class="text-success fw-bold mt-1">✓</span>
+                                <span class="text-muted">After creating, review it in <strong>Active
+                                        Assignments</strong> to make sure everything looks correct.</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- 2. Attendance -->
@@ -6288,11 +6667,13 @@
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h3 class="fw-bold mb-0" data-i18n="asg_review_title">Review Queue</h3>
                 <button class="btn btn-outline-primary rounded-pill small" onclick="loadAssignmentReviewQueue()">
-                    <span class="material-icons align-middle fs-6">refresh</span> <span data-i18n="btn_refresh">Refresh</span>
+                    <span class="material-icons align-middle fs-6">refresh</span> <span
+                        data-i18n="btn_refresh">Refresh</span>
                 </button>
             </div>
             <div id="assignment-review-list" class="list-group shadow-sm rounded-4 overflow-hidden">
-                <div class="list-group-item p-4 text-center text-muted" data-i18n="msg_loading_submissions">Loading submissions...</div>
+                <div class="list-group-item p-4 text-center text-muted" data-i18n="msg_loading_submissions">Loading
+                    submissions...</div>
             </div>
         </div>
         <div id="assignment-marks-view" class="view container-fluid p-4">
@@ -6300,20 +6681,23 @@
             <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-8">
-                        <label class="form-label fw-medium" data-i18n="marks_select_assignment">Select Assignment</label>
+                        <label class="form-label fw-medium" data-i18n="marks_select_assignment">Select
+                            Assignment</label>
                         <select id="marks-assignment-select" class="form-select">
                             <option value="" data-i18n="msg_loading_assignments">Loading assignments...</option>
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <button id="marks-load-btn" class="btn btn-primary-custom w-100" onclick="loadMarksForSelectedAssignment()">
+                        <button id="marks-load-btn" class="btn btn-primary-custom w-100"
+                            onclick="loadMarksForSelectedAssignment()">
                             <span data-i18n="marks_load_submissions">Load Submissions</span>
                         </button>
                     </div>
                 </div>
             </div>
             <div id="assignment-marks-list" class="list-group shadow-sm rounded-4 overflow-hidden">
-                <div class="list-group-item p-4 text-center text-muted" data-i18n="marks_select_prompt">Select an assignment to view submissions.</div>
+                <div class="list-group-item p-4 text-center text-muted" data-i18n="marks_select_prompt">Select an
+                    assignment to view submissions.</div>
             </div>
         </div>
 
@@ -6461,7 +6845,8 @@
                         <button id="progress-load-btn" class="btn btn-primary-custom w-100">Load Progress</button>
                     </div>
                     <div class="col-md-3">
-                        <button id="progress-publish-student-btn" class="btn btn-success w-100 fw-bold">Publish Progress Card</button>
+                        <button id="progress-publish-student-btn" class="btn btn-success w-100 fw-bold">Publish Progress
+                            Card</button>
                     </div>
                 </div>
                 <div id="progress-publish-status" class="mt-3 text-muted small"></div>
@@ -6504,7 +6889,8 @@
             <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="fw-bold mb-0" data-i18n="payslip_recent">Recent Payslips</h5>
-                    <button class="btn btn-sm btn-outline-primary rounded-pill" data-i18n="payslip_download_all">Download All</button>
+                    <button class="btn btn-sm btn-outline-primary rounded-pill"
+                        data-i18n="payslip_download_all">Download All</button>
                 </div>
 
                 <div class="list-group list-group-flush">
@@ -6512,13 +6898,15 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <div class="fw-bold">September 2024</div>
-                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Oct 01, 2024 • Status: Paid</div>
+                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Oct 01, 2024
+                                    • Status: Paid</div>
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold">$4,120</div>
                                 <div class="small text-muted" data-i18n="payslip_net_pay_label">Net Pay</div>
                             </div>
-                            <button class="btn btn-sm btn-outline-dark rounded-pill" data-i18n="payslip_view_details">View Details</button>
+                            <button class="btn btn-sm btn-outline-dark rounded-pill"
+                                data-i18n="payslip_view_details">View Details</button>
                         </div>
                         <div class="row mt-3 g-3 small text-muted">
                             <div class="col-md-4" data-i18n="payslip_gross">Gross: $5,000</div>
@@ -6530,13 +6918,15 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <div class="fw-bold">August 2024</div>
-                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Sep 01, 2024 • Status: Paid</div>
+                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Sep 01, 2024
+                                    • Status: Paid</div>
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold">$4,050</div>
                                 <div class="small text-muted" data-i18n="payslip_net_pay_label">Net Pay</div>
                             </div>
-                            <button class="btn btn-sm btn-outline-dark rounded-pill" data-i18n="payslip_view_details">View Details</button>
+                            <button class="btn btn-sm btn-outline-dark rounded-pill"
+                                data-i18n="payslip_view_details">View Details</button>
                         </div>
                         <div class="row mt-3 g-3 small text-muted">
                             <div class="col-md-4" data-i18n="payslip_gross">Gross: $5,000</div>
@@ -6548,13 +6938,15 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <div class="fw-bold">July 2024</div>
-                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Aug 01, 2024 • Status: Paid</div>
+                                <div class="small text-muted" data-i18n="payslip_processed_paid">Processed: Aug 01, 2024
+                                    • Status: Paid</div>
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold">$4,090</div>
                                 <div class="small text-muted" data-i18n="payslip_net_pay_label">Net Pay</div>
                             </div>
-                            <button class="btn btn-sm btn-outline-dark rounded-pill" data-i18n="payslip_view_details">View Details</button>
+                            <button class="btn btn-sm btn-outline-dark rounded-pill"
+                                data-i18n="payslip_view_details">View Details</button>
                         </div>
                         <div class="row mt-3 g-3 small text-muted">
                             <div class="col-md-4" data-i18n="payslip_gross">Gross: $5,000</div>
@@ -6603,19 +6995,24 @@
                             </div>
                             <div class="text-end">
                                 <div class="fw-bold">September 2024</div>
-                                <div class="small text-muted" data-i18n="payslip_processed_date">Processed: Oct 01, 2024</div>
+                                <div class="small text-muted" data-i18n="payslip_processed_date">Processed: Oct 01, 2024
+                                </div>
                             </div>
                         </div>
                         <div class="row g-3 small">
                             <div class="col-md-6">
                                 <div class="fw-bold mb-2" data-i18n="payslip_earnings">Earnings</div>
-                                <div class="d-flex justify-content-between"><span data-i18n="payslip_base_salary">Base Salary</span><span>$4,500</span></div>
-                                <div class="d-flex justify-content-between"><span data-i18n="payslip_allowance">Allowance</span><span>$500</span></div>
+                                <div class="d-flex justify-content-between"><span data-i18n="payslip_base_salary">Base
+                                        Salary</span><span>$4,500</span></div>
+                                <div class="d-flex justify-content-between"><span
+                                        data-i18n="payslip_allowance">Allowance</span><span>$500</span></div>
                             </div>
                             <div class="col-md-6">
                                 <div class="fw-bold mb-2" data-i18n="payslip_deduction_label">Deductions</div>
-                                <div class="d-flex justify-content-between"><span data-i18n="payslip_tax">Tax</span><span>$620</span></div>
-                                <div class="d-flex justify-content-between"><span data-i18n="payslip_insurance">Insurance</span><span>$260</span></div>
+                                <div class="d-flex justify-content-between"><span
+                                        data-i18n="payslip_tax">Tax</span><span>$620</span></div>
+                                <div class="d-flex justify-content-between"><span
+                                        data-i18n="payslip_insurance">Insurance</span><span>$260</span></div>
                             </div>
                         </div>
                         <hr>
@@ -6649,7 +7046,8 @@
                                     <option data-i18n="pay_advance_two_periods">Two Pay Periods</option>
                                 </select>
                             </div>
-                            <button class="btn btn-primary-custom w-100 rounded-pill" data-i18n="pay_advance_submit">Submit Request</button>
+                            <button class="btn btn-primary-custom w-100 rounded-pill"
+                                data-i18n="pay_advance_submit">Submit Request</button>
                         </form>
                     </div>
                 </div>
@@ -6660,16 +7058,20 @@
                             <div class="list-group-item d-flex justify-content-between align-items-center py-3">
                                 <div>
                                     <div class="fw-bold">$800 <span data-i18n="pay_advance_label">Advance</span></div>
-                                    <div class="small text-muted" data-i18n="pay_advance_submitted">Submitted: Aug 12, 2024</div>
+                                    <div class="small text-muted" data-i18n="pay_advance_submitted">Submitted: Aug 12,
+                                        2024</div>
                                 </div>
-                                <span class="badge bg-warning text-dark rounded-pill" data-i18n="pay_advance_pending">Pending</span>
+                                <span class="badge bg-warning text-dark rounded-pill"
+                                    data-i18n="pay_advance_pending">Pending</span>
                             </div>
                             <div class="list-group-item d-flex justify-content-between align-items-center py-3">
                                 <div>
                                     <div class="fw-bold">$500 <span data-i18n="pay_advance_label">Advance</span></div>
-                                    <div class="small text-muted" data-i18n="pay_advance_submitted">Submitted: Jun 10, 2024</div>
+                                    <div class="small text-muted" data-i18n="pay_advance_submitted">Submitted: Jun 10,
+                                        2024</div>
                                 </div>
-                                <span class="badge bg-success rounded-pill" data-i18n="pay_advance_approved">Approved</span>
+                                <span class="badge bg-success rounded-pill"
+                                    data-i18n="pay_advance_approved">Approved</span>
                             </div>
                         </div>
                     </div>
@@ -6686,7 +7088,8 @@
                     <div class="list-group shadow-sm rounded-4 overflow-hidden">
                         <a href="#" class="list-group-item list-group-item-action active fw-bold"
                             onclick="switchView('email-inbox-view'); return false;">Inbox <span
-                                class="badge bg-white text-primary float-end rounded-pill" id="email-inbox-count">0</span></a>
+                                class="badge bg-white text-primary float-end rounded-pill"
+                                id="email-inbox-count">0</span></a>
                         <a href="#" class="list-group-item list-group-item-action"
                             onclick="switchView('email-sent-view'); return false;">Sent</a>
                         <a href="#" class="list-group-item list-group-item-action"
@@ -6713,11 +7116,14 @@
             <div class="card border-0 shadow-sm rounded-4 p-4">
                 <h4 class="fw-bold mb-4">New Message</h4>
                 <form id="email-compose-form">
-                    <div class="mb-3"><input type="text" class="form-control" id="email-to" placeholder="To: (user id, email, grade:10, section:3, role:Teacher, all)"></div>
-                    <div class="mb-3"><input type="text" class="form-control" id="email-subject" placeholder="Subject:"></div>
+                    <div class="mb-3"><input type="text" class="form-control" id="email-to"
+                            placeholder="To: (user id, email, grade:10, section:3, role:Teacher, all)"></div>
+                    <div class="mb-3"><input type="text" class="form-control" id="email-subject" placeholder="Subject:">
+                    </div>
                     <div class="mb-3"><textarea class="form-control" rows="10" id="email-body"
                             placeholder="Type your message..."></textarea></div>
-                    <button class="btn btn-primary-custom px-5 rounded-pill fw-bold" id="email-send-btn" type="submit">Send</button>
+                    <button class="btn btn-primary-custom px-5 rounded-pill fw-bold" id="email-send-btn"
+                        type="submit">Send</button>
                 </form>
             </div>
         </div>
@@ -8186,7 +8592,8 @@
                             <div class="mb-3">
                                 <label class="form-label fw-bold" data-i18n="label_section">Section</label>
                                 <select id="asg-section" class="form-select">
-                                    <option value="" data-i18n="label_select_section_optional">Select Section (optional)</option>
+                                    <option value="" data-i18n="label_select_section_optional">Select Section (optional)
+                                    </option>
                                 </select>
                             </div>
                             <div class="mb-3">
@@ -8197,8 +8604,9 @@
                         <div id="asg-error" class="text-danger small d-none"></div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" id="create-assignment-submit-btn" class="btn btn-primary-custom fw-bold w-100"
-                            onclick="handleCreateAssignment()" data-i18n="btn_create">Create</button>
+                        <button type="button" id="create-assignment-submit-btn"
+                            class="btn btn-primary-custom fw-bold w-100" onclick="handleCreateAssignment()"
+                            data-i18n="btn_create">Create</button>
                     </div>
                 </div>
             </div>
@@ -8344,7 +8752,7 @@
                                 <option value="Tenant_Admin">Tenant Admin (Principal)</option>
                                 <option value="Academic_Admin">Academic Admin</option>
                                 <option value="HR_Admin">HR Admin</option>
-                                <option value="Root_Super_Admin">Root Super Admin</option>
+
                             </select>
                             <label>Role</label>
                         </div>
@@ -8683,7 +9091,7 @@
             </div>
         </div>
 
-        
+
         <!-- ========================================== -->
         <!-- PARENT MODULE VIEWS (FR-7)                 -->
         <!-- ========================================== -->
@@ -9218,10 +9626,13 @@
             <button class="btn btn-light mb-3" onclick="switchView('parent-email-inbox-view')">Back</button>
             <div class="card border-0 shadow-sm rounded-4 p-4">
                 <form id="parent-email-compose-form">
-                    <div class="mb-3"><input type="text" class="form-control" id="parent-email-to" placeholder="To: (e.g., Teacher)"></div>
-                    <div class="mb-3"><input type="text" class="form-control" id="parent-email-subject" placeholder="Subject:"></div>
+                    <div class="mb-3"><input type="text" class="form-control" id="parent-email-to"
+                            placeholder="To: (e.g., Teacher)"></div>
+                    <div class="mb-3"><input type="text" class="form-control" id="parent-email-subject"
+                            placeholder="Subject:"></div>
                     <div class="mb-3"><textarea class="form-control" rows="5" id="parent-email-body"></textarea></div>
-                    <button class="btn btn-primary-custom rounded-pill fw-bold" id="parent-email-send-btn" type="submit">Send</button>
+                    <button class="btn btn-primary-custom rounded-pill fw-bold" id="parent-email-send-btn"
+                        type="submit">Send</button>
                 </form>
             </div>
         </div>
@@ -9355,7 +9766,7 @@
 
         <!-- About Company Modal -->
         <div class="modal fade" id="aboutCompModal" tabindex="-1">
-            <div class="modal-dialog modal-dialog-centered"> 
+            <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content rounded-4 border-0 shadow-lg">
                     <div class="modal-header border-bottom-0">
                         <h5 class="modal-title fw-bold text-primary-custom">About ClassBridge</h5>
