@@ -3854,9 +3854,10 @@ async def read_root():
 @app.get("/frontend/script.js")
 async def read_script():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Try root-level frontend/script.js first (used by root index.html)
+    # On Render: backend/static/script.js (bundled). Locally: ../frontend/script.js
+    bundled_script = os.path.join(base_dir, "static", "script.js")
     root_script = os.path.abspath(os.path.join(base_dir, "..", "frontend", "script.js"))
-    candidates = [root_script, FRONTEND_SCRIPT, os.path.join(base_dir, "script.js")]
+    candidates = [bundled_script, root_script, FRONTEND_SCRIPT, os.path.join(base_dir, "script.js")]
     file_path = next((p for p in candidates if os.path.exists(p)), None)
     if not file_path:
         return Response(content="console.error('script.js not found');", media_type="text/javascript")
@@ -3866,12 +3867,13 @@ async def read_script():
 
 @app.get("/frontend/static/{filename:path}")
 async def serve_frontend_static(filename: str):
-    """Serves static assets referenced by the root index.html as ./frontend/static/..."""
+    """Serves static assets referenced as /frontend/static/... — checks backend/static/ first (Render), then ../frontend/static/ (local)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.abspath(os.path.join(base_dir, "..", "frontend", "static", filename))
-    if not os.path.exists(file_path):
-        from fastapi.responses import Response as FR
-        return FR(content="Not found", status_code=404)
+    bundled = os.path.join(base_dir, "static", filename)
+    legacy = os.path.abspath(os.path.join(base_dir, "..", "frontend", "static", filename))
+    file_path = bundled if os.path.exists(bundled) else (legacy if os.path.exists(legacy) else None)
+    if not file_path:
+        return Response(content="Not found", status_code=404)
     import mimetypes
     mime, _ = mimetypes.guess_type(file_path)
     with open(file_path, "rb") as f:
@@ -3879,11 +3881,15 @@ async def serve_frontend_static(filename: str):
 
 @app.get("/frontend/modules/{filepath:path}")
 async def serve_frontend_modules(filepath: str):
-    """Serves feature module JS files referenced as ./frontend/modules/... in index.html."""
+    """Serves module JS files referenced as /frontend/modules/... — checks backend/static/ (Render) then ../frontend/modules/ (local)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.abspath(os.path.join(base_dir, "..", "frontend", "modules", filepath))
-    if not os.path.exists(file_path):
-        return Response(content=f"Module not found: {filepath}", status_code=404)
+    # On Render, modules are bundled flat in backend/static/ (e.g. auth.js, localization.js)
+    module_name = os.path.basename(filepath)
+    bundled = os.path.join(base_dir, "static", module_name)
+    legacy = os.path.abspath(os.path.join(base_dir, "..", "frontend", "modules", filepath))
+    file_path = bundled if os.path.exists(bundled) else (legacy if os.path.exists(legacy) else None)
+    if not file_path:
+        return Response(content=f"// Module not found: {filepath}", status_code=404, media_type="text/javascript")
     import mimetypes
     mime, _ = mimetypes.guess_type(file_path)
     with open(file_path, "rb") as f:
