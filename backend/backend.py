@@ -544,6 +544,20 @@ def seed_default_users():
                     "password":    hash_password(teacher_pass),
                     "is_super":    False,
                 },
+                {
+                    "id":          "student@noblenexus.com",
+                    "name":        "Demo Student",
+                    "role":        "Student",
+                    "password":    hash_password("Student@123"),
+                    "is_super":    False,
+                },
+                {
+                    "id":          "parent@noblenexus.com",
+                    "name":        "Demo Parent",
+                    "role":        "Parent_Guardian",
+                    "password":    hash_password("Parent@123"),
+                    "is_super":    False,
+                },
             ]
             for u in default_users:
                 cur.execute("""
