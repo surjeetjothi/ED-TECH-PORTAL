@@ -15,15 +15,23 @@ class Student(Base):
     __tablename__ = "students"
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    grade: Mapped[int] = mapped_column(Integer)
-    preferred_subject: Mapped[str] = mapped_column(String)
-    attendance_rate: Mapped[float] = mapped_column(Float, default=0.0)
-    home_language: Mapped[str] = mapped_column(String)
+    grade: Mapped[str] = mapped_column(String, nullable=True)
+    preferred_subject: Mapped[str] = mapped_column(String, nullable=True)
+    attendance_rate: Mapped[float] = mapped_column(Float, default=100.0)
+    home_language: Mapped[str] = mapped_column(String, nullable=True)
     math_score: Mapped[float] = mapped_column(Float, default=0.0)
     science_score: Mapped[float] = mapped_column(Float, default=0.0)
     english_language_score: Mapped[float] = mapped_column(Float, default=0.0)
     role: Mapped[str] = mapped_column(String, default="Student")
     school_id: Mapped[int] = mapped_column(ForeignKey("schools.id"), nullable=True)
+    # Auth fields
+    password: Mapped[str] = mapped_column(String, nullable=True)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[str] = mapped_column(String, nullable=True)
+    email_verification_token: Mapped[str] = mapped_column(String, nullable=True)
+    email_verification_expires_at: Mapped[str] = mapped_column(String, nullable=True)
 
 class Activity(Base):
     __tablename__ = "activities"
