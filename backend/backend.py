@@ -645,7 +645,9 @@ else:
     if not sqlite_candidate:
         sqlite_candidate = "class_bridge.db"
     SQLITE_DB_PATH = sqlite_candidate if os.path.isabs(sqlite_candidate) else os.path.join(os.path.dirname(os.path.abspath(__file__)), sqlite_candidate)
-print(f"Using database backend: {'Postgres' if USE_POSTGRES and 'postgres' in DATABASE_URL.lower() else 'SQLite'} ({DATABASE_URL if USE_POSTGRES and 'postgres' in DATABASE_URL.lower() else SQLITE_DB_PATH})")
+db_type = "Postgres" if USE_POSTGRES and DATABASE_URL and "postgres" in DATABASE_URL.lower() else "SQLite"
+db_val = DATABASE_URL if db_type == "Postgres" else SQLITE_DB_PATH
+logger.info(f"Using database backend: {db_type} ({db_val})")
 
 # For production, also allow Vercel preview URLs via regex.
 IS_PRODUCTION = os.getenv("RENDER") == "true" or (USE_POSTGRES and "postgres" in DATABASE_URL.lower())
