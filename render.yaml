@@ -27,9 +27,13 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false   # Optional: For Google OAuth
       - key: SMTP_EMAIL
-        sync: false   # Optional: For email notifications
+        sync: false   # Optional: kept as SMTP fallback for local dev
       - key: SMTP_PASSWORD
-        sync: false   # Optional: For email notifications
+        sync: false   # Optional: kept as SMTP fallback for local dev
+      - key: RESEND_API_KEY
+        sync: false   # REQUIRED for email on free tier — get from resend.com (3,000 free emails/month)
+      - key: RESEND_FROM_EMAIL
+        sync: false   # e.g. noreply@yourdomain.com — must be verified in Resend dashboard
       - key: CLOUDINARY_CLOUD_NAME
         sync: false   # Optional: For image uploads
       - key: CLOUDINARY_API_KEY

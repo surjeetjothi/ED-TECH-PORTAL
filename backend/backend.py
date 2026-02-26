@@ -130,6 +130,12 @@ PARENT_OTP_EMAIL_OVERRIDES = {
 }
 
 def send_email(to_email: str, subject: str, body: str):
+    """
+    Send email using Resend API (works on Render free tier) with a fallback to SMTP for local dev.
+    Render blocks SMTP port 587 on free tier, so Resend is the primary method in production.
+    Set RESEND_API_KEY in your environment for production use.
+    """
+    resend_api_key = os.getenv("RESEND_API_KEY")
     smtp_email = os.getenv("SMTP_EMAIL", SMTP_EMAIL)
     smtp_password = os.getenv("SMTP_PASSWORD", SMTP_PASSWORD).replace(" ", "")
     smtp_server = os.getenv("SMTP_SERVER", SMTP_SERVER)
@@ -137,8 +143,36 @@ def send_email(to_email: str, subject: str, body: str):
 
     if "example.com" in to_email or "your-email" in smtp_email:
         logger.warning(f"Email simulation: To={to_email}, Subject={subject}")
-        return False # Simulated
+        return False  # Simulated
 
+    # --- Primary: Resend API (works on Render free tier) ---
+    if resend_api_key:
+        try:
+            import urllib.request
+            import json as _json
+            payload = _json.dumps({
+                "from": f"ClassBridge <{os.getenv('RESEND_FROM_EMAIL', 'noreply@classbridge.app')}>",
+                "to": [to_email],
+                "subject": subject,
+                "html": body,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {resend_api_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 201):
+                    logger.info(f"Email sent via Resend to {to_email}")
+                    return True
+        except Exception as e:
+            logger.warning(f"Resend API failed, attempting SMTP fallback: {e}")
+
+    # --- Fallback: SMTP (works locally, blocked on Render free tier) ---
     try:
         msg = MIMEMultipart()
         msg['From'] = smtp_email
@@ -151,6 +185,7 @@ def send_email(to_email: str, subject: str, body: str):
             server.login(smtp_email, smtp_password)
             server.send_message(msg)
             server.quit()
+            logger.info(f"Email sent via SMTP to {to_email}")
             return True
         except Exception as starttls_err:
             logger.warning(f"STARTTLS send failed, retrying SSL: {starttls_err}")
@@ -162,6 +197,7 @@ def send_email(to_email: str, subject: str, body: str):
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
         return False
+
 
 def _send_messages(conn, sender_id: str, recipient_ids: List[str], subject: str, content: str):
     if not recipient_ids:
