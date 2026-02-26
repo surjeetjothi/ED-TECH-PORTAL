@@ -457,24 +457,24 @@ except Exception as e:
     logger.error(f"Failed to initialize AI clients. Error: {e}")
     AI_ENABLED = False
 
-# --- NEW GRADE HELPER AI CONFIGURATION ---
-# --- NEW GRADE HELPER AI CONFIGURATION ---
+# --- GRADE HELPER AI ---
 GRADE_HELPER_API_KEY = os.environ.get("GRADE_HELPER_API_KEY") or os.environ.get("GROQ_API_KEY")
 try:
-    if GRADE_HELPER_API_KEY:
+    if GRADE_HELPER_API_KEY and 'Groq' in dir():
         GRADE_HELPER_CLIENT = Groq(api_key=GRADE_HELPER_API_KEY)
         logger.info("Grade Helper AI Initialized.")
     else:
         GRADE_HELPER_CLIENT = None
-        logger.warning("GRADE_HELPER_API_KEY not found.")
+        logger.warning("GRADE_HELPER_API_KEY not found or Groq not available.")
 except Exception as e:
     logger.error(f"Failed to initialize Grade Helper AI: {e}")
     GRADE_HELPER_CLIENT = None
 
+# --- ENGAGEMENT HELPER AI ---
 ENGAGEMENT_HELPER_API_KEY = os.environ.get("ENGAGEMENT_HELPER_API_KEY") or os.environ.get("GROQ_API_KEY")
 ENGAGEMENT_HELPER_MODEL = os.environ.get("ENGAGEMENT_HELPER_MODEL", "llama-3.1-8b-instant")
 try:
-    if ENGAGEMENT_HELPER_API_KEY:
+    if ENGAGEMENT_HELPER_API_KEY and 'Groq' in dir():
         ENGAGEMENT_HELPER_CLIENT = Groq(api_key=ENGAGEMENT_HELPER_API_KEY)
         logger.info("Engagement Helper AI Initialized (Groq).")
     else:
