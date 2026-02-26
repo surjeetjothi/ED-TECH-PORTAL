@@ -693,22 +693,17 @@ import os
 
 # Static + Frontend Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "static_app"))
-FRONTEND_INDEX = os.path.join(FRONTEND_DIR, "index.html")
-FRONTEND_SCRIPT = os.path.join(FRONTEND_DIR, "script.js")
-FRONTEND_STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
-
+# Note: In production on Render, we serve from the backend/static dir if it exists,
+# otherwise fall back to frontend/static_app. We skip shutil.copytree to save startup time.
+# Ensure that your deployment build process handles file placement if possible.
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
-
-# If a local frontend exists, mirror its static assets into backend static
-if os.path.isdir(FRONTEND_STATIC_DIR):
-    try:
-        shutil.copytree(FRONTEND_STATIC_DIR, STATIC_DIR, dirs_exist_ok=True)
-    except Exception:
-        pass
-
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Health Check Endpoint (Required for Render health checks and 503 resolution)
+@app.get("/api/health", include_in_schema=False)
+async def health_check():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 # Mount uploads directory for assignment files
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
@@ -720,30 +715,27 @@ app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 # This alias ensures they resolve correctly whether running locally or on Render
 app.mount("/frontend/static", StaticFiles(directory=STATIC_DIR), name="frontend_static_alias")
 
-# ─── Serve index.html at root ────────────────────────────────────────────────
-# First try: bundled in backend/static/index.html (production / Render)
-# Second try: dist/index.html (Vite build)
-# Third try: frontend/static_app/index.html (local dev with full monorepo)
 _STATIC_INDEX = os.path.join(STATIC_DIR, "index.html")
-_DIST_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "dist"))
-_DIST_ASSETS = os.path.join(_DIST_DIR, "assets")
-_DIST_INDEX  = os.path.join(_DIST_DIR, "index.html")
-
-if os.path.isdir(_DIST_ASSETS):
-    app.mount("/assets", StaticFiles(directory=_DIST_ASSETS), name="vite_assets")
+_FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "static_app"))
+_FRONTEND_INDEX = os.path.join(_FRONTEND_DIR, "index.html")
 
 def _get_index_html() -> str | None:
-    for candidate in [_STATIC_INDEX, _DIST_INDEX, FRONTEND_INDEX]:
-        if os.path.isfile(candidate):
-            return candidate
+    # 1. Check backend/static/index.html (likely placement on Render)
+    if os.path.isfile(_STATIC_INDEX): return _STATIC_INDEX
+    # 2. Check frontend/static_app/index.html (local dev or alternative layout)
+    if os.path.isfile(_FRONTEND_INDEX): return _FRONTEND_INDEX
     return None
 
 _index_path = _get_index_html()
 if _index_path:
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def serve_frontend(request: Request):
-        with open(_index_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
+        try:
+            with open(_index_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        except Exception as e:
+            logger.error(f"Error serving index.html: {e}")
+            return HTMLResponse(content="<h1>Server Error</h1><p>Frontend file missing.</p>", status_code=500)
 app.include_router(rbac_router)
 
 # Import and register phase-2 modular routers
@@ -843,7 +835,11 @@ def get_db_engine():
     return ENGINE
 
 def fetch_data_df(query, params=()):
-    import pandas as pd
+    try:
+        import pandas as pd
+    except ImportError:
+        logger.warning("Pandas not installed. Returning empty dataframe.")
+        return None # Callers must handle None or empty
     try:
         engine = get_db_engine()
         use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
