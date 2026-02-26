@@ -1,0 +1,54 @@
+services:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # BACKEND: FastAPI Python Web Service
+  # ─────────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: classbridge-api
+    env: python
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker backend:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: DATABASE_URL
+        sync: false   # Paste your Supabase PostgreSQL URL in Render dashboard
+      - key: USE_POSTGRES
+        value: "true"
+      - key: RENDER
+        value: "true"
+      - key: JWT_SECRET
+        sync: false   # Generate a secure random string in Render dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false   # Set to your Render frontend Static Site URL after deploy
+      - key: GROQ_API_KEY
+        sync: false   # Required for AI features
+      - key: GOOGLE_CLIENT_ID
+        sync: false   # Optional: For Google OAuth
+      - key: SMTP_EMAIL
+        sync: false   # Optional: For email notifications
+      - key: SMTP_PASSWORD
+        sync: false   # Optional: For email notifications
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false   # Optional: For image uploads
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # FRONTEND: Next.js Static Site (hosted on Render's Global CDN for free)
+  # ─────────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: classbridge-ui
+    env: node
+    region: oregon
+    rootDir: frontend/frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_API_URL
+        sync: false   # Set to your backend Web Service URL, e.g. https://classbridge-api.onrender.com

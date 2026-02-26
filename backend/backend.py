@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Depends, WebSocket, WebSocketDisconnect, Request, Body, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Header, Depends, WebSocket, WebSocketDisconnect, Request, Body, File, UploadFile, Form, BackgroundTasks
 import secrets
 import time
 import hmac
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional 
 import sqlite3
 import io
+from app.core.cloudinary_utils import upload_to_cloudinary
 import csv
 from datetime import datetime, timedelta
 import warnings 
@@ -44,44 +45,27 @@ except Exception as e:
     requests = None
     REQUESTS_IMPORT_ERROR = e
 
+from app.core.logging_config import setup_structured_logging
+
 # Configure Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()]
+logger = setup_structured_logging(level=logging.INFO)
+
+# Removed manual redis instantiation and api_ttl_cache and _clear_student_cache defs
+from app.core.config import (
+    DATABASE_URL_ENV, USE_POSTGRES, IS_PRODUCTION, REDIS_URL,
+    GOOGLE_CLIENT_ID, SMTP_SERVER, SMTP_PORT, SMTP_EMAIL, SMTP_PASSWORD,
+    VERIFICATION_LINK_BASE, VERIFICATION_TOKEN_TTL_HOURS,
+    TEACHER_LOGIN_ALIAS, TEACHER_LOGIN_PASSWORD, ADMIN_LOGIN_EMAIL, ADMIN_LOGIN_PASSWORD,
+    ROOT_ADMIN_LOGIN_EMAIL, ROOT_ADMIN_LOGIN_PASSWORD, ALLOW_OTP_CONSOLE_FALLBACK,
+    STUDENT_LOGIN_ALIASES, STUDENT_PASSWORD_OVERRIDES, STUDENT_OTP_EMAIL_OVERRIDES,
+    PARENT_LOGIN_ALIASES, PARENT_PASSWORD_OVERRIDES, PARENT_OTP_EMAIL_OVERRIDES
 )
-logger = logging.getLogger(__name__)
+from app.core.caching import redis_client, api_ttl_cache, clear_student_cache as _clear_student_cache
+from app.core.security import RateLimiter
+from app.core.auth_utils import hash_password, verify_password, log_auth_event, validate_password_strength
 
-# ─────────────────────────────────────────────────────────────────────────────
-# IN-MEMORY TTL CACHE — avoids repeated identical DB queries within a session
-# ─────────────────────────────────────────────────────────────────────────────
-_api_cache: dict = {}
-
-def api_ttl_cache(key: str, ttl_seconds: int, fn):
-    """Return cached value if fresh, else run fn(), cache and return result."""
-    entry = _api_cache.get(key)
-    if entry and (time.time() - entry['ts']) < ttl_seconds:
-        return entry['val']
-    val = fn()
-    _api_cache[key] = {'val': val, 'ts': time.time()}
-    return val
-
-def _clear_student_cache(student_id: str = None):
-    """Invalidate student-related cache entries (call on any student mutation)."""
-    keys_to_del = [
-        k for k in list(_api_cache.keys())
-        if k.startswith('students_all') or (student_id and k.startswith(f'student_data_{student_id}'))
-    ]
-    for k in keys_to_del:
-        _api_cache.pop(k, None)
-
-
-from dotenv import load_dotenv
-# Force load .env from the script's directory
-env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(dotenv_path=env_path, override=True)
-print(f"Loaded configuration from: {env_path}")
-print(f"Configured DATABASE_URL: {os.getenv('DATABASE_URL')}")
+# Initialize config
+DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL_ENV)
 
 # Lazy-load psycopg2 only when Postgres is requested.
 psycopg2 = None
@@ -123,26 +107,26 @@ ROOT_ADMIN_LOGIN_EMAIL = ADMIN_LOGIN_EMAIL
 ROOT_ADMIN_LOGIN_PASSWORD = ADMIN_LOGIN_PASSWORD
 ALLOW_OTP_CONSOLE_FALLBACK = os.getenv("ALLOW_OTP_CONSOLE_FALLBACK", "true").lower() == "true"
 STUDENT_LOGIN_ALIASES = {
-    "student1grade1@gmail.com": ("student_g1_1", "p_student_g1_1", "student1grade1@gmail.com"),
+    os.getenv("STUDENT1_GRADE1_EMAIL", "student1grade1@gmail.com"): ("student_g1_1", "p_student_g1_1", os.getenv("STUDENT1_GRADE1_EMAIL", "student1grade1@gmail.com")),
 }
 STUDENT_PASSWORD_OVERRIDES = {
-    "student_g1_1": "Sur444@444",
-    "p_student_g1_1": "Sur444@444",
-    "student1grade1@gmail.com": "Sur444@444",
+    "student_g1_1": os.getenv("STUDENT_G1_1_PASSWORD", "Sur444@444"),
+    "p_student_g1_1": os.getenv("STUDENT_G1_1_PASSWORD", "Sur444@444"),
+    os.getenv("STUDENT1_GRADE1_EMAIL", "student1grade1@gmail.com"): os.getenv("STUDENT_G1_1_PASSWORD", "Sur444@444"),
 }
 STUDENT_OTP_EMAIL_OVERRIDES = {
-    "student_g1_1": "student1grade1@gmail.com",
-    "p_student_g1_1": "student1grade1@gmail.com",
+    "student_g1_1": os.getenv("STUDENT1_GRADE1_EMAIL", "student1grade1@gmail.com"),
+    "p_student_g1_1": os.getenv("STUDENT1_GRADE1_EMAIL", "student1grade1@gmail.com"),
 }
 PARENT_LOGIN_ALIASES = {
-    "theclassiccrew.careers@gmail.com": ("parent_g1_1", "theclassiccrew.careers@gmail.com"),
+    os.getenv("PARENT1_EMAIL", "theclassiccrew.careers@gmail.com"): ("parent_g1_1", os.getenv("PARENT1_EMAIL", "theclassiccrew.careers@gmail.com")),
 }
 PARENT_PASSWORD_OVERRIDES = {
-    "parent_g1_1": "ethi444@ethi",
-    "theclassiccrew.careers@gmail.com": "ethi444@ethi",
+    "parent_g1_1": os.getenv("PARENT_G1_1_PASSWORD", "ethi444@ethi"),
+    os.getenv("PARENT1_EMAIL", "theclassiccrew.careers@gmail.com"): os.getenv("PARENT_G1_1_PASSWORD", "ethi444@ethi"),
 }
 PARENT_OTP_EMAIL_OVERRIDES = {
-    "parent_g1_1": "theclassiccrew.careers@gmail.com",
+    "parent_g1_1": os.getenv("PARENT1_EMAIL", "theclassiccrew.careers@gmail.com"),
 }
 
 def send_email(to_email: str, subject: str, body: str):
@@ -470,7 +454,7 @@ async def lifespan(app: FastAPI):
     # Startup
     try:
         logger.info("Initializing Database...")
-        initialize_db()
+        await initialize_db_schema()
         logger.info("Database Initialized.")
     except Exception as e:
         logger.error(f"Startup DB Error: {e}")
@@ -528,20 +512,29 @@ print(f"Using database backend: {'Postgres' if USE_POSTGRES and 'postgres' in DA
 # For production, also allow Vercel preview URLs via regex.
 IS_PRODUCTION = os.getenv("RENDER") == "true" or (USE_POSTGRES and "postgres" in DATABASE_URL.lower())
 
-# Use allow_origins=["*"] when running locally to prevent null-origin CORS blocks
-# (null origin happens when opening file:// URLs or when the page is not served from a web server)
-_cors_origins = ["*"] if not IS_PRODUCTION else origins
+# Extract allowed origins from environment
+env_origins = os.getenv("ALLOWED_ORIGINS")
+if env_origins:
+    for o in env_origins.split(","):
+        if o.strip():
+            origins.append(o.strip())
+
 _cors_origin_regex = r"https://.*\.vercel\.app" if IS_PRODUCTION else None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
+    allow_origins=origins,
     allow_origin_regex=_cors_origin_regex,
-    allow_credentials=False,  # Cannot use credentials with allow_origins=["*"]
+    allow_credentials=True,  # Allow credentials since we don't use wildcard implicitly anymore
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+if IS_PRODUCTION:
+    app.add_middleware(HTTPSRedirectMiddleware)
+
 
 import os
 
@@ -568,7 +561,31 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+
+# ─── Serve the Vite production build ────────────────────────────────────────
+# This lets users open http://localhost:8000 directly in the browser without
+# needing a separate Vite dev server. If the dist folder does not exist yet,
+# we skip gracefully so development still works via `npm run dev`.
+_DIST_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "dist"))
+_DIST_ASSETS = os.path.join(_DIST_DIR, "assets")
+_DIST_INDEX  = os.path.join(_DIST_DIR, "index.html")
+
+if os.path.isdir(_DIST_ASSETS):
+    app.mount("/assets", StaticFiles(directory=_DIST_ASSETS), name="vite_assets")
+
+if os.path.isfile(_DIST_INDEX):
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def serve_frontend(request: Request):
+        with open(_DIST_INDEX, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
 app.include_router(rbac_router)
+
+# Import and register phase-2 modular routers
+from app.routers import auth
+app.include_router(auth.router)
+
+from app.routers import finance
+app.include_router(finance.router)
 
 
 
@@ -610,750 +627,14 @@ def format_df_to_markdown(df):
     return f"\n{header}\n{separator}\n" + "\n".join(rows) + "\n"
 
 # --- POSTGRES COMPATIBILITY LAYER ---
-# class sqlite3:
-#     """Compatibility layer to allow existing code to catch sqlite3 exceptions."""
-#     IntegrityError = psycopg2.IntegrityError
-#     OperationalError = psycopg2.OperationalError
-#     Row = dict # Stub
-
-class PostgresCursorWrapper:
-    def __init__(self, cursor):
-        self.cursor = cursor
-
-    def execute(self, query, params=None):
-        # Naive replacement of ? to %s for Postgres
-        query = query.replace('?', '%s')
-        
-        # Auto-add RETURNING id for INSERTs to support lastrowid if not already present
-        is_insert = query.strip().upper().startswith("INSERT")
-        if is_insert and "RETURNING" not in query.upper():
-            query += " RETURNING id"
-
-        try:
-            self.cursor.execute(query, params)
-            if is_insert:
-                try:
-                    row = self.cursor.fetchone()
-                    self._lastrowid = row[0] if row else None
-                except Exception:
-                    # In case fetchone fails or no data returned (e.g. DO NOTHING)
-                    self._lastrowid = None
-        except Exception as e:
-            # Handle specific Postgres migration errors only when psycopg2 is loaded.
-            if psycopg2 is not None:
-                try:
-                    if isinstance(e, psycopg2.errors.DuplicateColumn):
-                        return self
-                    if isinstance(e, psycopg2.errors.UndefinedColumn) and is_insert and "RETURNING ID" in query.upper():
-                        self.cursor.connection.rollback()
-                        query_clean = re.sub(r"\s+RETURNING\s+id\s*;?\s*$", "", query, flags=re.IGNORECASE)
-                        self.cursor.execute(query_clean, params)
-                        self._lastrowid = None
-                        return self
-                except Exception:
-                    pass
-            # logger.error(f"SQL Execution Error: {e} | Query: {query}")
-            raise e
-            
-        return self # Allow chaining
-
-    def executemany(self, query, params):
-        query = query.replace('?', '%s')
-        if type(self.cursor.connection).__name__ == "connection" and execute_batch:
-            execute_batch(self.cursor, query, params)
-        else:
-            self.cursor.executemany(query, params)
-        # executemany doesn 't support RETURNING easily with single lastrowid conceptual mapping
-        self._lastrowid = None 
-        return self
-
-    def fetchone(self):
-        return self.cursor.fetchone()
-
-    def fetchall(self):
-        return self.cursor.fetchall()
-        
-    @property
-    def lastrowid(self):
-        # Return the captured ID from the last INSERT
-        return getattr(self, '_lastrowid', None) 
-
-    def close(self):
-        self.cursor.close()
-
-class PostgresConnectionWrapper:
-    def __init__(self, dsn):
-        if not load_psycopg2():
-            raise RuntimeError("Postgres requested but psycopg2 is not available.")
-        try:
-            self.conn = psycopg2.connect(dsn, cursor_factory=DictCursor)
-            self.conn.autocommit = True
-        except Exception as e:
-            logger.error(f"DB Connection Error: {e}")
-            raise e
-        self.row_factory = None # Stub
-
-    def cursor(self):
-        return PostgresCursorWrapper(self.conn.cursor())
-
-    def execute(self, query, params=None):
-        cur = self.cursor()
-        cur.execute(query, params)
-        return cur # Allow chaining
-
-    def commit(self):
-        self.conn.commit()
-
-    def close(self):
-        self.conn.close()
-
-    def rollback(self):
-        self.conn.rollback()
+from app.core.database import engine, get_db, initialize_db_schema, get_db_connection
 
  
 
-# --- 2. DATA MODELS ---
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "Student" # Default to Student to avoid breaking legacy clients if any, though frontend always sends it now
-
-class LoginResponse(BaseModel):
-    success: bool = True
-    user_id: str
-    name: Optional[str] = None
-    role: Optional[str] = None
-    roles: List[str] = []
-    permissions: List[str] = []
-    requires_2fa: bool = False 
-    school_id: Optional[int] = None
-    school_name: Optional[str] = None
-    is_super_admin: bool = False 
-    related_student_id: Optional[str] = None 
-    email_masked: Optional[str] = None 
-    security_mode: Optional[str] = None
-
-class Verify2FARequest(BaseModel):
-    user_id: str
-    code: str
-
-class AuthenticatorSetupRequest(BaseModel):
-    user_id: str
-
-class AddStudentRequest(BaseModel):
-    id: str
-    name: str
-    grade: int
-    preferred_subject: str
-    attendance_rate: float
-    home_language: str
-    math_score: float
-    science_score: float
-    english_language_score: float
-    password: str = "Student@123" 
-    school_id: Optional[int] = 1
-
-class StudentHistory(BaseModel):
-    date: str
-    topic: str
-    difficulty: str
-    score: float
-    time_spent_min: int
-
-class StudentSummary(BaseModel):
-    avg_score: float
-    total_activities: int
-    recommendation: Optional[str] = None
-    math_score: float
-    science_score: float
-    english_language_score: float
-    roles: List[str] = []
-
-class StudentDataResponse(BaseModel):
-    summary: StudentSummary
-    history: List[StudentHistory]
-
-class TeacherOverviewResponse(BaseModel):
-    total_students: int
-    class_attendance_avg: float
-    class_score_avg: float
-    roster: List[Dict[str, Any]] 
-    school_name: Optional[str] = None
-    total_teachers: int = 0
-
-class AIChatRequest(BaseModel):
-    prompt: str
-
-class AIChatResponse(BaseModel):
-    reply: str
-
-class GenerateQuizRequest(BaseModel):
-    topic: str
-    difficulty: str = "Medium"
-    question_count: int = 5
-    type: str = "Multiple Choice" # or "Short Answer"
-    description: Optional[str] = None
-
-class GenerateQuizResponse(BaseModel):
-    content: str
-    
-class AddActivityRequest(BaseModel):
-    student_id: str
-    date: str
-    topic: str
-    difficulty: str
-    score: float
-    time_spent_min: int
-
-class UpdateStudentRequest(BaseModel):
-    name: str
-    grade: int
-    preferred_subject: str
-    attendance_rate: float
-    home_language: str
-    math_score: float
-    science_score: float
-    english_language_score: float
-    password: Optional[str] = None 
-    school_id: Optional[int] = None
-    roles: Optional[List[str]] = None
-
-class RegisterRequest(BaseModel):
-    name: str
-    email: str
-    password: str
-    grade: Optional[int] = 9
-    preferred_subject: Optional[str] = "General"
-    role: str = "Student" 
-    invitation_token: Optional[str] = None 
-    school_id: Optional[int] = 1
-
-class ClassScheduleRequest(BaseModel):
-    topic: str
-    date: str
-    meet_link: str
-    target_students: Optional[List[str]] = None
-
-class ClassResponse(BaseModel):
-    id: int
-    teacher_id: str
-    topic: str
-    date: str
-    meet_link: str
-    target_students: List[str] 
-    
-class GroupCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = ""
-    subject: str 
-
-class MaterialCreateRequest(BaseModel):
-    title: str
-    type: str 
-    content: str 
-
-class SchoolCreateRequest(BaseModel):
-    name: str
-    address: str
-    contact_email: str
-    admin_password: Optional[str] = "Admin@123"
-    subscription_plan: Optional[str] = "Basic"
-
-class RootAdminStudentCreateRequest(BaseModel):
-    name: str
-    email: str
-    password: str
-    school_id: Optional[int] = 1
-    role: Optional[str] = "Student"
-    grade: Optional[int] = 1
-    preferred_subject: Optional[str] = "General"
-    home_language: Optional[str] = "English"
-
-class RootAdminStudentEmailUpdateRequest(BaseModel):
-    email: str
-
-class RootAdminStudentPasswordUpdateRequest(BaseModel):
-    password: str
-
-class RootAdminSchoolCreateRequest(BaseModel):
-    name: str
-    address: str
-    contact_email: str
-    account_password: str
-
-class RootAdminSchoolActivateRequest(BaseModel):
-    school_id: int
-    otp: str
-
-class SchoolResponse(BaseModel):
-    id: int
-    name: str
-    address: str
-    contact_email: str
-    created_at: str 
-
-class InstitutionAddressInput(BaseModel):
-    address_line: str
-    region: Optional[str] = ""
-    timezone: Optional[str] = ""
-    language: Optional[str] = "English"
-    is_primary: Optional[bool] = True
-
-class InstitutionKeyIndividualInput(BaseModel):
-    individual_type: str
-    custom_type: Optional[str] = ""
-    first_name: str
-    middle_name: Optional[str] = ""
-    last_name: str
-    email: str
-    status: Optional[str] = "Active"
-    contact_number: Optional[str] = ""
-    mobile_number: Optional[str] = ""
-    address: Optional[str] = ""
-
-class InstitutionSecurityInput(BaseModel):
-    auth_mode: Optional[str] = "password_only"
-    recommendation_text: Optional[str] = ""
-
-class InstitutionBrandingInput(BaseModel):
-    logo_url: Optional[str] = ""
-    color_theme: Optional[str] = ""
-    default_course_image_url: Optional[str] = ""
-
-class InstitutionLocaleInput(BaseModel):
-    date_format: Optional[str] = "YYYY-MM-DD"
-    time_format: Optional[str] = "24h"
-    currency_code: Optional[str] = "USD"
-
-class InstitutionCreateRequest(BaseModel):
-    institution_official_name: str
-    institution_visual_name: Optional[str] = ""
-    institution_brief_details: Optional[str] = ""
-    institution_type: str
-    institution_structure: str
-    state: Optional[str] = "Trial"
-    addresses: List[InstitutionAddressInput]
-    key_individuals: Optional[List[InstitutionKeyIndividualInput]] = []
-    security: Optional[InstitutionSecurityInput] = InstitutionSecurityInput()
-    branding: Optional[InstitutionBrandingInput] = InstitutionBrandingInput()
-    locale: Optional[InstitutionLocaleInput] = InstitutionLocaleInput()
-
-class InstitutionUpdateRequest(BaseModel):
-    institution_official_name: Optional[str] = None
-    institution_visual_name: Optional[str] = None
-    institution_brief_details: Optional[str] = None
-    institution_type: Optional[str] = None
-    institution_structure: Optional[str] = None
-    state: Optional[str] = None
-    addresses: Optional[List[InstitutionAddressInput]] = None
-    key_individuals: Optional[List[InstitutionKeyIndividualInput]] = None
-    security: Optional[InstitutionSecurityInput] = None
-    branding: Optional[InstitutionBrandingInput] = None
-    locale: Optional[InstitutionLocaleInput] = None
-
-INSTITUTION_TYPES = {"Pre school", "Primary School", "Secondary School", "K12 School", "College", "Company"}
-INSTITUTION_STRUCTURES = {"Sole Entity", "Union"}
-INSTITUTION_STATES = {"Trial", "Active", "Suspended", "Archived", "Deleted"}
-SECURITY_AUTH_MODES = {"password_only", "email_otp", "authenticator_app"}
-
-class GroupMemberUpdateRequest(BaseModel):
-    student_ids: List[str]
-
-class GroupResponse(BaseModel):
-    id: int
-    name: str
-    description: str
-    subject: Optional[str] = "General" 
-    member_count: int
-
-class MaterialResponse(BaseModel):
-    id: int
-    title: str
-    type: str
-    content: str
-    date: str
-
-class GenericSocialRequest(BaseModel):
-    provider: str
-    token: str
-
-class LogoutRequest(BaseModel):
-    user_id: str
-
-class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
-
-class InvitationRequest(BaseModel):
-    role: str
-    expiry_hours: int = 24
-
-class InvitationResponse(BaseModel):
-    link: str
-    token: str
-    expires_at: str
-
-class SocialTokenRequest(BaseModel):
-    token: str
-
-class ForgotPasswordRequest(BaseModel):
-    email: str
-
-class ClassSessionRequest(BaseModel):
-    meet_link: str
-
-class AuditLogResponse(BaseModel):
-    id: int
-    user_id: str
-    event_type: str
-    timestamp: str
-    details: str
-    logout_time: Optional[str] = None
-    duration_minutes: Optional[int] = None
-
-class QuizCreateRequest(BaseModel):
-    group_id: Optional[int] = None
-    title: str
-    questions: list
-    time_limit: Optional[int] = 0
-    target_type: Optional[str] = "group"
-    target_id: Optional[str] = None
-    acknowledged: bool = False
-
-class QuizSubmitRequest(BaseModel):
-    student_id: str
-    answers: Dict[str, str] # Question Index -> Answer
-
-class QuizResponse(BaseModel):
-    id: int
-    group_id: Optional[int] = None
-    title: str
-    question_count: int
-    created_at: str
-    time_limit: Optional[int] = 0
-    target_type: Optional[str] = 'group'
-    target_id: Optional[str] = None
-
-class AssignmentResponse(BaseModel):
-    id: int
-    group_id: int
-    title: str
-    description: str
-    due_date: str
-    type: str
-    points: int
-
-class AssignmentCreateRequest(BaseModel):
-    title: str
-    description: Optional[str] = None
-    due_date: str
-    points: int = 100
-    grade_level: Optional[int] = None
-    section_id: Optional[int] = None
-
-class SubmissionCreateRequest(BaseModel):
-    student_id: str
-    content: str # Text or Link
-
-class SubmissionResponse(BaseModel):
-    id: int
-    assignment_id: int
-    student_id: str
-    student_name: Optional[str] = None
-    content: str
-    submitted_at: str
-    grade: Optional[float] = None
-    feedback: Optional[str] = None
-
-class GradeSubmissionRequest(BaseModel):
-    grade: float
-    feedback: str = ""
-
-
-class LessonPlanResponse(BaseModel):
-    content: str
-
-class AddUserRequest(BaseModel):
-    id: str
-    name: str
-    role: str
-    password: str
-    grade: Optional[int] = 0
-    preferred_subject: Optional[str] = "All"
-
-class RoleCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = ""
-    status: str = "Active"
-    permissions: List[str] # List of permission codes
-
-class RoleResponse(BaseModel):
-    id: int
-    code: str
-    name: str
-    description: str
-    status: str
-    permissions: List[dict] # {id, code, description}
-    is_system: bool = False
-
-class PermissionResponse(BaseModel):
-    id: int
-    code: str
-    description: str
-
-class AssignRoleRequest(BaseModel):
-    role_ids: List[int]
-    
-class UserResponse(BaseModel):
-    id: str
-    name: str
-    role: str
-    grade: Optional[int]
-    preferred_subject: Optional[str]
-
-
-# --- STUDENT MANAGEMENT MODELS ---
-class SectionCreateRequest(BaseModel):
-    name: str
-    grade_level: int
-    school_id: int
-
-class SectionResponse(BaseModel):
-    id: int
-    school_id: int
-    name: str
-    grade_level: int
-    created_at: str
-
-class GuardianCreateRequest(BaseModel):
-    name: str
-    relationship: str
-    phone: str
-    email: Optional[str] = None
-    address: Optional[str] = None
-    is_emergency_contact: bool = False
-
-class GuardianResponse(BaseModel):
-    id: int
-    student_id: str
-    name: str
-    relationship: str
-    phone: str
-    email: Optional[str]
-    address: Optional[str]
-    is_emergency_contact: bool
-
-class HealthRecordUpdateRequest(BaseModel):
-    blood_group: Optional[str] = None
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    allergies: Optional[str] = None
-    medical_conditions: Optional[str] = None
-    medications: Optional[str] = None
-    doctor_name: Optional[str] = None
-    doctor_phone: Optional[str] = None
-
-class HealthRecordResponse(BaseModel):
-    id: int
-    student_id: str
-    blood_group: Optional[str]
-    emergency_contact_name: Optional[str]
-    emergency_contact_phone: Optional[str]
-    allergies: Optional[str]
-    medical_conditions: Optional[str]
-    medications: Optional[str]
-    doctor_name: Optional[str]
-    doctor_phone: Optional[str]
-    last_updated: Optional[str]
-
-class DocumentResponse(BaseModel):
-    id: int
-    student_id: str
-    document_type: str
-    document_name: str
-    file_path: str
-    upload_date: str
-    uploaded_by: Optional[str]
-
-class ResourceCreateRequest(BaseModel):
-    title: str
-    description: Optional[str] = ""
-    category: str = "Policy" # Policy, Schedule, Form, Other
-    file_path: str # For now, just a text input or mocked path
-    school_id: Optional[int] = 1
-
-class ResourceResponse(BaseModel):
-    id: int
-    title: str
-    description: Optional[str] = ""
-    category: str
-    file_path: str
-    uploaded_by: Optional[str] = "Admin"
-    uploaded_at: str
-
-class FormTemplatePublishRequest(BaseModel):
-    template_key: str
-    school_id: Optional[int] = None
-    title: Optional[str] = None
-    description: Optional[str] = None
-
-class TimetablePdfResponse(BaseModel):
-    id: Optional[int] = None
-    class_grade: int
-    section: Optional[str] = None
-    title: str
-    file_path: str
-    uploaded_by: str
-    uploaded_at: str
-
-
-# --- STAFF MANAGEMENT MODELS ---
-class DepartmentCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = ""
-    head_of_department_id: Optional[str] = None
-
-class DepartmentResponse(DepartmentCreateRequest):
-    id: int
-
-class StaffProfileUpdateRequest(BaseModel):
-    department_id: Optional[int]
-    position_title: Optional[str]
-    joining_date: Optional[str]
-    contract_type: Optional[str]
-    salary: Optional[float]
-
-class StaffResponse(BaseModel):
-    id: str
-    name: str
-    role: str
-    email: Optional[str] = None # Assuming email is mapped from ID or similar for now
-    photo_url: Optional[str] = None
-    # Profile Info
-    department_id: Optional[int] = None
-    department_name: Optional[str] = None
-    position_title: Optional[str] = None
-    joining_date: Optional[str] = None
-    contract_type: Optional[str] = None
-    salary: Optional[float] = None
-
-class StaffAttendanceRequest(BaseModel):
-    user_id: str
-    date: str
-    status: str
-    check_in_time: Optional[str] = None
-    check_out_time: Optional[str] = None
-
-class StaffPerformanceRequest(BaseModel):
-    user_id: str
-    review_date: str
-    rating: int
-    comments: str
-    goals: Optional[str] = ""
-
-class StaffPerformanceResponse(StaffPerformanceRequest):
-    id: int
-    reviewer_id: str
-
-# --- GENERAL LEDGER MODELS ---
-class GLJournalLineInput(BaseModel):
-    account_id: Optional[int] = None
-    account_code: Optional[str] = None
-    description: Optional[str] = None
-    debit: float = 0.0
-    credit: float = 0.0
-    cost_center_id: Optional[int] = None
-    tax_code_id: Optional[int] = None
-    party_id: Optional[int] = None
-
-class GLJournalCreateRequest(BaseModel):
-    entry_date: str
-    description: Optional[str] = None
-    reference: Optional[str] = None
-    period_id: Optional[int] = None
-    lines: List[GLJournalLineInput]
-
-class GLJournalReverseRequest(BaseModel):
-    reversal_date: Optional[str] = None
-    reversal_reason: Optional[str] = None
-
-# --- LMS MODELS (MOODLE ALTERNATIVE) ---
-class LMSCourseCreateRequest(BaseModel):
-    title: str
-    description: Optional[str] = ""
-    category: str = "General"
-    thumbnail_url: Optional[str] = None
-    enrollment_key: Optional[str] = None
-
-class LMSCourseResponse(BaseModel):
-    id: int
-    title: str
-    description: str
-    teacher_id: Optional[str]
-    category: str
-    thumbnail_url: Optional[str]
-    created_at: str
-
-class LMSSectionCreateRequest(BaseModel):
-    title: str
-    order_index: int = 0
-
-class LMSSectionResponse(BaseModel):
-    id: int
-    course_id: int
-    title: str
-    order_index: int
-
-class LMSModuleCreateRequest(BaseModel):
-    title: str
-    type: str # video, pdf, quiz, assignment, html
-    content_url: Optional[str] = None
-    content_text: Optional[str] = None
-    order_index: int = 0
-
-class LMSModuleResponse(BaseModel):
-    id: int
-    section_id: int
-    title: str
-    type: str
-    content_url: Optional[str]
-    content_text: Optional[str]
-    order_index: int
-
+from app.core.models import *
 
 # --- 3. DATABASE HELPER FUNCTIONS ---
-
-
-def get_db_connection():
-    # Refresh DB config from env to avoid stale globals if .env was updated
-    use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
-    db_url = os.getenv("DATABASE_URL", "class_bridge.db")
-    
-    # Check if DATABASE_URL is set to Postgres
-    if use_pg and "postgres" in db_url.lower():
-        if load_psycopg2():
-            try:
-                return PostgresConnectionWrapper(db_url)
-            except Exception as e:
-                logger.error(f"Failed to connect to Postgres, falling back to SQLite: {e}")
-        else:
-            logger.warning("USE_POSTGRES=true but psycopg2 could not be loaded. Falling back to SQLite.")
-    
-    # Use SQLite DB path from DATABASE_URL env (or default class_bridge.db)
-    sqlite_candidate = db_url.strip()
-    if sqlite_candidate.startswith("sqlite:///"):
-        sqlite_candidate = sqlite_candidate.replace("sqlite:///", "", 1)
-    
-    if not sqlite_candidate or "postgres" in sqlite_candidate.lower():
-        sqlite_candidate = "class_bridge.db"
-        
-    db_path = sqlite_candidate if os.path.isabs(sqlite_candidate) else os.path.join(os.path.dirname(os.path.abspath(__file__)), sqlite_candidate)
-    
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 from sqlalchemy import create_engine
@@ -1361,20 +642,31 @@ from sqlalchemy import create_engine
 # Cache engine
 ENGINE = None
 
+# --- LEGACY DATABASE FUNCTIONS (Restored for backward compatibility during migration) ---
 def get_db_engine():
     global ENGINE
-    # Refresh DB config from env
-    use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
-    db_url = os.getenv("DATABASE_URL", "class_bridge.db")
-    
-    # If settings changed, we might need to recreate engine, but for simplicity let's just use current
     if ENGINE is None:
+        use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
+        db_url = os.getenv("DATABASE_URL", "class_bridge.db")
         if use_pg and "postgres" in db_url.lower():
-            # Use the Postgres connection URL (SQLAlchemy needs postgresql:// not postgres://)
             pg_url = db_url.replace("postgres://", "postgresql://", 1) if db_url.startswith("postgres://") else db_url
-            ENGINE = create_engine(pg_url, connect_args={"connect_timeout": 10})
+            try:
+                ENGINE = create_engine(
+                    pg_url, 
+                    connect_args={"connect_timeout": 10},
+                    pool_size=10,
+                    max_overflow=20,
+                    pool_recycle=1800,
+                    pool_pre_ping=True
+                )
+                # Attempt to connect to ensure it's valid, otherwise error out fast
+                with ENGINE.connect() as _:
+                    pass
+            except Exception as e:
+                raise ValueError(f"Failed to connect to required PostgreSQL database. Refusing to fall back to ephemeral SQLite. Error: {e}")
+        elif use_pg:
+            raise ValueError("System is configured to use PostgreSQL (USE_POSTGRES=true), but a valid PostgreSQL DATABASE_URL was not provided. Refusing to fall back to ephemeral SQLite.")
         else:
-            # Use SQLite
             sqlite_candidate = db_url.strip()
             if sqlite_candidate.startswith("sqlite:///"):
                 sqlite_candidate = sqlite_candidate.replace("sqlite:///", "", 1)
@@ -1388,108 +680,19 @@ def fetch_data_df(query, params=()):
     import pandas as pd
     try:
         engine = get_db_engine()
-        # Refresh current settings
         use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
         db_url = os.getenv("DATABASE_URL", "class_bridge.db")
-
-        # Fix for Postgres: Replace '?' with '%s' because we use ? style in the codebase
         if use_pg and "postgres" in db_url.lower():
             query = query.replace('?', '%s')
-        
-        # pd.read_sql_query supports params with SQLAlchemy engine
-        df = pd.read_sql_query(query, engine, params=params)
-        return df
+        return pd.read_sql_query(query, engine, params=params)
     except Exception as e:
         logger.error(f"Pandas SQL Error: {e}")
-        print(f"CRITICAL PANDAS ERROR: {e}") 
         return pd.DataFrame()
 
-def log_auth_event(user_id: str, event_type: str, details: str = ""):
-    try:
-        conn = get_db_connection()
-        timestamp = datetime.now().isoformat()
-        conn.execute("INSERT INTO auth_logs (user_id, event_type, timestamp, details) VALUES (?, ?, ?, ?)",
-                     (user_id, event_type, timestamp, details))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to write auth log: {e}")
-
-def update_user_logout(user_id: str):
-    """Updates the last explicit 'Login Success' event with logout time and duration."""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Find the latest open session (Login Success with no logout_time)
-        row = cursor.execute("SELECT id, timestamp FROM auth_logs WHERE user_id = ? AND event_type = 'Login Success' AND logout_time IS NULL ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
-        
-        if row:
-            log_id = row['id']
-            # Parse ISO formats safely
-            try:
-                start_time = datetime.fromisoformat(row['timestamp'])
-                end_time = datetime.now()
-                duration = int((end_time - start_time).total_seconds() / 60)
-                
-                cursor.execute("UPDATE auth_logs SET logout_time = ?, duration_minutes = ? WHERE id = ?", 
-                               (end_time.isoformat(), duration, log_id))
-                conn.commit()
-                logger.info(f"Updated session duration for user {user_id}: {duration} mins")
-            except ValueError:
-                pass # safely ignore parsing errors if legacy data is weird
-    except Exception as e:
-        logger.error(f"Logout update failed: {e}")
-    finally:
-        conn.close()
-
-def validate_password_strength(password: str):
-    if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long.")
-    if not any(char.isupper() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one uppercase letter.")
-    if not any(char.isdigit() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one number.")
-    if not any(not char.isalnum() for char in password):
-        raise HTTPException(status_code=400, detail="Password must contain at least one special character.")
-    return True
-
-def normalize_and_validate_email(email: str) -> str:
-    normalized = (email or "").strip().lower()
-    email_pattern = r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
-    if not re.match(email_pattern, normalized):
-        raise HTTPException(status_code=400, detail="Invalid email format.")
-    return normalized
-
-def mask_email(email: str) -> str:
-    try:
-        local, domain = email.split("@", 1)
-        if len(local) <= 2:
-            masked_local = local[0] + "*"
-        else:
-            masked_local = local[0] + ("*" * (len(local) - 2)) + local[-1]
-        return f"{masked_local}@{domain}"
-    except Exception:
-        return email
-
-def normalize_registration_role(role: str) -> str:
-    raw = (role or "").strip().lower()
-    role_map = {
-        "student": "Student",
-        "teacher": "Teacher",
-        "parent": "Parent",
-        "admin": "Admin",
-        "tenant_admin": "Tenant_Admin",
-        "principal": "Tenant_Admin",
-        "finance_admin": "Root_Super_Admin",
-        "academic_admin": "Academic_Admin",
-        "hr_admin": "HR_Admin",
-        "root_super_admin": "Root_Super_Admin",
-        "parent_guardian": "Parent_Guardian",
-    }
-    normalized = role_map.get(raw)
-    if not normalized:
-        raise HTTPException(status_code=400, detail="Invalid role selected.")
-    return normalized
+from app.core.auth_utils import (
+    log_auth_event, update_user_logout, validate_password_strength,
+    normalize_and_validate_email, mask_email, normalize_registration_role
+)
 
 def ensure_root_admin_user(conn, user_id: str):
     if not user_id:
@@ -1651,422 +854,6 @@ def initialize_db():
         created_at TEXT,
         updated_at TEXT,
         FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS institution_key_individuals (
-        id {pk_def},
-        school_id INTEGER NOT NULL,
-        individual_type TEXT NOT NULL,
-        custom_type TEXT,
-        first_name TEXT NOT NULL,
-        middle_name TEXT,
-        last_name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        status TEXT DEFAULT 'Active',
-        contact_number TEXT,
-        mobile_number TEXT,
-        address TEXT,
-        created_at TEXT,
-        updated_at TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS institution_security_settings (
-        school_id INTEGER PRIMARY KEY,
-        auth_mode TEXT DEFAULT 'password_only',
-        recommendation_text TEXT,
-        updated_at TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS institution_branding_settings (
-        school_id INTEGER PRIMARY KEY,
-        logo_url TEXT,
-        color_theme TEXT,
-        default_course_image_url TEXT,
-        date_format TEXT DEFAULT 'YYYY-MM-DD',
-        time_format TEXT DEFAULT '24h',
-        currency_code TEXT DEFAULT 'USD',
-        updated_at TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    # Students Table (Updated for Multi-Tenancy)
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS students (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        grade INTEGER,
-        preferred_subject TEXT,
-        attendance_rate REAL,
-        home_language TEXT,
-        password TEXT,
-        math_score REAL,          
-        science_score REAL,       
-        english_language_score REAL, 
-        role TEXT DEFAULT 'Student', 
-        school_id INTEGER DEFAULT 1, -- Default to School ID 1 for legacy
-        is_super_admin BOOLEAN DEFAULT FALSE,
-        email_verified BOOLEAN DEFAULT TRUE,
-        email_verification_token TEXT,
-        email_verification_expires_at TEXT,
-        failed_login_attempts INTEGER DEFAULT 0, 
-        locked_until TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE SET DEFAULT
-    )
-    """)
-
-    # Resources Table (Global Resource & Policy Library)
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS resources (
-        id {pk_def},
-        title TEXT,
-        description TEXT,
-        category TEXT,
-        file_path TEXT,
-        uploaded_by TEXT,
-        uploaded_at TEXT,
-        school_id INTEGER DEFAULT 1,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-
-    # Invitations Table 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS invitations (
-        token TEXT PRIMARY KEY,
-        role TEXT,
-        school_id INTEGER,
-        expires_at TEXT,
-        is_used BOOLEAN DEFAULT FALSE
-    )
-    """)
-
-    # Password Resets Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS password_resets (
-        token TEXT PRIMARY KEY,
-        user_id TEXT,
-        expires_at TEXT
-    )
-    """)
-
-    # Backup Codes Table
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS backup_codes (
-        user_id TEXT,
-        code TEXT,
-        created_at TEXT,
-        PRIMARY KEY (user_id, code),
-        FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE
-    )
-    """)
-    
-    # Activities Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS activities (
-        id {pk_def},
-        student_id TEXT,
-        date TEXT,
-        topic TEXT,
-        difficulty TEXT,
-        score REAL,
-        time_spent_min INTEGER,
-        ai_feedback TEXT,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
-    )
-    """)
-    # cursor.execute("PRAGMA foreign_keys = ON") # Postgres enforces FKs by default
-
-    # Live Classes Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS live_classes (
-        id {pk_def},
-        teacher_id TEXT,
-        school_id INTEGER,
-        topic TEXT,
-        date TEXT,
-        meet_link TEXT,
-        target_students TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-    
-    # Auth Logs Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS auth_logs (
-        id {pk_def},
-        user_id TEXT,
-        event_type TEXT, 
-        timestamp TEXT,
-        details TEXT
-    )
-    """)
-    
-    # Groups Table
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-    
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS groups (
-        id {pk_def},
-        school_id INTEGER,
-        name TEXT,
-        description TEXT,
-        subject TEXT DEFAULT 'General',
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    # Group Members Table
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS group_members (
-        group_id INTEGER,
-        student_id TEXT,
-        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-        PRIMARY KEY (group_id, student_id)
-    )
-    """)
-
-    # Group Materials Table
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS group_materials (
-        id {pk_def},
-        group_id INTEGER,
-        title TEXT,
-        type TEXT,
-        content TEXT,
-        date TEXT,
-        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-    )
-    """)
-
-
-    # Assignments Table
-    try:
-        conn.commit()
-    except:
-        conn.rollback()
-
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS assignments (
-        id {pk_def},
-        group_id INTEGER,
-        title TEXT,
-        description TEXT,
-        due_date TEXT,
-        type TEXT,
-        points INTEGER,
-        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-    )
-    """)
-
-    # Ensure newer columns exist (for class/section assignments)
-    safe_migrate("ALTER TABLE assignments ADD COLUMN section_id INTEGER")
-    safe_migrate("ALTER TABLE assignments ADD COLUMN grade_level INTEGER")
-
-
-
-    # Quizzes Table (LMS Phase 2)
-    try:
-        conn.commit()
-        cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS quizzes (
-            id {pk_def},
-            group_id INTEGER,
-            title TEXT,
-            questions TEXT, -- JSON String
-            created_at TEXT,
-            time_limit_mins INTEGER DEFAULT 0,
-            target_type TEXT DEFAULT 'group', -- group, grade, student
-            target_id TEXT, -- group_id or student_id
-            FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
-        )
-        """)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        logger.error(f"Failed to create quizzes table: {e}")
-
-    # Migration for new columns
-    safe_migrate("ALTER TABLE quizzes ADD COLUMN time_limit_mins INTEGER DEFAULT 0")
-    safe_migrate("ALTER TABLE quizzes ADD COLUMN target_type TEXT DEFAULT 'group'")
-    safe_migrate("ALTER TABLE quizzes ADD COLUMN target_id TEXT")
-    safe_migrate("ALTER TABLE quiz_attempts ADD COLUMN ai_feedback TEXT")
-    safe_migrate("ALTER TABLE activities ADD COLUMN ai_feedback TEXT")
-    safe_migrate("ALTER TABLE quizzes ADD COLUMN acknowledged BOOLEAN DEFAULT 0")
-    safe_migrate("ALTER TABLE students ADD COLUMN photo_url TEXT")
-    
-    # Quiz Attempts Table (LMS Phase 2)
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS quiz_attempts (
-        id {pk_def},
-        quiz_id INTEGER,
-        student_id TEXT,
-        score REAL,
-        answers TEXT, -- JSON String
-        ai_feedback TEXT,
-        submitted_at TEXT,
-        FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
-    )
-    """)
-
-
-    # --- LMS TABLES (Full Moodle Alternative) ---
-    
-    # 1. Courses
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS lms_courses (
-        id {pk_def},
-        title TEXT,
-        description TEXT,
-        teacher_id TEXT,
-        category TEXT,
-        thumbnail_url TEXT,
-        enrollment_key TEXT,
-        created_at TEXT,
-        school_id INTEGER DEFAULT 1,
-        FOREIGN KEY (teacher_id) REFERENCES students(id) ON DELETE SET NULL,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    # 2. Course Sections
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS lms_course_sections (
-        id {pk_def},
-        course_id INTEGER,
-        title TEXT,
-        order_index INTEGER,
-        FOREIGN KEY (course_id) REFERENCES lms_courses(id) ON DELETE CASCADE
-    )
-    """)
-
-    # 3. Course Modules
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS lms_course_modules (
-        id {pk_def},
-        section_id INTEGER,
-        title TEXT,
-        type TEXT,
-        content_url TEXT,
-        content_text TEXT,
-        searchable_text TEXT, -- For RAG
-        order_index INTEGER,
-        FOREIGN KEY (section_id) REFERENCES lms_course_sections(id) ON DELETE CASCADE
-    )
-    """)
-    
-    # Migration for existing tables
-    # Migration for existing tables
-    safe_migrate("ALTER TABLE lms_course_modules ADD COLUMN searchable_text TEXT")
-
-
-    # 4. Enrollments
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS lms_enrollments (
-        id {pk_def},
-        course_id INTEGER,
-        student_id TEXT,
-        enrolled_at TEXT,
-        FOREIGN KEY (course_id) REFERENCES lms_courses(id) ON DELETE CASCADE,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-        UNIQUE(course_id, student_id)
-    )
-    """)
-
-    # 5. Module Completion Tracking
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS lms_module_completion (
-        id {pk_def},
-        module_id INTEGER,
-        student_id TEXT,
-        status TEXT DEFAULT 'Not Started',
-        score REAL DEFAULT 0,
-        FOREIGN KEY (module_id) REFERENCES lms_course_modules(id) ON DELETE CASCADE,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-        UNIQUE(module_id, student_id)
-    )
-    """)
-
-    # Duplicate Quiz Attempts table removed.
-
-    # --- STUDENT INFORMATION MANAGEMENT MODULE ---
-
-    # Sections Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS sections (
-        id {pk_def},
-        school_id INTEGER,
-        name TEXT, -- e.g. "Section A", "Blue Group"
-        grade_level INTEGER,
-        created_at TEXT,
-        FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
-    )
-    """)
-
-    # Guardians Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS guardians (
-        id {pk_def},
-        student_id TEXT,
-        name TEXT,
-        relationship TEXT, -- Father, Mother, Guardian
-        phone TEXT,
-        email TEXT,
-        address TEXT,
-        is_emergency_contact BOOLEAN DEFAULT FALSE,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
-    )
-    """)
-
-    # Health Records Table
-    cursor.execute(f"""
-    CREATE TABLE IF NOT EXISTS health_records (
-        id {pk_def},
-        student_id TEXT UNIQUE, -- One record per student
-        blood_group TEXT,
-        emergency_contact_name TEXT,
-        emergency_contact_phone TEXT,
-        allergies TEXT,
-        medical_conditions TEXT,
-        medications TEXT,
-        doctor_name TEXT,
-        doctor_phone TEXT,
-        last_updated TEXT,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
     )
     """)
 
@@ -4300,9 +3087,10 @@ async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-
     # ------------------------------------------------------------------
 
     # Ensure Teacher has correct role
+    # Ensure Teacher and Admin have correct role and hashed passwords from .env
     cursor.execute("UPDATE students SET role = 'Teacher' WHERE id = 'teacher'")
-    cursor.execute("UPDATE students SET password = ? WHERE id = 'teacher'", (TEACHER_LOGIN_PASSWORD,))
-    cursor.execute("UPDATE students SET password = ? WHERE id = 'admin'", (ADMIN_LOGIN_PASSWORD,))
+    cursor.execute("UPDATE students SET password = ? WHERE id = 'teacher'", (hash_password(TEACHER_LOGIN_PASSWORD),))
+    cursor.execute("UPDATE students SET password = ? WHERE id = 'admin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
     conn.commit()
     # Seed Timetable
     cursor.execute("SELECT COUNT(*) FROM timetables")
@@ -4343,14 +3131,14 @@ async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-
     cursor.execute("SELECT COUNT(*) FROM students")
     if cursor.fetchone()[0] == 0:
         students_data = [
-            ('S001', 'Alice Smith', 9, 'Maths', 92.5, 'English', '123', 85.0, 78.5, 90.0, 'Student', 0, None, 1, False),
-            ('S002', 'Bob Johnson', 10, 'Science', 85.0, 'Spanish', '123', 60.0, 95.0, 75.0, 'Student', 0, None, 1, False),
-            ('SURJEET', 'Surjeet J', 11, 'Science', 77.0, 'Punjabi', '123', 70.0, 65.0, 80.0, 'Student', 0, None, 1, False),
-            ('DEVA', 'Deva Krishnan', 11, 'Tamil', 90.0, 'Tamil', '123', 95.0, 88.0, 92.0, 'Student', 0, None, 1, False),
-            ('HARISH', 'Harish Boy', 5, 'English', 7.0, 'Hindi', '123', 50.0, 50.0, 45.0, 'Student', 0, None, 1, False),
-            ('teacher', 'Teacher Admin', 0, 'All', 100.0, 'English', TEACHER_LOGIN_PASSWORD, 100.0, 100.0, 100.0, 'Teacher', 0, None, 1, False), 
-            ('superadmin', 'Super Admin', 0, 'All', 100.0, 'English', 'superadmin', 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
-            ('admin', 'System Admin', 0, 'All', 100.0, 'English', ADMIN_LOGIN_PASSWORD, 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
+            ('S001', 'Alice Smith', 9, 'Maths', 92.5, 'English', hash_password('123'), 85.0, 78.5, 90.0, 'Student', 0, None, 1, False),
+            ('S002', 'Bob Johnson', 10, 'Science', 85.0, 'Spanish', hash_password('123'), 60.0, 95.0, 75.0, 'Student', 0, None, 1, False),
+            ('SURJEET', 'Surjeet J', 11, 'Science', 77.0, 'Punjabi', hash_password('123'), 70.0, 65.0, 80.0, 'Student', 0, None, 1, False),
+            ('DEVA', 'Deva Krishnan', 11, 'Tamil', 90.0, 'Tamil', hash_password('123'), 95.0, 88.0, 92.0, 'Student', 0, None, 1, False),
+            ('HARISH', 'Harish Boy', 5, 'English', 7.0, 'Hindi', hash_password('123'), 50.0, 50.0, 45.0, 'Student', 0, None, 1, False),
+            ('teacher', 'Teacher Admin', 0, 'All', 100.0, 'English', hash_password(TEACHER_LOGIN_PASSWORD), 100.0, 100.0, 100.0, 'Teacher', 0, None, 1, False), 
+            ('superadmin', 'Super Admin', 0, 'All', 100.0, 'English', hash_password('superadmin'), 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
+            ('admin', 'System Admin', 0, 'All', 100.0, 'English', hash_password(ADMIN_LOGIN_PASSWORD), 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
         ]
         cursor.executemany("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", students_data)
 
@@ -4375,24 +3163,24 @@ async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-
     # Ensure Teacher and Admin exist
     cursor.execute("SELECT id FROM students WHERE id = 'teacher'")
     if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES (?, 'Teacher Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Teacher', 0, NULL, 1, 0)", ('teacher', TEACHER_LOGIN_PASSWORD))
+         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES (?, 'Teacher Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Teacher', 0, NULL, 1, 0)", ('teacher', hash_password(TEACHER_LOGIN_PASSWORD)))
     
     cursor.execute("SELECT id FROM students WHERE id = 'admin'")
     if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES ('admin', 'System Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', 0, NULL, 1, 1)", (ADMIN_LOGIN_PASSWORD,))
+         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES ('admin', 'System Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', 0, NULL, 1, 1)", (hash_password(ADMIN_LOGIN_PASSWORD),))
     else:
-         cursor.execute("UPDATE students SET role = 'Admin', is_super_admin = 1, password = ? WHERE id = 'admin'", (ADMIN_LOGIN_PASSWORD,))
+         cursor.execute("UPDATE students SET role = 'Admin', is_super_admin = 1, password = ? WHERE id = 'admin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
 
     cursor.execute("SELECT id FROM students WHERE id = 'rootadmin'")
     if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin, email_verified) VALUES ('rootadmin', 'Root Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Root_Super_Admin', 0, NULL, 1, 0, 1)", (ADMIN_LOGIN_PASSWORD,))
+         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin, email_verified) VALUES ('rootadmin', 'Root Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Root_Super_Admin', 0, NULL, 1, 0, 1)", (hash_password(ADMIN_LOGIN_PASSWORD),))
     else:
-         cursor.execute("UPDATE students SET role = 'Root_Super_Admin', is_super_admin = 0, password = ?, email_verified = TRUE WHERE id = 'rootadmin'", (ADMIN_LOGIN_PASSWORD,))
+         cursor.execute("UPDATE students SET role = 'Root_Super_Admin', is_super_admin = 0, password = ?, email_verified = TRUE WHERE id = 'rootadmin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
 
     # Backward compatibility: migrate old finance_admin users to Root Super Admin access.
     cursor.execute(
         "UPDATE students SET role = 'Root_Super_Admin', is_super_admin = 0, password = ? WHERE LOWER(role) = LOWER('finance_admin')",
-        (ADMIN_LOGIN_PASSWORD,)
+        (hash_password(ADMIN_LOGIN_PASSWORD),)
     )
 
     # Seed demo codes for existing users (Check individually to ensure all are present)
@@ -4483,109 +3271,513 @@ def get_recommendation(student_id: str) -> Optional[str]:
 
 # --- 6. RBAC CONFIGURATION ---
 
-ROLE_PERMISSIONS = {
-    "Admin": [
-        "view_dashboard", "manage_users", "manage_invitations", 
-        "view_all_grades", "edit_all_grades", 
-        "schedule_active_class", "manage_groups", "view_audit_logs",
-        "assignment.view", "assignment.create", "assignment.grade"
-    ],
-    "Principal": [
-        "view_dashboard", "manage_users", "manage_invitations", 
-        "view_all_grades", "edit_all_grades", 
-        "schedule_active_class", "manage_groups", "view_audit_logs",
-        "assignment.view", "assignment.create", "assignment.grade"
-    ],
-    "Teacher": [
-        "view_dashboard", "invite_students", 
-        "view_all_grades", "edit_all_grades", 
-        "schedule_active_class", "manage_groups",
-        "assignment.view", "assignment.create", "assignment.grade"
-    ],
-    "Student": [
-        "view_dashboard", "view_own_grades", "join_active_class"
-    ],
-    "Parent": [
-        "view_dashboard", "view_child_grades"
-    ]
-}
-
-def check_permission(user_role: str, required_permission: str) -> bool:
-    if user_role not in ROLE_PERMISSIONS:
-        return False
-    return required_permission in ROLE_PERMISSIONS[user_role]
-
-async def verify_permission(permission: str, x_user_role: str = Header(None, alias="X-User-Role"), x_user_id: str = Header(None, alias="X-User-Id")):
-    if not x_user_id:
-         raise HTTPException(status_code=401, detail="Authentication required")
-
-    # Special bypass for the hardcoded Root Admin account (not in students table)
-    if x_user_id == "rootadmin":
-        return True
-
-    conn = get_db_connection()
-    try:
-        user = conn.execute("SELECT role, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
-        
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-
-        current_role = user['role']
-        is_super = user['is_super_admin']
-
-        # 1. Super Admin Override
-        if is_super or current_role in ('Super Admin', 'Root_Super_Admin'):
-            return True
-
-        # 2. Check DB Permissions
-        # Join user_roles -> roles -> role_permissions -> permissions
-        # Also check for wildcard '*' permission assignment
-        query = """
-            SELECT 1 
-            FROM user_roles ur
-            JOIN role_permissions rp ON ur.role_id = rp.role_id
-            JOIN permissions p ON rp.permission_id = p.id
-            WHERE ur.user_id = ? 
-            AND (p.code = ? OR p.code = '*')
-        """
-        has_perm = conn.execute(query, (x_user_id, permission)).fetchone()
-
-        if not has_perm:
-            # Fallback to legacy hardcoded check if DB check fails (temporary migration specific)
-            # Remove this if fully migrated
-            if current_role in ROLE_PERMISSIONS and permission in ROLE_PERMISSIONS[current_role]:
-                return True
-                
-            log_auth_event(x_user_id, "Unauthorized Access", f"Missing permission: {permission}")
-            raise HTTPException(status_code=403, detail=f"Permission denied: {permission} required.")
-        
-        return True
-    finally:
-        conn.close()
-
-async def verify_any_permission(permission_codes: List[str], x_user_id: str) -> str:
-    if not x_user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    denied = None
-    for code in permission_codes:
-        try:
-            await verify_permission(code, x_user_id=x_user_id)
-            return code
-        except HTTPException as e:
-            denied = e
-            if e.status_code == 401:
-                raise
-            continue
-    if denied:
-        raise denied
-    raise HTTPException(status_code=403, detail="Permission denied.")
-
+from app.core.security import ROLE_PERMISSIONS, check_permission, verify_permission, verify_any_permission
 
 # --- LMS & UPLOADS CONFIGURATION ---
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- 7. API ENDPOINTS ---
+
+# --- ROUTES MOVED FROM AUTH EXTRACTION ---
+# --- SUPER ADMIN: SCHOOL MANAGEMENT ---
+
+@app.post("/api/admin/schools", status_code=201)
+async def create_school(
+    request: SchoolCreateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    if not x_user_id:
+         raise HTTPException(status_code=401, detail="Authentication required")
+
+    conn = get_db_connection()
+    try:
+        user = conn.execute("SELECT is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        if not user or not user['is_super_admin']:
+             log_auth_event(x_user_id, "Unauthorized Access", "Attempted to create school without Super Admin access")
+             raise HTTPException(status_code=403, detail="Permission denied. SUPER ADMIN ONLY.")
+        
+        created_at = datetime.now().isoformat()
+        cursor = conn.cursor()
+        
+        # INSERT School
+        cursor.execute(
+            "INSERT INTO schools (name, address, contact_email, created_at) VALUES (?, ?, ?, ?)",
+            (request.name, request.address, request.contact_email, created_at)
+        )
+        school_id = cursor.lastrowid
+        
+        # Create Admin user for this school
+        # Using contact_email as the ID/Username
+        cursor.execute(
+            "INSERT INTO students (id, name, role, password, school_id) VALUES (?, ?, ?, ?, ?)",
+            (request.contact_email, f"{request.name} Admin", "Admin", hash_password(request.admin_password), school_id)
+        )
+        
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail="School name or Admin email already exists.")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+    
+    return {"message": "School and Admin account created successfully.", "school_id": school_id}
+
+@app.get("/api/admin/schools", response_model=List[SchoolResponse])
+async def list_schools():
+    # Public endpoint for registration dropdown, or secured if needed
+    conn = get_db_connection()
+    schools = conn.execute("SELECT * FROM schools ORDER BY name").fetchall()
+    conn.close()
+    return [SchoolResponse(id=s['id'], name=s['name'], address=s['address'], contact_email=s['contact_email'], created_at=s['created_at']) for s in schools]
+
+# --- ROOT ADMIN ONLY (Students + Schools) ---
+
+@app.get("/api/root-admin/students")
+async def root_list_students(x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        rows = conn.execute(
+            """
+            SELECT
+                s.id,
+                s.name,
+                s.role,
+                s.grade,
+                s.preferred_subject,
+                s.home_language,
+                s.school_id,
+                s.password,
+                CASE
+                    WHEN s.email IS NOT NULL AND TRIM(s.email) <> '' THEN s.email
+                    WHEN s.role = 'Teacher' AND LOWER(s.id) = 'teacher' THEN ?
+                    WHEN s.role IN ('Parent', 'Parent_Guardian') THEN (
+                        SELECT g.email
+                        FROM guardians g
+                        WHERE LOWER(g.name) = LOWER(s.name)
+                        ORDER BY g.id DESC
+                        LIMIT 1
+                    )
+                    ELSE s.id
+                END AS display_email
+            FROM students s
+            WHERE s.role IN ('Student', 'Teacher', 'Principal', 'Tenant_Admin', 'Parent', 'Parent_Guardian', 'Academic_Admin', 'HR_Admin')
+            ORDER BY s.role, s.name
+            """,
+            (TEACHER_LOGIN_ALIAS,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+@app.post("/api/root-admin/students", status_code=201)
+async def root_add_student(req: RootAdminStudentCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        email = normalize_and_validate_email(req.email)
+        validate_password_strength(req.password)
+        target_role = _normalize_root_managed_role(req.role or "Student")
+
+        target_school_id = req.school_id or 1
+        school = conn.execute("SELECT id FROM schools WHERE id = ?", (target_school_id,)).fetchone()
+        if not school:
+            raise HTTPException(status_code=404, detail="School not found")
+
+        if conn.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (email,)).fetchone():
+            raise HTTPException(status_code=409, detail="User email already exists")
+
+        conn.execute(
+            """
+            INSERT INTO students (
+                id, name, grade, preferred_subject, attendance_rate, home_language, password,
+                math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+            """,
+            (
+                email, req.name.strip(), req.grade, req.preferred_subject, 100.0, req.home_language,
+                req.password, 0.0, 0.0, 0.0, target_role, target_school_id
+            )
+        )
+        conn.commit()
+        return {"message": "User created", "user_id": email, "role": target_role}
+    finally:
+        conn.close()
+
+@app.patch("/api/root-admin/students/{student_id}/email")
+async def root_update_student_email(
+    student_id: str,
+    req: RootAdminStudentEmailUpdateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        new_email = normalize_and_validate_email(req.email)
+
+        student = conn.execute("SELECT id, role FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
+            raise HTTPException(status_code=404, detail="Managed user not found")
+        exists = conn.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (new_email,)).fetchone()
+        if exists and exists["id"].lower() != student_id.lower():
+            raise HTTPException(status_code=409, detail="Email already in use")
+
+        student_name = student["id"]
+        try:
+            row = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+            if row and row["name"]:
+                student_name = row["name"]
+        except Exception:
+            pass
+
+        update_user_identifier_everywhere(conn, student_id, new_email)
+        conn.execute("UPDATE students SET email = ? WHERE id = ?", (new_email, new_email))
+        if student["role"] in ("Parent", "Parent_Guardian"):
+            # Keep guardian contact email in sync so UI + parent flows reflect the new login email.
+            conn.execute(
+                "UPDATE guardians SET email = ? WHERE LOWER(name) = LOWER(?)",
+                (new_email, student_name),
+            )
+        conn.commit()
+        return {"message": "User email updated", "user_id": new_email}
+    finally:
+        conn.close()
+
+@app.patch("/api/root-admin/students/{student_id}/password")
+async def root_update_student_password(
+    student_id: str,
+    req: RootAdminStudentPasswordUpdateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        if not req.password or len(req.password.strip()) < 3:
+            raise HTTPException(status_code=400, detail="Password must be at least 3 characters.")
+        student = conn.execute("SELECT id, role, email FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
+            raise HTTPException(status_code=404, detail="Managed user not found")
+        original_id = student["id"]
+        original_email = student["email"] if "email" in student.keys() else None
+        conn.execute("UPDATE students SET password = ? WHERE id = ?", (hash_password(req.password), student_id))
+        after = conn.execute("SELECT id, email FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not after or after["id"] != original_id or (after["email"] if "email" in after.keys() else None) != original_email:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail="Safety check failed: password update attempted to change user email/id.")
+        conn.commit()
+        return {"message": "User password updated", "user_id": student_id}
+    finally:
+        conn.close()
+
+@app.get("/api/root-admin/schools")
+async def root_list_schools(x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        rows = conn.execute(
+            """
+            SELECT id, name, address, contact_email, created_at, COALESCE(is_active, FALSE) AS is_active
+            FROM schools
+            ORDER BY name
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+# (duplicate route removed — see root_view_database below which handles both Postgres and SQLite)
+
+@app.post("/api/root-admin/schools", status_code=201, dependencies=[Depends(RateLimiter(max_requests=5, window_seconds=60))])
+async def root_create_school_account(
+    req: RootAdminSchoolCreateRequest,
+    background_tasks: BackgroundTasks,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        school_email = normalize_and_validate_email(req.contact_email)
+        validate_password_strength(req.account_password)
+
+        root_sender_email = (ROOT_ADMIN_LOGIN_EMAIL or ADMIN_LOGIN_EMAIL or "").strip().lower()
+        smtp_sender_email = (os.getenv("SMTP_EMAIL", SMTP_EMAIL) or "").strip().lower()
+        if not root_sender_email:
+            raise HTTPException(status_code=400, detail="Root admin email is not configured.")
+        if smtp_sender_email != root_sender_email:
+            raise HTTPException(status_code=400, detail="OTP sender must be Root Admin email (SMTP_EMAIL must match ADMIN_LOGIN_EMAIL).")
+
+        exists = conn.execute("SELECT id FROM schools WHERE LOWER(contact_email) = LOWER(?)", (school_email,)).fetchone()
+        if exists:
+            raise HTTPException(status_code=409, detail="School email already exists.")
+
+        otp_code = str(random.randint(100000, 999999))
+        otp_hash = hashlib.sha256(otp_code.encode("utf-8")).hexdigest()
+        otp_expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
+        created_at = datetime.now().isoformat()
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO schools (name, address, contact_email, created_at, is_active, activation_otp_hash, activation_otp_expires_at)
+            VALUES (?, ?, ?, ?, FALSE, ?, ?)
+            """,
+            (req.name, req.address, school_email, created_at, otp_hash, otp_expires_at),
+        )
+        school_id = cursor.lastrowid
+
+        if conn.execute("SELECT id FROM students WHERE LOWER(id)=LOWER(?)", (school_email,)).fetchone():
+            raise HTTPException(status_code=409, detail="School account email already exists as user.")
+
+        cursor.execute(
+            """
+            INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified)
+            VALUES (?, ?, 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', ?, 0, 0)
+            """,
+            (school_email, f"{req.name} Admin", hash_password(req.account_password), school_id),
+        )
+
+        email_body = f"""
+        <p>Hello {req.name},</p>
+        <p>Your school account activation OTP is:</p>
+        <h2>{otp_code}</h2>
+        <p>This OTP expires in 10 minutes.</p>
+        """
+        background_tasks.add_task(send_email, school_email, "School Account Activation OTP", email_body)
+
+        conn.commit()
+        return {"message": "School created. OTP sent from Root Admin email.", "school_id": school_id}
+    finally:
+        conn.close()
+
+@app.post("/api/root-admin/schools/verify-otp")
+async def root_verify_school_otp(
+    req: RootAdminSchoolActivateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        school = conn.execute(
+            "SELECT id, contact_email, activation_otp_hash, activation_otp_expires_at FROM schools WHERE id = ?",
+            (req.school_id,),
+        ).fetchone()
+        if not school:
+            raise HTTPException(status_code=404, detail="School not found")
+        if not school["activation_otp_hash"] or not school["activation_otp_expires_at"]:
+            raise HTTPException(status_code=400, detail="No pending OTP for this school")
+        if datetime.now() > datetime.fromisoformat(school["activation_otp_expires_at"]):
+            raise HTTPException(status_code=400, detail="OTP expired")
+
+        submitted_hash = hashlib.sha256(req.otp.strip().encode("utf-8")).hexdigest()
+        if submitted_hash != school["activation_otp_hash"]:
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+
+        conn.execute(
+            "UPDATE schools SET is_active = TRUE, activation_otp_hash = NULL, activation_otp_expires_at = NULL WHERE id = ?",
+            (req.school_id,),
+        )
+        conn.execute(
+            "UPDATE students SET email_verified = TRUE WHERE id = ? AND school_id = ? AND role = 'Admin'",
+            (school["contact_email"], req.school_id),
+        )
+        conn.commit()
+        return {"message": "School account activated successfully"}
+    finally:
+        conn.close()
+
+@app.get("/api/root-admin/database")
+@app.get("/api/auth/root-admin/database")
+@app.get("/api/root-admin/db")
+async def root_view_database(x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        ensure_root_admin_user(conn, x_user_id)
+        payload = []
+        if USE_POSTGRES and "postgres" in DATABASE_URL.lower():
+            tables = conn.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+                """
+            ).fetchall()
+            table_names = [t["table_name"] for t in tables]
+        else:
+            tables = conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                ORDER BY name
+                """
+            ).fetchall()
+            table_names = [t["name"] for t in tables]
+
+        is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
+        for table_name in table_names:
+            try:
+                if is_postgres:
+                    # Get columns from information_schema so empty tables still show columns
+                    col_rows = conn.execute(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = %s
+                        ORDER BY ordinal_position
+                        """,
+                        (table_name,)
+                    ).fetchall()
+                    columns = [c["column_name"] for c in col_rows]
+                    rows_raw = conn.execute(
+                        f'SELECT * FROM "{table_name}" LIMIT 200'
+                    ).fetchall()
+                    row_dicts = [dict(r) for r in rows_raw]
+                else:
+                    rows_raw = conn.execute(
+                        f'SELECT * FROM "{table_name}" LIMIT 200'
+                    ).fetchall()
+                    row_dicts = [dict(r) for r in rows_raw]
+                    if row_dicts:
+                        columns = list(row_dicts[0].keys())
+                    else:
+                        # Use PRAGMA for column names even when table is empty
+                        pragma_rows = conn.execute(
+                            f'PRAGMA table_info("{table_name}")'
+                        ).fetchall()
+                        columns = [p[1] for p in pragma_rows]
+                payload.append({
+                    "table": table_name,
+                    "row_count": len(row_dicts),
+                    "columns": columns,
+                    "rows": row_dicts,
+                })
+            except Exception as e:
+                payload.append({
+                    "table": table_name,
+                    "row_count": 0,
+                    "columns": [],
+                    "rows": [],
+                    "error": str(e),
+                })
+        return {"tables": payload}
+    finally:
+        conn.close()
+
+
+             
+
+
+@app.post("/api/auth/logout")
+async def logout_user(request: LogoutRequest):
+    logger.info(f"Logout for user: {request.user_id}")
+    log_auth_event(request.user_id, "Logout", "User logged out")
+    return {"message": "Logged out successfully"}
+
+@app.get("/api/auth/permissions")
+async def get_role_permissions():
+    return ROLE_PERMISSIONS
+
+@app.get("/api/teacher/students/{student_id}/codes")
+async def get_student_codes(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("manage_users", x_user_id=x_user_id)
+    conn = get_db_connection()
+    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
+    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    conn.close()
+    
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+        
+    code_list = [row['code'] for row in codes]
+    
+    # If no codes exist (shouldn't happen with our catch-all, but safe fallback), generate one
+    if not code_list:
+        new_code = str(random.randint(100000, 999999))
+        conn = get_db_connection()
+        conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
+                     (student_id, new_code, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        code_list = [new_code]
+
+    return {
+        "student_id": student_id,
+        "name": student['name'],
+        "codes": code_list
+    }
+
+@app.post("/api/teacher/students/{student_id}/regenerate-code")
+async def regenerate_student_code(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
+    await verify_permission("manage_users", x_user_id=x_user_id)
+    conn = get_db_connection()
+    
+    # Check if student exists
+    if not conn.execute("SELECT 1 FROM students WHERE id = ?", (student_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Delete ALL existing codes for this user (Revoke old)
+    conn.execute("DELETE FROM backup_codes WHERE user_id = ?", (student_id,))
+    
+    # Generate ONE new random code
+    new_code = str(random.randint(100000, 999999))
+    conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
+                 (student_id, new_code, datetime.now().isoformat()))
+    
+    student_name = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()[0]
+    conn.commit()
+    conn.close()
+    
+    log_auth_event(student_id, "Security Update", "2FA Code Regenerated by Teacher")
+
+    return {
+        "student_id": student_id,
+        "name": student_name,
+        "codes": [new_code],
+        "message": "Old codes revoked. New code generated."
+    }
+
+@app.post("/api/students/{student_id}/email-code")
+async def send_access_code_email(student_id: str, background_tasks: BackgroundTasks):
+    conn = get_db_connection()
+    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
+    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    conn.close()
+
+    if not codes:
+        raise HTTPException(status_code=404, detail="No codes found for this user.")
+
+    # Determine Email Address (Assuming ID is Email if it contains @, otherwise fail for now or use a lookup)
+    target_email = student_id if "@" in student_id else None
+    
+    if not target_email:
+         # For demo purposes, if ID isn't an email, we can't send.
+         # In a real app, we'd look up a profile.email field.
+         raise HTTPException(status_code=400, detail="Student ID is not a valid email address.")
+
+    code_list_html = "".join([f"<li style='font-size:18px; font-weight:bold;'>{row['code']}</li>" for row in codes])
+    
+    email_body = f"""
+    <html>
+        <body>
+            <h2>Noble Nexus Access Card</h2>
+            <p>Hello {student['name']},</p>
+            <p>Here are your secure access codes for logging into the portal:</p>
+            <ul>{code_list_html}</ul>
+            <p>Keep these codes safe!</p>
+            <p><i>Noble Nexus Admin</i></p>
+        </body>
+    </html>
+    """
+    
+    background_tasks.add_task(send_email, target_email, "Your Noble Nexus Access Codes", email_body)
+    
+    return {"message": f"Codes queued for delivery to {target_email}"}
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -4674,2000 +3866,8 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/api/finance/module")
-async def get_finance_module_access(x_user_id: str = Header(None, alias="X-User-Id")):
-    granted_by = await verify_any_permission([
-        "finance.view",
-        "finance.dashboard.read",
-        "finance.reports.read",
-        "finance.payroll.self.read",
-        "finance.fees.self.read",
-        "finance.fees.child.read"
-    ], x_user_id)
-    return {
-        "module": "finance",
-        "granted_by": granted_by,
-        "submodules": [
-            "payroll",
-            "general-ledger",
-            "receivables",
-            "payables",
-            "inventory",
-            "assets"
-        ]
-    }
 
-@app.get("/api/finance/dashboard")
-async def get_finance_dashboard(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.dashboard.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        outstanding = cursor.execute(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM invoices WHERE status IN ('Unpaid', 'Overdue')"
-        ).fetchone()
-        collected = cursor.execute(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status = 'Success'"
-        ).fetchone()
-        overdue_count = cursor.execute(
-            "SELECT COUNT(*) AS cnt FROM invoices WHERE status = 'Overdue'"
-        ).fetchone()
-        return {
-            "outstanding_total": float(outstanding["total"] or 0),
-            "collections_total": float(collected["total"] or 0),
-            "overdue_invoices": int(overdue_count["cnt"] or 0)
-        }
-    finally:
-        conn.close()
-
-@app.get("/api/finance/reports/summary")
-async def get_finance_reports_summary(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        totals = cursor.execute(
-            """
-            SELECT
-              COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END), 0) AS paid_amount,
-              COALESCE(SUM(CASE WHEN status = 'Unpaid' THEN amount ELSE 0 END), 0) AS unpaid_amount,
-              COALESCE(SUM(CASE WHEN status = 'Overdue' THEN amount ELSE 0 END), 0) AS overdue_amount
-            FROM invoices
-            """
-        ).fetchone()
-        return {
-            "paid_amount": float(totals["paid_amount"] or 0),
-            "unpaid_amount": float(totals["unpaid_amount"] or 0),
-            "overdue_amount": float(totals["overdue_amount"] or 0)
-        }
-    finally:
-        conn.close()
-
-@app.get("/api/finance/payroll/self")
-async def get_self_payroll(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.self.read", "finance.payroll"], x_user_id)
-    conn = get_db_connection()
-    try:
-        row = conn.execute(
-            """
-            SELECT sp.user_id, s.name, sp.position_title, sp.salary, sp.department_id
-            FROM staff_profiles sp
-            JOIN students s ON s.id = sp.user_id
-            WHERE sp.user_id = ?
-            """,
-            (x_user_id,)
-        ).fetchone()
-        if not row:
-            return {"user_id": x_user_id, "salary": 0, "position_title": None, "department_id": None}
-        return dict(row)
-    finally:
-        conn.close()
-
-@app.get("/api/finance/fees/self")
-async def get_self_fees(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.fees.self.read", "finance.invoices"], x_user_id)
-    conn = get_db_connection()
-    try:
-        rows = conn.execute(
-            """
-            SELECT id, invoice_number, description, amount, due_date, status, created_at
-            FROM invoices
-            WHERE student_id = ?
-            ORDER BY due_date DESC, id DESC
-            """,
-            (x_user_id,)
-        ).fetchall()
-        return {"student_id": x_user_id, "invoices": [dict(r) for r in rows]}
-    finally:
-        conn.close()
-
-@app.get("/api/finance/fees/child")
-async def get_child_fees(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.fees.child.read", "finance.invoices"], x_user_id)
-    conn = get_db_connection()
-    try:
-        child_rows = conn.execute(
-            "SELECT DISTINCT student_id FROM guardians WHERE email = ?",
-            (x_user_id,)
-        ).fetchall()
-        child_ids = [r["student_id"] for r in child_rows if r["student_id"]]
-        if not child_ids:
-            return {"child_ids": [], "invoices": []}
-        placeholders = ",".join(["?"] * len(child_ids))
-        invoices = conn.execute(
-            f"""
-            SELECT id, student_id, invoice_number, description, amount, due_date, status, created_at
-            FROM invoices
-            WHERE student_id IN ({placeholders})
-            ORDER BY due_date DESC, id DESC
-            """,
-            tuple(child_ids)
-        ).fetchall()
-        return {"child_ids": child_ids, "invoices": [dict(r) for r in invoices]}
-    finally:
-        conn.close()
-
-def _resolve_school_id(conn, user_id: str) -> int:
-    row = conn.execute("SELECT school_id FROM students WHERE id = ?", (user_id,)).fetchone()
-    if not row or not row["school_id"]:
-        return 1
-    return int(row["school_id"])
-
-def _as_bool(value: Any, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "y", "on")
-    return default
-
-def _gl_next_journal_number(conn, school_id: int, prefix: str = "GL") -> str:
-    day = datetime.now().strftime("%Y%m%d")
-    start = f"{prefix}-{day}-"
-    row = conn.execute(
-        "SELECT journal_number FROM journal_entries WHERE school_id = ? AND journal_number LIKE ? ORDER BY journal_number DESC LIMIT 1",
-        (school_id, start + "%")
-    ).fetchone()
-    if not row:
-        seq = 1
-    else:
-        last = row["journal_number"] or ""
-        try:
-            seq = int(last.split("-")[-1]) + 1
-        except Exception:
-            seq = 1
-    return f"{start}{seq:04d}"
-
-def _gl_resolve_account_id(conn, school_id: int, line: GLJournalLineInput) -> int:
-    if line.account_id:
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE id = ? AND school_id = ? AND is_active = TRUE",
-            (line.account_id, school_id)
-        ).fetchone()
-        if row:
-            return int(row["id"])
-    if line.account_code:
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE code = ? AND school_id = ? AND is_active = TRUE",
-            (line.account_code, school_id)
-        ).fetchone()
-        if row:
-            return int(row["id"])
-    raise HTTPException(status_code=400, detail="Each journal line must reference an active account via account_id or account_code.")
-
-def _gl_check_period_open(conn, school_id: int, period_id: Optional[int]) -> None:
-    if not period_id:
-        return
-    period = conn.execute(
-        "SELECT id, status FROM periods WHERE id = ? AND school_id = ?",
-        (period_id, school_id)
-    ).fetchone()
-    if not period:
-        raise HTTPException(status_code=400, detail="Invalid period_id for this school.")
-    if (period["status"] or "").lower() == "closed":
-        raise HTTPException(status_code=400, detail="Accounting period is closed. Posting is not allowed.")
-
-def _gl_validate_lines(lines: List[GLJournalLineInput]) -> Dict[str, Any]:
-    if not lines or len(lines) < 2:
-        raise HTTPException(status_code=400, detail="At least two journal lines are required.")
-    total_debit = 0.0
-    total_credit = 0.0
-    prepared = []
-    for idx, line in enumerate(lines, start=1):
-        debit = float(line.debit or 0)
-        credit = float(line.credit or 0)
-        if debit < 0 or credit < 0:
-            raise HTTPException(status_code=400, detail=f"Line {idx}: debit/credit cannot be negative.")
-        if (debit > 0 and credit > 0) or (debit == 0 and credit == 0):
-            raise HTTPException(status_code=400, detail=f"Line {idx}: provide either debit or credit.")
-        total_debit += debit
-        total_credit += credit
-        prepared.append({
-            "line_no": idx,
-            "description": line.description,
-            "debit": debit,
-            "credit": credit,
-            "cost_center_id": line.cost_center_id,
-            "tax_code_id": line.tax_code_id,
-            "party_id": line.party_id,
-            "account_id": None
-        })
-    if abs(total_debit - total_credit) > 0.0001:
-        raise HTTPException(status_code=400, detail="Journal is not balanced. Debit total must equal credit total.")
-    return {
-        "total_debit": round(total_debit, 2),
-        "total_credit": round(total_credit, 2),
-        "prepared": prepared
-    }
-
-def _gl_fetch_lines(conn, journal_id: int) -> List[Dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT jl.*, a.code AS account_code, a.name AS account_name, a.account_type
-        FROM journal_lines jl
-        JOIN accounts a ON a.id = jl.account_id
-        WHERE jl.journal_entry_id = ?
-        ORDER BY jl.line_no, jl.id
-        """,
-        (journal_id,)
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-@app.post("/api/finance/gl/journals")
-@app.post("/finance/gl/journals")
-async def create_gl_journal(request: GLJournalCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        _gl_check_period_open(conn, school_id, request.period_id)
-        checked = _gl_validate_lines(request.lines)
-        now = datetime.now().isoformat()
-        journal_number = _gl_next_journal_number(conn, school_id, "GL")
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO journal_entries (
-                school_id, journal_number, entry_date, description, reference, period_id,
-                status, total_debit, total_credit, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'Draft', ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id, journal_number, request.entry_date, request.description, request.reference,
-                request.period_id, checked["total_debit"], checked["total_credit"], x_user_id, now, now
-            )
-        )
-        journal_id = cur.lastrowid
-        for idx, line in enumerate(request.lines):
-            prepared = checked["prepared"][idx]
-            account_id = _gl_resolve_account_id(conn, school_id, line)
-            cur.execute(
-                """
-                INSERT INTO journal_lines (
-                    journal_entry_id, line_no, account_id, description, debit, credit, cost_center_id, tax_code_id, party_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    journal_id, prepared["line_no"], account_id, prepared["description"],
-                    prepared["debit"], prepared["credit"], prepared["cost_center_id"],
-                    prepared["tax_code_id"], prepared["party_id"]
-                )
-            )
-        conn.commit()
-        entry = conn.execute("SELECT * FROM journal_entries WHERE id = ?", (journal_id,)).fetchone()
-        return {"journal": dict(entry), "lines": _gl_fetch_lines(conn, journal_id)}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create journal: {str(e)}")
-    finally:
-        conn.close()
-
-@app.post("/api/finance/gl/journals/{journal_id}/post")
-@app.post("/finance/gl/journals/{journal_id}/post")
-async def post_gl_journal(journal_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        entry = conn.execute(
-            "SELECT * FROM journal_entries WHERE id = ? AND school_id = ?",
-            (journal_id, school_id)
-        ).fetchone()
-        if not entry:
-            raise HTTPException(status_code=404, detail="Journal not found.")
-        if (entry["status"] or "").lower() != "draft":
-            raise HTTPException(status_code=400, detail="Posted entries are locked. Only Draft journals can be posted.")
-        _gl_check_period_open(conn, school_id, entry["period_id"])
-        totals = conn.execute(
-            "SELECT COALESCE(SUM(debit),0) AS total_debit, COALESCE(SUM(credit),0) AS total_credit FROM journal_lines WHERE journal_entry_id = ?",
-            (journal_id,)
-        ).fetchone()
-        total_debit = float(totals["total_debit"] or 0)
-        total_credit = float(totals["total_credit"] or 0)
-        if total_debit <= 0 and total_credit <= 0:
-            raise HTTPException(status_code=400, detail="Journal has no lines.")
-        if abs(total_debit - total_credit) > 0.0001:
-            raise HTTPException(status_code=400, detail="Journal is not balanced. Debit total must equal credit total.")
-        now = datetime.now().isoformat()
-        conn.execute(
-            """
-            UPDATE journal_entries
-            SET status = 'Posted', total_debit = ?, total_credit = ?, posted_at = ?, posted_by = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (round(total_debit, 2), round(total_credit, 2), now, x_user_id, now, journal_id)
-        )
-        conn.commit()
-        posted = conn.execute("SELECT * FROM journal_entries WHERE id = ?", (journal_id,)).fetchone()
-        return {"journal": dict(posted), "lines": _gl_fetch_lines(conn, journal_id)}
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to post journal: {str(e)}")
-    finally:
-        conn.close()
-
-@app.post("/api/finance/gl/journals/{journal_id}/reverse")
-@app.post("/finance/gl/journals/{journal_id}/reverse")
-async def reverse_gl_journal(journal_id: int, request: Optional[GLJournalReverseRequest] = Body(default=None), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        original = conn.execute(
-            "SELECT * FROM journal_entries WHERE id = ? AND school_id = ?",
-            (journal_id, school_id)
-        ).fetchone()
-        if not original:
-            raise HTTPException(status_code=404, detail="Journal not found.")
-        if (original["status"] or "").lower() != "posted":
-            raise HTTPException(status_code=400, detail="Only posted journals can be reversed.")
-        if original["reversed_entry_id"]:
-            raise HTTPException(status_code=400, detail="Journal is already reversed.")
-
-        lines = conn.execute(
-            "SELECT * FROM journal_lines WHERE journal_entry_id = ? ORDER BY line_no, id",
-            (journal_id,)
-        ).fetchall()
-        if not lines:
-            raise HTTPException(status_code=400, detail="Cannot reverse a journal without lines.")
-
-        reversal_date = (request.reversal_date if request else None) or datetime.now().date().isoformat()
-        reason = (request.reversal_reason if request else None) or f"Reversal of {original['journal_number']}"
-        now = datetime.now().isoformat()
-        rev_number = _gl_next_journal_number(conn, school_id, "RV")
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO journal_entries (
-                school_id, journal_number, entry_date, description, reference, period_id, status,
-                total_debit, total_credit, posted_at, posted_by, reversed_entry_id,
-                created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id, rev_number, reversal_date, f"Reversal: {original['description'] or ''}".strip(),
-                original["reference"], original["period_id"], float(original["total_credit"] or 0),
-                float(original["total_debit"] or 0), now, x_user_id, journal_id, x_user_id, now, now
-            )
-        )
-        reversal_id = cur.lastrowid
-        line_no = 1
-        for l in lines:
-            cur.execute(
-                """
-                INSERT INTO journal_lines (
-                    journal_entry_id, line_no, account_id, description, debit, credit, cost_center_id, tax_code_id, party_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    reversal_id, line_no, l["account_id"], l["description"], float(l["credit"] or 0),
-                    float(l["debit"] or 0), l["cost_center_id"], l["tax_code_id"], l["party_id"]
-                )
-            )
-            line_no += 1
-
-        conn.execute(
-            """
-            UPDATE journal_entries
-            SET status = 'Reversed', reversed_entry_id = ?, reversed_at = ?, reversed_by = ?, reversal_reason = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (reversal_id, now, x_user_id, reason, now, journal_id)
-        )
-        conn.commit()
-        return {
-            "message": "Journal reversed successfully.",
-            "original_journal_id": journal_id,
-            "reversal_journal_id": reversal_id
-        }
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to reverse journal: {str(e)}")
-    finally:
-        conn.close()
-
-def _gl_build_filters(period_id: Optional[int], date_from: Optional[str], date_to: Optional[str]) -> (str, List[Any]):
-    clauses = ["je.status = 'Posted'"]
-    params: List[Any] = []
-    if period_id:
-        clauses.append("je.period_id = ?")
-        params.append(period_id)
-    if date_from:
-        clauses.append("je.entry_date >= ?")
-        params.append(date_from)
-    if date_to:
-        clauses.append("je.entry_date <= ?")
-        params.append(date_to)
-    return " AND ".join(clauses), params
-
-@app.get("/api/finance/gl/reports/trial-balance")
-@app.get("/finance/gl/reports/trial-balance")
-async def get_gl_trial_balance(
-    period_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        filter_sql, filter_params = _gl_build_filters(period_id, date_from, date_to)
-        rows = conn.execute(
-            f"""
-            SELECT
-                a.id AS account_id,
-                a.code AS account_code,
-                a.name AS account_name,
-                a.account_type,
-                COALESCE(SUM(jl.debit), 0) AS total_debit,
-                COALESCE(SUM(jl.credit), 0) AS total_credit
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND {filter_sql}
-            GROUP BY a.id, a.code, a.name, a.account_type
-            ORDER BY a.code
-            """,
-            (school_id, *filter_params)
-        ).fetchall()
-        data = []
-        debit_total = 0.0
-        credit_total = 0.0
-        for r in rows:
-            td = float(r["total_debit"] or 0)
-            tc = float(r["total_credit"] or 0)
-            debit_total += td
-            credit_total += tc
-            data.append({
-                "account_id": r["account_id"],
-                "account_code": r["account_code"],
-                "account_name": r["account_name"],
-                "account_type": r["account_type"],
-                "total_debit": round(td, 2),
-                "total_credit": round(tc, 2),
-                "net_balance": round(td - tc, 2)
-            })
-        return {
-            "filters": {"period_id": period_id, "date_from": date_from, "date_to": date_to},
-            "rows": data,
-            "totals": {
-                "debit_total": round(debit_total, 2),
-                "credit_total": round(credit_total, 2),
-                "is_balanced": abs(debit_total - credit_total) <= 0.0001
-            }
-        }
-    finally:
-        conn.close()
-
-@app.get("/api/finance/gl/reports/profit-loss")
-@app.get("/finance/gl/reports/profit-loss")
-async def get_gl_profit_and_loss(
-    period_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        filter_sql, filter_params = _gl_build_filters(period_id, date_from, date_to)
-        rows = conn.execute(
-            f"""
-            SELECT a.code, a.name, a.account_type,
-                   COALESCE(SUM(jl.debit), 0) AS total_debit,
-                   COALESCE(SUM(jl.credit), 0) AS total_credit
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND {filter_sql} AND a.account_type IN ('Revenue', 'Expense')
-            GROUP BY a.code, a.name, a.account_type
-            ORDER BY a.code
-            """,
-            (school_id, *filter_params)
-        ).fetchall()
-        revenues = []
-        expenses = []
-        total_revenue = 0.0
-        total_expense = 0.0
-        for r in rows:
-            debit = float(r["total_debit"] or 0)
-            credit = float(r["total_credit"] or 0)
-            if r["account_type"] == "Revenue":
-                amount = round(credit - debit, 2)
-                revenues.append({"account_code": r["code"], "account_name": r["name"], "amount": amount})
-                total_revenue += amount
-            else:
-                amount = round(debit - credit, 2)
-                expenses.append({"account_code": r["code"], "account_name": r["name"], "amount": amount})
-                total_expense += amount
-        return {
-            "filters": {"period_id": period_id, "date_from": date_from, "date_to": date_to},
-            "revenues": revenues,
-            "expenses": expenses,
-            "totals": {
-                "total_revenue": round(total_revenue, 2),
-                "total_expense": round(total_expense, 2),
-                "net_profit": round(total_revenue - total_expense, 2)
-            }
-        }
-    finally:
-        conn.close()
-
-@app.get("/api/finance/gl/reports/balance-sheet")
-@app.get("/finance/gl/reports/balance-sheet")
-async def get_gl_balance_sheet(
-    period_id: Optional[int] = None,
-    date_from: Optional[str] = None,
-    date_to: Optional[str] = None,
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        filter_sql, filter_params = _gl_build_filters(period_id, date_from, date_to)
-        rows = conn.execute(
-            f"""
-            SELECT a.code, a.name, a.account_type,
-                   COALESCE(SUM(jl.debit), 0) AS total_debit,
-                   COALESCE(SUM(jl.credit), 0) AS total_credit
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND {filter_sql}
-              AND a.account_type IN ('Asset', 'Liability', 'Equity')
-            GROUP BY a.code, a.name, a.account_type
-            ORDER BY a.code
-            """,
-            (school_id, *filter_params)
-        ).fetchall()
-        assets = []
-        liabilities = []
-        equity = []
-        total_assets = 0.0
-        total_liabilities = 0.0
-        total_equity = 0.0
-        for r in rows:
-            debit = float(r["total_debit"] or 0)
-            credit = float(r["total_credit"] or 0)
-            if r["account_type"] == "Asset":
-                bal = round(debit - credit, 2)
-                assets.append({"account_code": r["code"], "account_name": r["name"], "balance": bal})
-                total_assets += bal
-            elif r["account_type"] == "Liability":
-                bal = round(credit - debit, 2)
-                liabilities.append({"account_code": r["code"], "account_name": r["name"], "balance": bal})
-                total_liabilities += bal
-            else:
-                bal = round(credit - debit, 2)
-                equity.append({"account_code": r["code"], "account_name": r["name"], "balance": bal})
-                total_equity += bal
-        return {
-            "filters": {"period_id": period_id, "date_from": date_from, "date_to": date_to},
-            "assets": assets,
-            "liabilities": liabilities,
-            "equity": equity,
-            "totals": {
-                "total_assets": round(total_assets, 2),
-                "total_liabilities": round(total_liabilities, 2),
-                "total_equity": round(total_equity, 2),
-                "balanced": abs(total_assets - (total_liabilities + total_equity)) <= 0.01
-            }
-        }
-    finally:
-        conn.close()
-
-def _next_doc_number(conn, school_id: int, table_name: str, column_name: str, prefix: str) -> str:
-    row = conn.execute(
-        f"SELECT {column_name} AS val FROM {table_name} WHERE school_id = ? AND {column_name} LIKE ? ORDER BY {column_name} DESC LIMIT 1",
-        (school_id, prefix + "%")
-    ).fetchone()
-    if not row or not row["val"]:
-        return f"{prefix}0001"
-    try:
-        last_seq = int(str(row["val"]).replace(prefix, ""))
-    except Exception:
-        last_seq = 0
-    return f"{prefix}{last_seq + 1:04d}"
-
-def _finance_log_audit(conn, school_id: int, module: str, action: str, entity_type: str, entity_id: Any, actor_id: Optional[str], details: Dict[str, Any]):
-    conn.execute(
-        """
-        INSERT INTO finance_audit_logs (school_id, module, action, entity_type, entity_id, actor_id, details, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (school_id, module, action, entity_type, str(entity_id) if entity_id is not None else None, actor_id, json.dumps(details or {}), datetime.now().isoformat())
-    )
-
-def _finance_account_id_by_code(conn, school_id: int, code: str) -> int:
-    row = conn.execute("SELECT id FROM accounts WHERE school_id = ? AND code = ? AND is_active = TRUE", (school_id, code)).fetchone()
-    if not row:
-        raise HTTPException(status_code=400, detail=f"Account code {code} not configured.")
-    return int(row["id"])
-
-def _finance_posting_service(
-    conn,
-    school_id: int,
-    user_id: str,
-    module: str,
-    transaction_type: str,
-    source_ref: str,
-    amount: float,
-    description: str,
-    entry_date: Optional[str],
-    idempotency_key: str,
-    debit_account_id: Optional[int] = None,
-    credit_account_id: Optional[int] = None
-) -> Dict[str, Any]:
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Posting amount must be greater than zero.")
-    existing = conn.execute(
-        "SELECT id, journal_entry_id, status FROM finance_posting_events WHERE school_id = ? AND idempotency_key = ?",
-        (school_id, idempotency_key)
-    ).fetchone()
-    if existing:
-        return {"already_posted": True, "event_id": existing["id"], "journal_entry_id": existing["journal_entry_id"], "status": existing["status"]}
-    if debit_account_id is None or credit_account_id is None:
-        rule = conn.execute(
-            """
-            SELECT debit_account_id, credit_account_id
-            FROM finance_posting_rules
-            WHERE school_id = ? AND module = ? AND transaction_type = ? AND is_active = TRUE
-            """,
-            (school_id, module, transaction_type)
-        ).fetchone()
-        if not rule:
-            raise HTTPException(status_code=400, detail=f"No active posting rule for {module}:{transaction_type}")
-        debit_account_id = int(rule["debit_account_id"])
-        credit_account_id = int(rule["credit_account_id"])
-    journal_number = _gl_next_journal_number(conn, school_id, "GL")
-    now = datetime.now().isoformat()
-    entry_dt = entry_date or datetime.now().date().isoformat()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO journal_entries (
-            school_id, journal_number, entry_date, description, reference, status,
-            total_debit, total_credit, posted_at, posted_by, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'Posted', ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (school_id, journal_number, entry_dt, description, source_ref, amount, amount, now, user_id, user_id, now, now)
-    )
-    journal_id = cur.lastrowid
-    cur.execute("INSERT INTO journal_lines (journal_entry_id, line_no, account_id, description, debit, credit) VALUES (?, 1, ?, ?, ?, 0)", (journal_id, debit_account_id, description, amount))
-    cur.execute("INSERT INTO journal_lines (journal_entry_id, line_no, account_id, description, debit, credit) VALUES (?, 2, ?, ?, 0, ?)", (journal_id, credit_account_id, description, amount))
-    cur.execute(
-        """
-        INSERT INTO finance_posting_events (
-            school_id, module, transaction_type, source_ref, idempotency_key, amount, status, journal_entry_id, event_payload, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?, ?)
-        """,
-        (school_id, module, transaction_type, source_ref, idempotency_key, amount, journal_id, json.dumps({"description": description}), user_id, now)
-    )
-    event_id = cur.lastrowid
-    return {"already_posted": False, "event_id": event_id, "journal_entry_id": journal_id, "status": "Posted"}
-
-def _group_aging(records: List[Dict[str, Any]], amount_key: str, date_key: str) -> Dict[str, float]:
-    buckets = {"0_30": 0.0, "31_60": 0.0, "61_90": 0.0, "90_plus": 0.0}
-    today = datetime.now().date()
-    for r in records:
-        amt = float(r.get(amount_key) or 0)
-        if amt <= 0:
-            continue
-        try:
-            due = datetime.fromisoformat(str(r.get(date_key))).date()
-        except Exception:
-            due = today
-        age = (today - due).days
-        if age <= 30:
-            buckets["0_30"] += amt
-        elif age <= 60:
-            buckets["31_60"] += amt
-        elif age <= 90:
-            buckets["61_90"] += amt
-        else:
-            buckets["90_plus"] += amt
-    return {k: round(v, 2) for k, v in buckets.items()}
-
-@app.get("/api/finance/domain")
-async def get_finance_parent_domain(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.view", "finance.dashboard.read", "finance.reports.read"], x_user_id)
-    return {"domain": "finance", "submodules": ["payroll", "general-ledger", "receivables", "payables", "inventory", "assets"]}
-
-@app.get("/api/finance/posting-rules")
-async def list_posting_rules(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.posting.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute(
-            """
-            SELECT pr.*, da.code AS debit_code, da.name AS debit_name, ca.code AS credit_code, ca.name AS credit_name
-            FROM finance_posting_rules pr
-            JOIN accounts da ON da.id = pr.debit_account_id
-            JOIN accounts ca ON ca.id = pr.credit_account_id
-            WHERE pr.school_id = ?
-            ORDER BY pr.module, pr.transaction_type
-            """,
-            (school_id,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/posting-rules")
-async def upsert_posting_rule(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.posting.manage", "finance.manage"], x_user_id)
-    required = ["module", "transaction_type", "debit_account_id", "credit_account_id"]
-    if any(payload.get(k) in (None, "") for k in required):
-        raise HTTPException(status_code=400, detail="module, transaction_type, debit_account_id and credit_account_id are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        existing = conn.execute(
-            "SELECT id FROM finance_posting_rules WHERE school_id = ? AND module = ? AND transaction_type = ?",
-            (school_id, payload["module"], payload["transaction_type"])
-        ).fetchone()
-        if existing:
-            conn.execute(
-                "UPDATE finance_posting_rules SET debit_account_id = ?, credit_account_id = ?, description = ?, is_active = ?, updated_at = ? WHERE id = ?",
-                (int(payload["debit_account_id"]), int(payload["credit_account_id"]), payload.get("description"), _as_bool(payload.get("is_active"), True), now, existing["id"])
-            )
-            rule_id = existing["id"]
-        else:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO finance_posting_rules (school_id, module, transaction_type, debit_account_id, credit_account_id, description, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (school_id, payload["module"], payload["transaction_type"], int(payload["debit_account_id"]), int(payload["credit_account_id"]), payload.get("description"), _as_bool(payload.get("is_active"), True), x_user_id, now, now)
-            )
-            rule_id = cur.lastrowid
-        _finance_log_audit(conn, school_id, "posting", "upsert_rule", "finance_posting_rules", rule_id, x_user_id, payload)
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM finance_posting_rules WHERE id = ?", (rule_id,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/periods/{period_id}/close")
-async def close_period(period_id: int, payload: Dict[str, Any] = Body(default={}), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.period.close", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        period = conn.execute("SELECT * FROM periods WHERE id = ? AND school_id = ?", (period_id, school_id)).fetchone()
-        if not period:
-            raise HTTPException(status_code=404, detail="Period not found.")
-        conn.execute("UPDATE periods SET status = 'Closed', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), period_id))
-        _finance_log_audit(conn, school_id, "controls", "period_close", "periods", period_id, x_user_id, {"notes": payload.get("notes")})
-        conn.commit()
-        return {"message": "Period closed successfully.", "period_id": period_id}
-    finally:
-        conn.close()
-
-@app.get("/api/finance/audit-logs")
-async def get_finance_audit_logs(limit: int = 100, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.audit.read", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM finance_audit_logs WHERE school_id = ? ORDER BY id DESC LIMIT ?", (school_id, max(1, min(limit, 500)))).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.get("/api/finance/reconciliation/check")
-async def run_finance_reconciliation(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        ar_subledger_row = conn.execute(
-            """
-            SELECT
-              COALESCE((SELECT SUM(total_amount) FROM ar_invoices WHERE school_id = ? AND status IN ('Posted','Partially_Paid','Paid','Overdue')),0) -
-              COALESCE((SELECT SUM(amount) FROM ar_receipts WHERE school_id = ?),0) AS val
-            """,
-            (school_id, school_id)
-        ).fetchone()
-        ap_subledger_row = conn.execute(
-            """
-            SELECT
-              COALESCE((SELECT SUM(total_amount) FROM ap_bills WHERE school_id = ? AND status IN ('Posted','Partially_Paid','Paid','Overdue')),0) -
-              COALESCE((SELECT SUM(amount) FROM ap_payments WHERE school_id = ?),0) AS val
-            """,
-            (school_id, school_id)
-        ).fetchone()
-        inv_subledger_row = conn.execute(
-            "SELECT COALESCE(SUM(valuation_amount),0) AS val FROM stock_valuation WHERE school_id = ?",
-            (school_id,)
-        ).fetchone()
-        ar_gl = conn.execute(
-            """
-            SELECT COALESCE(SUM(jl.debit),0) - COALESCE(SUM(jl.credit),0) AS val
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND je.status = 'Posted' AND a.code = '1100'
-            """,
-            (school_id,)
-        ).fetchone()
-        ap_gl = conn.execute(
-            """
-            SELECT COALESCE(SUM(jl.credit),0) - COALESCE(SUM(jl.debit),0) AS val
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND je.status = 'Posted' AND a.code = '2000'
-            """,
-            (school_id,)
-        ).fetchone()
-        inv_gl = conn.execute(
-            """
-            SELECT COALESCE(SUM(jl.debit),0) - COALESCE(SUM(jl.credit),0) AS val
-            FROM journal_lines jl
-            JOIN journal_entries je ON je.id = jl.journal_entry_id
-            JOIN accounts a ON a.id = jl.account_id
-            WHERE je.school_id = ? AND je.status = 'Posted' AND a.code = '1200'
-            """,
-            (school_id,)
-        ).fetchone()
-        ar_subledger = round(float(ar_subledger_row["val"] or 0), 2)
-        ap_subledger = round(float(ap_subledger_row["val"] or 0), 2)
-        inv_subledger = round(float(inv_subledger_row["val"] or 0), 2)
-        ar_gl_val = round(float(ar_gl["val"] or 0), 2)
-        ap_gl_val = round(float(ap_gl["val"] or 0), 2)
-        inv_gl_val = round(float(inv_gl["val"] or 0), 2)
-        return {
-            "ar": {"subledger": ar_subledger, "gl_control": ar_gl_val, "difference": round(ar_subledger - ar_gl_val, 2), "matched": abs(ar_subledger - ar_gl_val) <= 0.01},
-            "ap": {"subledger": ap_subledger, "gl_control": ap_gl_val, "difference": round(ap_subledger - ap_gl_val, 2), "matched": abs(ap_subledger - ap_gl_val) <= 0.01},
-            "inventory": {"subledger": inv_subledger, "gl_control": inv_gl_val, "difference": round(inv_subledger - inv_gl_val, 2), "matched": abs(inv_subledger - inv_gl_val) <= 0.01}
-        }
-    finally:
-        conn.close()
-
-# --- Receivables ---
-@app.get("/api/finance/receivables/customers")
-async def list_customers(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices", "finance.fees.child.read"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        return [dict(r) for r in conn.execute("SELECT * FROM customers WHERE school_id = ? ORDER BY name", (school_id,)).fetchall()]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/receivables/customers")
-async def create_customer(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
-    if not payload.get("name"):
-        raise HTTPException(status_code=400, detail="name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        code = payload.get("customer_code") or _next_doc_number(conn, school_id, "customers", "customer_code", "CUST-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO customers (school_id, customer_code, name, email, phone, address, tax_identifier, linked_student_id, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (school_id, code, payload["name"], payload.get("email"), payload.get("phone"), payload.get("address"), payload.get("tax_identifier"), payload.get("linked_student_id"), _as_bool(payload.get("is_active"), True), x_user_id, now, now)
-        )
-        cid = cur.lastrowid
-        _finance_log_audit(conn, school_id, "receivables", "create_customer", "customers", cid, x_user_id, payload)
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM customers WHERE id = ?", (cid,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/receivables/invoices")
-async def create_ar_invoice(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
-    lines = payload.get("lines") or []
-    if not payload.get("customer_id") or not payload.get("invoice_date") or not payload.get("due_date") or not lines:
-        raise HTTPException(status_code=400, detail="customer_id, invoice_date, due_date, and lines are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        inv_no = payload.get("invoice_number") or _next_doc_number(conn, school_id, "ar_invoices", "invoice_number", "ARINV-")
-        now = datetime.now().isoformat()
-        subtotal = 0.0
-        tax_total = 0.0
-        prepared = []
-        for idx, l in enumerate(lines, start=1):
-            qty = float(l.get("quantity", 1))
-            up = float(l.get("unit_price", 0))
-            tr = float(l.get("tax_rate", 0))
-            line_amt = round(qty * up, 2)
-            tax_amt = round(line_amt * tr / 100.0, 2)
-            total = round(line_amt + tax_amt, 2)
-            subtotal += line_amt
-            tax_total += tax_amt
-            prepared.append((idx, l, line_amt, tax_amt, total))
-        total_amount = round(subtotal + tax_total, 2)
-        rev_acc = int(payload.get("revenue_account_id") or _finance_account_id_by_code(conn, school_id, "4000"))
-        ar_acc = int(payload.get("ar_account_id") or _finance_account_id_by_code(conn, school_id, "1100"))
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO ar_invoices (school_id, invoice_number, customer_id, invoice_date, due_date, subtotal, tax_amount, total_amount, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?)",
-            (school_id, inv_no, int(payload["customer_id"]), payload["invoice_date"], payload["due_date"], round(subtotal, 2), round(tax_total, 2), total_amount, x_user_id, now, now)
-        )
-        invoice_id = cur.lastrowid
-        for line_no, l, line_amt, tax_amt, total in prepared:
-            cur.execute(
-                "INSERT INTO ar_invoice_lines (invoice_id, line_no, description, quantity, unit_price, tax_code_id, tax_rate, line_amount, tax_amount, total_amount, revenue_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (invoice_id, line_no, l.get("description") or f"Line {line_no}", float(l.get('quantity', 1)), float(l.get('unit_price', 0)), l.get("tax_code_id"), float(l.get("tax_rate", 0)), line_amt, tax_amt, total, rev_acc)
-            )
-        post = _finance_posting_service(conn, school_id, x_user_id, "receivables", "AR_INVOICE", f"ARINV:{invoice_id}", total_amount, f"AR Invoice {inv_no}", payload["invoice_date"], payload.get("idempotency_key") or f"ar_invoice_{invoice_id}", ar_acc, rev_acc)
-        conn.execute("UPDATE ar_invoices SET gl_journal_id = ?, updated_at = ? WHERE id = ?", (post["journal_entry_id"], now, invoice_id))
-        _finance_log_audit(conn, school_id, "receivables", "create_invoice", "ar_invoices", invoice_id, x_user_id, {"invoice_number": inv_no, "total_amount": total_amount})
-        conn.commit()
-        return {"invoice": dict(conn.execute("SELECT * FROM ar_invoices WHERE id = ?", (invoice_id,)).fetchone()), "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.post("/api/finance/receivables/receipts")
-async def create_ar_receipt(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
-    if not payload.get("customer_id") or not payload.get("receipt_date") or float(payload.get("amount", 0)) <= 0:
-        raise HTTPException(status_code=400, detail="customer_id, receipt_date and positive amount are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rcpt_no = payload.get("receipt_number") or _next_doc_number(conn, school_id, "ar_receipts", "receipt_number", "ARRCPT-")
-        amount = round(float(payload["amount"]), 2)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO ar_receipts (school_id, receipt_number, customer_id, invoice_id, receipt_date, amount, method, reference, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Posted', ?, ?)",
-            (school_id, rcpt_no, int(payload["customer_id"]), payload.get("invoice_id"), payload["receipt_date"], amount, payload.get("method"), payload.get("reference"), x_user_id, now)
-        )
-        rid = cur.lastrowid
-        cash_acc = int(payload.get("cash_account_id") or _finance_account_id_by_code(conn, school_id, "1000"))
-        ar_acc = int(payload.get("ar_account_id") or _finance_account_id_by_code(conn, school_id, "1100"))
-        post = _finance_posting_service(conn, school_id, x_user_id, "receivables", "AR_RECEIPT", f"ARRCPT:{rid}", amount, f"AR Receipt {rcpt_no}", payload["receipt_date"], payload.get("idempotency_key") or f"ar_receipt_{rid}", cash_acc, ar_acc)
-        conn.execute("UPDATE ar_receipts SET gl_journal_id = ? WHERE id = ?", (post["journal_entry_id"], rid))
-        if payload.get("invoice_id"):
-            inv = conn.execute("SELECT total_amount FROM ar_invoices WHERE id = ?", (payload["invoice_id"],)).fetchone()
-            paid = conn.execute("SELECT COALESCE(SUM(amount),0) AS paid FROM ar_receipts WHERE invoice_id = ?", (payload["invoice_id"],)).fetchone()
-            new_status = "Paid" if inv and float(paid["paid"] or 0) >= float(inv["total_amount"] or 0) else "Partially_Paid"
-            conn.execute("UPDATE ar_invoices SET status = ?, updated_at = ? WHERE id = ?", (new_status, now, payload["invoice_id"]))
-        _finance_log_audit(conn, school_id, "receivables", "create_receipt", "ar_receipts", rid, x_user_id, {"receipt_number": rcpt_no, "amount": amount})
-        conn.commit()
-        return {"receipt": dict(conn.execute("SELECT * FROM ar_receipts WHERE id = ?", (rid,)).fetchone()), "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.get("/api/finance/receivables/reports/aging")
-async def get_ar_aging(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute(
-            "SELECT ai.invoice_number, ai.due_date, ai.total_amount, COALESCE((SELECT SUM(amount) FROM ar_receipts r WHERE r.invoice_id = ai.id),0) AS paid_amount FROM ar_invoices ai WHERE ai.school_id = ? AND ai.status IN ('Posted','Partially_Paid','Overdue')",
-            (school_id,)
-        ).fetchall()
-        data = []
-        for r in rows:
-            outstanding = round(float(r["total_amount"] or 0) - float(r["paid_amount"] or 0), 2)
-            if outstanding > 0:
-                data.append({"invoice_number": r["invoice_number"], "due_date": r["due_date"], "outstanding": outstanding})
-        return {"rows": data, "aging": _group_aging(data, "outstanding", "due_date")}
-    finally:
-        conn.close()
-
-# --- Payables ---
-@app.get("/api/finance/payables/vendors")
-async def list_vendors(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        return [dict(r) for r in conn.execute("SELECT * FROM vendors WHERE school_id = ? ORDER BY name", (school_id,)).fetchall()]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payables/vendors")
-async def create_vendor(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
-    if not payload.get("name"):
-        raise HTTPException(status_code=400, detail="name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        code = payload.get("vendor_code") or _next_doc_number(conn, school_id, "vendors", "vendor_code", "VEND-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO vendors (school_id, vendor_code, name, email, phone, address, tax_identifier, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (school_id, code, payload["name"], payload.get("email"), payload.get("phone"), payload.get("address"), payload.get("tax_identifier"), _as_bool(payload.get("is_active"), True), x_user_id, now, now)
-        )
-        vid = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM vendors WHERE id = ?", (vid,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payables/bills")
-async def create_ap_bill(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
-    lines = payload.get("lines") or []
-    if not payload.get("vendor_id") or not payload.get("bill_date") or not payload.get("due_date") or not lines:
-        raise HTTPException(status_code=400, detail="vendor_id, bill_date, due_date and lines are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        bill_no = payload.get("bill_number") or _next_doc_number(conn, school_id, "ap_bills", "bill_number", "APBILL-")
-        now = datetime.now().isoformat()
-        subtotal = tax_total = 0.0
-        prepared = []
-        for idx, l in enumerate(lines, start=1):
-            qty = float(l.get("quantity", 1)); up = float(l.get("unit_price", 0)); tr = float(l.get("tax_rate", 0))
-            line_amt = round(qty * up, 2); tax_amt = round(line_amt * tr / 100.0, 2); total = round(line_amt + tax_amt, 2)
-            subtotal += line_amt; tax_total += tax_amt; prepared.append((idx, l, line_amt, tax_amt, total))
-        total_amount = round(subtotal + tax_total, 2)
-        exp_acc = int(payload.get("expense_account_id") or _finance_account_id_by_code(conn, school_id, "5100"))
-        ap_acc = int(payload.get("ap_account_id") or _finance_account_id_by_code(conn, school_id, "2000"))
-        cur = conn.cursor()
-        cur.execute("INSERT INTO ap_bills (school_id, bill_number, vendor_id, bill_date, due_date, subtotal, tax_amount, total_amount, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?)", (school_id, bill_no, int(payload["vendor_id"]), payload["bill_date"], payload["due_date"], round(subtotal, 2), round(tax_total, 2), total_amount, x_user_id, now, now))
-        bid = cur.lastrowid
-        for line_no, l, line_amt, tax_amt, total in prepared:
-            cur.execute("INSERT INTO ap_bill_lines (bill_id, line_no, description, quantity, unit_price, tax_code_id, tax_rate, line_amount, tax_amount, total_amount, expense_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (bid, line_no, l.get("description") or f"Line {line_no}", float(l.get("quantity", 1)), float(l.get("unit_price", 0)), l.get("tax_code_id"), float(l.get("tax_rate", 0)), line_amt, tax_amt, total, exp_acc))
-        post = _finance_posting_service(conn, school_id, x_user_id, "payables", "AP_BILL", f"APBILL:{bid}", total_amount, f"AP Bill {bill_no}", payload["bill_date"], payload.get("idempotency_key") or f"ap_bill_{bid}", exp_acc, ap_acc)
-        conn.execute("UPDATE ap_bills SET gl_journal_id = ? WHERE id = ?", (post["journal_entry_id"], bid))
-        conn.commit()
-        return {"bill": dict(conn.execute("SELECT * FROM ap_bills WHERE id = ?", (bid,)).fetchone()), "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payables/payments")
-async def create_ap_payment(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
-    if not payload.get("vendor_id") or not payload.get("payment_date") or float(payload.get("amount", 0)) <= 0:
-        raise HTTPException(status_code=400, detail="vendor_id, payment_date and positive amount are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        pay_no = payload.get("payment_number") or _next_doc_number(conn, school_id, "ap_payments", "payment_number", "APPAY-")
-        amount = round(float(payload["amount"]), 2)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO ap_payments (school_id, payment_number, vendor_id, bill_id, payment_date, amount, method, reference, status, created_by, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?)", (school_id, pay_no, int(payload["vendor_id"]), payload.get("bill_id"), payload["payment_date"], amount, payload.get("method"), payload.get("reference"), x_user_id, payload.get("approved_by"), now))
-        pid = cur.lastrowid
-        ap_acc = int(payload.get("ap_account_id") or _finance_account_id_by_code(conn, school_id, "2000"))
-        cash_acc = int(payload.get("cash_account_id") or _finance_account_id_by_code(conn, school_id, "1000"))
-        post = _finance_posting_service(conn, school_id, x_user_id, "payables", "AP_PAYMENT", f"APPAY:{pid}", amount, f"AP Payment {pay_no}", payload["payment_date"], payload.get("idempotency_key") or f"ap_payment_{pid}", ap_acc, cash_acc)
-        conn.execute("UPDATE ap_payments SET gl_journal_id = ? WHERE id = ?", (post["journal_entry_id"], pid))
-        conn.commit()
-        return {"payment": dict(conn.execute("SELECT * FROM ap_payments WHERE id = ?", (pid,)).fetchone()), "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.get("/api/finance/payables/reports/aging")
-async def get_ap_aging(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT b.bill_number, b.due_date, b.total_amount, COALESCE((SELECT SUM(amount) FROM ap_payments p WHERE p.bill_id = b.id),0) AS paid_amount FROM ap_bills b WHERE b.school_id = ? AND b.status IN ('Posted','Partially_Paid','Overdue')", (school_id,)).fetchall()
-        data = []
-        for r in rows:
-            outstanding = round(float(r["total_amount"] or 0) - float(r["paid_amount"] or 0), 2)
-            if outstanding > 0:
-                data.append({"bill_number": r["bill_number"], "due_date": r["due_date"], "outstanding": outstanding})
-        return {"rows": data, "aging": _group_aging(data, "outstanding", "due_date")}
-    finally:
-        conn.close()
-
-@app.get("/api/finance/payables/alerts/due")
-async def get_ap_due_alerts(days: int = 7, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        bills = conn.execute("SELECT b.*, v.name AS vendor_name FROM ap_bills b JOIN vendors v ON v.id = b.vendor_id WHERE b.school_id = ? AND b.status IN ('Posted','Partially_Paid') ORDER BY b.due_date", (school_id,)).fetchall()
-        today = datetime.now().date()
-        alerts = []
-        for b in bills:
-            try:
-                delta = (datetime.fromisoformat(str(b["due_date"])).date() - today).days
-            except Exception:
-                continue
-            if delta <= days:
-                alerts.append({**dict(b), "days_to_due": delta})
-        return alerts
-    finally:
-        conn.close()
-
-# --- Inventory ---
-@app.post("/api/finance/inventory/items")
-async def create_inventory_item(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
-    if not payload.get("item_name"):
-        raise HTTPException(status_code=400, detail="item_name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        item_code = payload.get("item_code") or _next_doc_number(conn, school_id, "items", "item_code", "ITEM-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO items (school_id, item_code, item_name, category, unit, cost_price, sale_price, inventory_account_id, cogs_account_id, expense_account_id, revenue_account_id, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (school_id, item_code, payload["item_name"], payload.get("category"), payload.get("unit", "Unit"), float(payload.get("cost_price", 0)), float(payload.get("sale_price", 0)), payload.get("inventory_account_id"), payload.get("cogs_account_id"), payload.get("expense_account_id"), payload.get("revenue_account_id"), _as_bool(payload.get("is_active"), True), x_user_id, now, now)
-        )
-        item_id = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/inventory/warehouses")
-async def create_warehouse(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
-    if not payload.get("name"):
-        raise HTTPException(status_code=400, detail="name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        code = payload.get("code") or _next_doc_number(conn, school_id, "warehouses", "code", "WH-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO warehouses (school_id, code, name, location, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (school_id, code, payload["name"], payload.get("location"), _as_bool(payload.get("is_active"), True), x_user_id, now, now))
-        wid = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM warehouses WHERE id = ?", (wid,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/inventory/stock-moves")
-async def create_stock_move(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
-    required = ["item_id", "warehouse_id", "move_type", "quantity", "move_date"]
-    if any(payload.get(k) in (None, "") for k in required):
-        raise HTTPException(status_code=400, detail="item_id, warehouse_id, move_type, quantity, move_date are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        move_no = payload.get("move_number") or _next_doc_number(conn, school_id, "stock_moves", "move_number", "SM-")
-        qty = float(payload["quantity"])
-        unit_cost = float(payload.get("unit_cost", 0))
-        total_cost = round(qty * unit_cost, 2)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO stock_moves (school_id, move_number, item_id, warehouse_id, move_type, quantity, unit_cost, total_cost, reference_type, reference_id, move_date, status, created_by, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?)", (school_id, move_no, int(payload["item_id"]), int(payload["warehouse_id"]), payload["move_type"], qty, unit_cost, total_cost, payload.get("reference_type"), payload.get("reference_id"), payload["move_date"], x_user_id, payload.get("approved_by"), now))
-        move_id = cur.lastrowid
-        val = conn.execute("SELECT * FROM stock_valuation WHERE school_id = ? AND item_id = ? AND warehouse_id = ?", (school_id, int(payload["item_id"]), int(payload["warehouse_id"]))).fetchone()
-        old_qty = float(val["quantity_on_hand"]) if val else 0.0
-        old_avg = float(val["average_cost"]) if val else 0.0
-        move_type = payload["move_type"]
-        if move_type in ("purchase_receipt", "transfer_in", "adjustment"):
-            new_qty = old_qty + qty
-            new_avg = ((old_qty * old_avg) + (qty * unit_cost)) / new_qty if new_qty > 0 else unit_cost
-        else:
-            new_qty = old_qty - qty
-            new_avg = old_avg
-        if new_qty < 0:
-            raise HTTPException(status_code=400, detail="Insufficient stock.")
-        valuation = round(new_qty * new_avg, 2)
-        if val:
-            conn.execute("UPDATE stock_valuation SET quantity_on_hand = ?, average_cost = ?, valuation_amount = ?, updated_at = ? WHERE id = ?", (round(new_qty, 4), round(new_avg, 4), valuation, now, val["id"]))
-        else:
-            conn.execute("INSERT INTO stock_valuation (school_id, item_id, warehouse_id, quantity_on_hand, average_cost, valuation_amount, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (school_id, int(payload["item_id"]), int(payload["warehouse_id"]), round(new_qty, 4), round(new_avg, 4), valuation, now))
-        gl_link = None
-        inv_acc = _finance_account_id_by_code(conn, school_id, "1200")
-        cogs_acc = _finance_account_id_by_code(conn, school_id, "5100")
-        ap_acc = _finance_account_id_by_code(conn, school_id, "2000")
-        if move_type == "purchase_receipt":
-            gl_link = _finance_posting_service(conn, school_id, x_user_id, "inventory", "INVENTORY_PURCHASE", f"STOCK:{move_id}", total_cost, f"Inventory purchase {move_no}", payload["move_date"], payload.get("idempotency_key") or f"inventory_purchase_{move_id}", inv_acc, ap_acc)
-        elif move_type in ("issue_sale", "transfer_out", "adjustment"):
-            gl_link = _finance_posting_service(conn, school_id, x_user_id, "inventory", "INVENTORY_ISSUE", f"STOCK:{move_id}", abs(total_cost), f"Inventory issue {move_no}", payload["move_date"], payload.get("idempotency_key") or f"inventory_issue_{move_id}", cogs_acc, inv_acc)
-        if gl_link:
-            conn.execute("UPDATE stock_moves SET gl_journal_id = ? WHERE id = ?", (gl_link["journal_entry_id"], move_id))
-        conn.commit()
-        return {"stock_move": dict(conn.execute("SELECT * FROM stock_moves WHERE id = ?", (move_id,)).fetchone()), "posting": gl_link}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.get("/api/finance/inventory/reports/valuation")
-async def get_inventory_valuation(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT sv.*, i.item_code, i.item_name, w.code AS warehouse_code, w.name AS warehouse_name FROM stock_valuation sv JOIN items i ON i.id = sv.item_id JOIN warehouses w ON w.id = sv.warehouse_id WHERE sv.school_id = ? ORDER BY i.item_code, w.code", (school_id,)).fetchall()
-        return {"rows": [dict(r) for r in rows], "total_valuation": round(sum(float(r["valuation_amount"] or 0) for r in rows), 2)}
-    finally:
-        conn.close()
-
-# --- Assets ---
-@app.post("/api/finance/assets/categories")
-async def create_asset_category(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
-    if not payload.get("name"):
-        raise HTTPException(status_code=400, detail="name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        code = payload.get("code") or _next_doc_number(conn, school_id, "asset_categories", "code", "AC-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO asset_categories (school_id, code, name, useful_life_months, depreciation_method, asset_account_id, depreciation_expense_account_id, accumulated_depreciation_account_id, disposal_gain_loss_account_id, is_active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (school_id, code, payload["name"], int(payload.get("useful_life_months", 60)), payload.get("depreciation_method", "SLM"), payload.get("asset_account_id"), payload.get("depreciation_expense_account_id"), payload.get("accumulated_depreciation_account_id"), payload.get("disposal_gain_loss_account_id"), _as_bool(payload.get("is_active"), True), x_user_id, now, now))
-        cat_id = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM asset_categories WHERE id = ?", (cat_id,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/assets/fixed-assets")
-async def create_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
-    required = ["asset_name", "category_id", "acquisition_date", "capitalization_date", "cost"]
-    if any(payload.get(k) in (None, "") for k in required):
-        raise HTTPException(status_code=400, detail="asset_name, category_id, acquisition_date, capitalization_date and cost are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cost = round(float(payload["cost"]), 2)
-        asset_code = payload.get("asset_code") or _next_doc_number(conn, school_id, "fixed_assets", "asset_code", "FA-")
-        cur = conn.cursor()
-        cur.execute("INSERT INTO fixed_assets (school_id, asset_code, asset_name, category_id, acquisition_date, capitalization_date, cost, residual_value, useful_life_months, depreciation_method, status, location, assigned_to, accumulated_depreciation, carrying_amount, created_by, approved_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, 0, ?, ?, ?, ?, ?)", (school_id, asset_code, payload["asset_name"], int(payload["category_id"]), payload["acquisition_date"], payload["capitalization_date"], cost, float(payload.get("residual_value", 0)), int(payload.get("useful_life_months", 60)), payload.get("depreciation_method", "SLM"), payload.get("location"), payload.get("assigned_to"), cost, x_user_id, payload.get("approved_by"), now, now))
-        asset_id = cur.lastrowid
-        asset_acc = int(payload.get("asset_account_id") or _finance_account_id_by_code(conn, school_id, "1300"))
-        cash_acc = int(payload.get("cash_account_id") or _finance_account_id_by_code(conn, school_id, "1000"))
-        post = _finance_posting_service(conn, school_id, x_user_id, "assets", "ASSET_CAPITALIZATION", f"FA:{asset_id}", cost, f"Asset capitalization {asset_code}", payload["capitalization_date"], payload.get("idempotency_key") or f"asset_cap_{asset_id}", asset_acc, cash_acc)
-        conn.execute("UPDATE fixed_assets SET gl_journal_id = ? WHERE id = ?", (post["journal_entry_id"], asset_id))
-        conn.execute("INSERT INTO asset_movements (school_id, asset_id, movement_type, movement_date, amount, reference, gl_journal_id, created_by, created_at) VALUES (?, ?, 'capitalization', ?, ?, ?, ?, ?, ?)", (school_id, asset_id, payload["capitalization_date"], cost, asset_code, post["journal_entry_id"], x_user_id, now))
-        conn.commit()
-        return {"asset": dict(conn.execute("SELECT * FROM fixed_assets WHERE id = ?", (asset_id,)).fetchone()), "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.post("/api/finance/assets/depreciation/run")
-async def run_asset_depreciation(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
-    if not payload.get("asset_id") or not payload.get("period_label") or not payload.get("period_start") or not payload.get("period_end"):
-        raise HTTPException(status_code=400, detail="asset_id, period_label, period_start and period_end are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        asset = conn.execute("SELECT * FROM fixed_assets WHERE id = ? AND school_id = ?", (int(payload["asset_id"]), school_id)).fetchone()
-        if not asset:
-            raise HTTPException(status_code=404, detail="Asset not found.")
-        residual = float(asset["residual_value"] or 0); life = int(asset["useful_life_months"] or 60)
-        monthly = round(max((float(asset["cost"]) - residual) / max(life, 1), 0), 2)
-        dep_amt = round(float(payload.get("depreciation_amount", monthly)), 2)
-        dep_exp_acc = int(payload.get("depreciation_expense_account_id") or _finance_account_id_by_code(conn, school_id, "5100"))
-        accum_dep_acc = int(payload.get("accumulated_depreciation_account_id") or _finance_account_id_by_code(conn, school_id, "1300"))
-        post = _finance_posting_service(conn, school_id, x_user_id, "assets", "ASSET_DEPRECIATION", f"DEP:{asset['id']}:{payload['period_label']}", dep_amt, f"Depreciation {asset['asset_code']} {payload['period_label']}", payload.get("posting_date") or payload["period_end"], payload.get("idempotency_key") or f"asset_dep_{asset['id']}_{payload['period_label']}", dep_exp_acc, accum_dep_acc)
-        now = datetime.now().isoformat()
-        conn.execute("INSERT INTO depreciation_schedule (school_id, asset_id, period_label, period_start, period_end, depreciation_amount, status, gl_journal_id, posted_at, posted_by, created_at) VALUES (?, ?, ?, ?, ?, ?, 'Posted', ?, ?, ?, ?)", (school_id, int(asset["id"]), payload["period_label"], payload["period_start"], payload["period_end"], dep_amt, post["journal_entry_id"], now, x_user_id, now))
-        conn.execute("INSERT INTO asset_movements (school_id, asset_id, movement_type, movement_date, amount, reference, gl_journal_id, created_by, created_at) VALUES (?, ?, 'depreciation', ?, ?, ?, ?, ?, ?)", (school_id, int(asset["id"]), payload["period_end"], dep_amt, payload["period_label"], post["journal_entry_id"], x_user_id, now))
-        new_acc = round(float(asset["accumulated_depreciation"] or 0) + dep_amt, 2)
-        conn.execute("UPDATE fixed_assets SET accumulated_depreciation = ?, carrying_amount = ?, updated_at = ? WHERE id = ?", (new_acc, round(float(asset["cost"] or 0) - new_acc, 2), now, int(asset["id"])))
-        conn.commit()
-        return {"asset_id": asset["id"], "depreciation_amount": dep_amt, "posting": post}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.post("/api/finance/assets/dispose")
-async def dispose_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
-    if not payload.get("asset_id") or not payload.get("disposal_date"):
-        raise HTTPException(status_code=400, detail="asset_id and disposal_date are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        asset = conn.execute("SELECT * FROM fixed_assets WHERE id = ? AND school_id = ?", (int(payload["asset_id"]), school_id)).fetchone()
-        if not asset:
-            raise HTTPException(status_code=404, detail="Asset not found.")
-        proceeds = round(float(payload.get("sale_amount", 0)), 2)
-        carrying = round(float(asset["carrying_amount"] or asset["cost"] or 0), 2)
-        amount = carrying if carrying > 0 else max(proceeds, 0.01)
-        cash_acc = int(payload.get("cash_account_id") or _finance_account_id_by_code(conn, school_id, "1000"))
-        asset_acc = int(payload.get("asset_account_id") or _finance_account_id_by_code(conn, school_id, "1300"))
-        post = _finance_posting_service(conn, school_id, x_user_id, "assets", "ASSET_DISPOSAL", f"DISP:{asset['id']}", amount, f"Asset disposal {asset['asset_code']}", payload["disposal_date"], payload.get("idempotency_key") or f"asset_disposal_{asset['id']}", cash_acc, asset_acc)
-        now = datetime.now().isoformat()
-        conn.execute("UPDATE fixed_assets SET status = 'Disposed', updated_at = ? WHERE id = ?", (now, int(asset["id"])))
-        conn.execute("INSERT INTO asset_movements (school_id, asset_id, movement_type, movement_date, amount, reference, gl_journal_id, created_by, created_at) VALUES (?, ?, 'disposal', ?, ?, ?, ?, ?, ?)", (school_id, int(asset["id"]), payload["disposal_date"], proceeds, payload.get("reference"), post["journal_entry_id"], x_user_id, now))
-        conn.commit()
-        return {"message": "Asset disposed.", "asset_id": asset["id"], "posting": post}
-    finally:
-        conn.close()
-
-@app.get("/api/finance/assets/reports/register")
-async def get_asset_register(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT fa.*, ac.code AS category_code, ac.name AS category_name FROM fixed_assets fa JOIN asset_categories ac ON ac.id = fa.category_id WHERE fa.school_id = ? ORDER BY fa.asset_code", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.get("/api/finance/assets/reports/depreciation")
-async def get_asset_depreciation_report(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute(
-            """
-            SELECT ds.*, fa.asset_code, fa.asset_name
-            FROM depreciation_schedule ds
-            JOIN fixed_assets fa ON fa.id = ds.asset_id
-            WHERE ds.school_id = ?
-            ORDER BY ds.period_end DESC, ds.id DESC
-            """,
-            (school_id,)
-        ).fetchall()
-        total = round(sum(float(r["depreciation_amount"] or 0) for r in rows), 2)
-        return {"rows": [dict(r) for r in rows], "total_depreciation": total}
-    finally:
-        conn.close()
-
-# --- Payroll ---
-@app.post("/api/finance/payroll/employees")
-async def create_payroll_employee(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
-    if not payload.get("name"):
-        raise HTTPException(status_code=400, detail="name is required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        emp_code = payload.get("employee_code") or _next_doc_number(conn, school_id, "employees", "employee_code", "EMP-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO employees (school_id, employee_code, user_id, name, email, phone, department_id, cost_center_id, status, join_date, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (school_id, emp_code, payload.get("user_id"), payload["name"], payload.get("email"), payload.get("phone"), payload.get("department_id"), payload.get("cost_center_id"), payload.get("status", "Active"), payload.get("join_date"), x_user_id, now, now))
-        eid = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM employees WHERE id = ?", (eid,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payroll/salary-structures")
-async def create_salary_structure(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
-    if not payload.get("employee_id") or not payload.get("effective_from"):
-        raise HTTPException(status_code=400, detail="employee_id and effective_from are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO salary_structures (school_id, employee_id, effective_from, basic_salary, allowances, deductions, tax_amount, employer_contribution, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (school_id, int(payload["employee_id"]), payload["effective_from"], float(payload.get("basic_salary", 0)), float(payload.get("allowances", 0)), float(payload.get("deductions", 0)), float(payload.get("tax_amount", 0)), float(payload.get("employer_contribution", 0)), payload.get("status", "Active"), x_user_id, now, now))
-        sid = cur.lastrowid
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM salary_structures WHERE id = ?", (sid,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payroll/runs/generate")
-async def generate_payroll_run(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
-    required = ["period_label", "period_start", "period_end"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="period_label, period_start, period_end are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        run_code = payload.get("run_code") or _next_doc_number(conn, school_id, "payroll_runs", "run_code", "PR-")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO payroll_runs (school_id, run_code, period_label, period_start, period_end, pay_date, status, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'Draft', ?, ?, ?)", (school_id, run_code, payload["period_label"], payload["period_start"], payload["period_end"], payload.get("pay_date"), x_user_id, now, now))
-        run_id = cur.lastrowid
-        structs = conn.execute("SELECT ss.*, e.id AS employee_id FROM salary_structures ss JOIN employees e ON e.id = ss.employee_id WHERE ss.school_id = ? AND ss.status = 'Active' AND e.status = 'Active'", (school_id,)).fetchall()
-        gross_total = ded_total = tax_total = net_total = 0.0
-        for s in structs:
-            basic = float(s["basic_salary"] or 0); allow = float(s["allowances"] or 0); ded = float(s["deductions"] or 0); tax = float(s["tax_amount"] or 0)
-            net = round((basic + allow) - (ded + tax), 2); gross = round(basic + allow, 2)
-            cur.execute("INSERT INTO payroll_lines (payroll_run_id, employee_id, basic_salary, allowances, deductions, tax_amount, net_pay, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'Generated', ?, ?)", (run_id, s["employee_id"], basic, allow, ded, tax, net, now, now))
-            gross_total += gross; ded_total += ded; tax_total += tax; net_total += net
-        conn.execute("UPDATE payroll_runs SET total_gross = ?, total_deductions = ?, total_tax = ?, total_net = ?, updated_at = ? WHERE id = ?", (round(gross_total, 2), round(ded_total, 2), round(tax_total, 2), round(net_total, 2), now, run_id))
-        conn.commit()
-        return {"run": dict(conn.execute("SELECT * FROM payroll_runs WHERE id = ?", (run_id,)).fetchone()), "line_count": len(structs)}
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payroll/runs/{run_id}/approve")
-async def approve_payroll_run(run_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.approve", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        run = conn.execute("SELECT * FROM payroll_runs WHERE id = ? AND school_id = ?", (run_id, school_id)).fetchone()
-        if not run:
-            raise HTTPException(status_code=404, detail="Payroll run not found.")
-        now = datetime.now().isoformat()
-        conn.execute("UPDATE payroll_runs SET status = 'Locked', approved_by = ?, approved_at = ?, locked_by = ?, locked_at = ?, updated_at = ? WHERE id = ?", (x_user_id, now, x_user_id, now, now, run_id))
-        conn.commit()
-        return {"message": "Payroll run approved and locked.", "run_id": run_id}
-    finally:
-        conn.close()
-
-@app.post("/api/finance/payroll/runs/{run_id}/post")
-async def post_payroll_run(run_id: int, payload: Dict[str, Any] = Body(default={}), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.approve", "finance.payroll.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        run = conn.execute("SELECT * FROM payroll_runs WHERE id = ? AND school_id = ?", (run_id, school_id)).fetchone()
-        if not run:
-            raise HTTPException(status_code=404, detail="Payroll run not found.")
-        if run["status"] not in ("Locked", "Approved"):
-            raise HTTPException(status_code=400, detail="Payroll run must be approved/locked first.")
-        idempotency_key = payload.get("idempotency_key") or f"payroll_post_{run_id}"
-        existing = conn.execute("SELECT journal_entry_id FROM finance_posting_events WHERE school_id = ? AND idempotency_key = ?", (school_id, idempotency_key)).fetchone()
-        if existing:
-            conn.execute("UPDATE payroll_runs SET status = 'Posted', gl_journal_id = ?, updated_at = ? WHERE id = ?", (existing["journal_entry_id"], datetime.now().isoformat(), run_id))
-            conn.commit()
-            return {"message": "Already posted.", "journal_entry_id": existing["journal_entry_id"]}
-        net_pay = float(run["total_net"] or 0); tax_amt = float(run["total_tax"] or 0); debit_total = round(net_pay + tax_amt, 2)
-        payroll_exp_acc = int(payload.get("payroll_expense_account_id") or _finance_account_id_by_code(conn, school_id, "5000"))
-        payroll_payable_acc = int(payload.get("payroll_payable_account_id") or _finance_account_id_by_code(conn, school_id, "2100"))
-        tax_payable_acc = int(payload.get("tax_payable_account_id") or _finance_account_id_by_code(conn, school_id, "2200"))
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        jn = _gl_next_journal_number(conn, school_id, "GL")
-        cur.execute("INSERT INTO journal_entries (school_id, journal_number, entry_date, description, reference, status, total_debit, total_credit, posted_at, posted_by, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'Posted', ?, ?, ?, ?, ?, ?, ?)", (school_id, jn, payload.get("entry_date") or run["period_end"], f"Payroll Run {run['run_code']}", f"PAYROLL:{run_id}", debit_total, debit_total, now, x_user_id, x_user_id, now, now))
-        jid = cur.lastrowid
-        cur.execute("INSERT INTO journal_lines (journal_entry_id, line_no, account_id, description, debit, credit) VALUES (?, 1, ?, 'Payroll Expense', ?, 0)", (jid, payroll_exp_acc, debit_total))
-        cur.execute("INSERT INTO journal_lines (journal_entry_id, line_no, account_id, description, debit, credit) VALUES (?, 2, ?, 'Payroll Payable (Net)', 0, ?)", (jid, payroll_payable_acc, net_pay))
-        cur.execute("INSERT INTO journal_lines (journal_entry_id, line_no, account_id, description, debit, credit) VALUES (?, 3, ?, 'Tax Payable', 0, ?)", (jid, tax_payable_acc, tax_amt))
-        cur.execute("INSERT INTO finance_posting_events (school_id, module, transaction_type, source_ref, idempotency_key, amount, status, journal_entry_id, event_payload, created_by, created_at) VALUES (?, 'payroll', 'PAYROLL_RUN', ?, ?, ?, 'Posted', ?, ?, ?, ?)", (school_id, f'PAYROLL:{run_id}', idempotency_key, debit_total, jid, json.dumps({"run_code": run["run_code"]}), x_user_id, now))
-        conn.execute("UPDATE payroll_runs SET status = 'Posted', gl_journal_id = ?, updated_at = ? WHERE id = ?", (jid, now, run_id))
-        conn.commit()
-        return {"message": "Payroll posted.", "journal_entry_id": jid}
-    except HTTPException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-@app.get("/api/finance/payroll/reports/summary")
-async def payroll_summary(period_label: Optional[str] = None, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.reports.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        if period_label:
-            rows = conn.execute("SELECT * FROM payroll_runs WHERE school_id = ? AND period_label = ? ORDER BY id DESC", (school_id, period_label)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM payroll_runs WHERE school_id = ? ORDER BY id DESC LIMIT 24", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.get("/api/finance/payroll/payslip/{employee_id}")
-async def payroll_payslip(employee_id: int, run_id: Optional[int] = None, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll.self.read", "finance.view"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        if run_id:
-            row = conn.execute("SELECT pl.*, pr.run_code, pr.period_label, pr.period_start, pr.period_end, e.employee_code, e.name FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.payroll_run_id JOIN employees e ON e.id = pl.employee_id WHERE pr.school_id = ? AND pl.employee_id = ? AND pl.payroll_run_id = ?", (school_id, employee_id, run_id)).fetchone()
-        else:
-            row = conn.execute("SELECT pl.*, pr.run_code, pr.period_label, pr.period_start, pr.period_end, e.employee_code, e.name FROM payroll_lines pl JOIN payroll_runs pr ON pr.id = pl.payroll_run_id JOIN employees e ON e.id = pl.employee_id WHERE pr.school_id = ? AND pl.employee_id = ? ORDER BY pr.id DESC LIMIT 1", (school_id, employee_id)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Payslip not found.")
-        return dict(row)
-    finally:
-        conn.close()
-
-@app.post("/api/finance/approvals/request")
-async def create_finance_approval_request(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.approvals.manage", "finance.manage"], x_user_id)
-    required = ["module", "entity_type", "entity_id"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="module, entity_type and entity_id are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO finance_approval_requests (school_id, module, entity_type, entity_id, requested_by, approved_by, status, notes, requested_at, approved_at)
-            VALUES (?, ?, ?, ?, ?, NULL, 'Pending', ?, ?, NULL)
-            """,
-            (school_id, payload["module"], payload["entity_type"], str(payload["entity_id"]), x_user_id, payload.get("notes"), now)
-        )
-        req_id = cur.lastrowid
-        _finance_log_audit(conn, school_id, "controls", "approval_request", "finance_approval_requests", req_id, x_user_id, payload)
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM finance_approval_requests WHERE id = ?", (req_id,)).fetchone())
-    finally:
-        conn.close()
-
-@app.post("/api/finance/approvals/{request_id}/decision")
-async def decide_finance_approval(request_id: int, payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.approvals.manage", "finance.payables.approve", "finance.manage"], x_user_id)
-    action = str(payload.get("action", "")).strip().lower()
-    if action not in ("approve", "reject"):
-        raise HTTPException(status_code=400, detail="action must be approve or reject.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        req = conn.execute("SELECT * FROM finance_approval_requests WHERE id = ? AND school_id = ?", (request_id, school_id)).fetchone()
-        if not req:
-            raise HTTPException(status_code=404, detail="Approval request not found.")
-        if req["status"] != "Pending":
-            raise HTTPException(status_code=400, detail="Approval request already processed.")
-        now = datetime.now().isoformat()
-        status = "Approved" if action == "approve" else "Rejected"
-        conn.execute("UPDATE finance_approval_requests SET status = ?, approved_by = ?, approved_at = ?, notes = ? WHERE id = ?", (status, x_user_id, now, payload.get("notes"), request_id))
-        _finance_log_audit(conn, school_id, "controls", f"approval_{action}", "finance_approval_requests", request_id, x_user_id, payload)
-        conn.commit()
-        return dict(conn.execute("SELECT * FROM finance_approval_requests WHERE id = ?", (request_id,)).fetchone())
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data")
-async def get_finance_master_data_overview(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        return {
-            "chart_of_accounts": [dict(r) for r in conn.execute("SELECT * FROM chart_of_accounts WHERE school_id = ? ORDER BY account_code", (school_id,)).fetchall()],
-            "fiscal_years": [dict(r) for r in conn.execute("SELECT * FROM fiscal_years WHERE school_id = ? ORDER BY start_date DESC", (school_id,)).fetchall()],
-            "accounting_periods": [dict(r) for r in conn.execute("SELECT * FROM accounting_periods WHERE school_id = ? ORDER BY start_date DESC", (school_id,)).fetchall()],
-            "tax_codes": [dict(r) for r in conn.execute("SELECT * FROM tax_codes WHERE school_id = ? ORDER BY code", (school_id,)).fetchall()],
-            "cost_centers": [dict(r) for r in conn.execute("SELECT * FROM cost_centers WHERE school_id = ? ORDER BY center_code", (school_id,)).fetchall()],
-            "parties": [dict(r) for r in conn.execute("SELECT * FROM finance_parties WHERE school_id = ? ORDER BY party_type, name", (school_id,)).fetchall()],
-            "currencies": [dict(r) for r in conn.execute("SELECT * FROM currencies WHERE school_id = ? ORDER BY currency_code", (school_id,)).fetchall()],
-            "exchange_rates": [dict(r) for r in conn.execute("SELECT * FROM exchange_rates WHERE school_id = ? ORDER BY effective_date DESC", (school_id,)).fetchall()]
-        }
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/chart-of-accounts")
-async def list_chart_of_accounts(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute(
-            "SELECT * FROM chart_of_accounts WHERE school_id = ? ORDER BY account_code",
-            (school_id,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/chart-of-accounts")
-async def create_chart_of_account(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["account_code", "account_name", "account_type"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="account_code, account_name, and account_type are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO chart_of_accounts (school_id, account_code, account_name, account_type, parent_account_id, is_active, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["account_code"]).strip(),
-                str(payload["account_name"]).strip(),
-                str(payload["account_type"]).strip(),
-                payload.get("parent_account_id"),
-                _as_bool(payload.get("is_active"), True),
-                payload.get("description"),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        new_id = cur.lastrowid
-        row = conn.execute("SELECT * FROM chart_of_accounts WHERE id = ?", (new_id,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create chart of account: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/fiscal-years")
-async def list_fiscal_years(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM fiscal_years WHERE school_id = ? ORDER BY start_date DESC", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/fiscal-years")
-async def create_fiscal_year(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["year_name", "start_date", "end_date"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="year_name, start_date, and end_date are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO fiscal_years (school_id, year_name, start_date, end_date, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["year_name"]).strip(),
-                payload["start_date"],
-                payload["end_date"],
-                payload.get("status", "Open"),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM fiscal_years WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create fiscal year: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/accounting-periods")
-async def list_accounting_periods(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM accounting_periods WHERE school_id = ? ORDER BY start_date DESC", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/accounting-periods")
-async def create_accounting_period(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["fiscal_year_id", "period_name", "start_date", "end_date"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="fiscal_year_id, period_name, start_date, and end_date are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO accounting_periods (school_id, fiscal_year_id, period_name, start_date, end_date, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                int(payload["fiscal_year_id"]),
-                str(payload["period_name"]).strip(),
-                payload["start_date"],
-                payload["end_date"],
-                payload.get("status", "Open"),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM accounting_periods WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create accounting period: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/tax-codes")
-async def list_tax_codes(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM tax_codes WHERE school_id = ? ORDER BY code", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/tax-codes")
-async def create_tax_code(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["code", "name"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="code and name are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO tax_codes (school_id, code, name, rate, is_active, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["code"]).strip(),
-                str(payload["name"]).strip(),
-                float(payload.get("rate", 0)),
-                _as_bool(payload.get("is_active"), True),
-                payload.get("description"),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM tax_codes WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create tax code: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/cost-centers")
-async def list_cost_centers(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM cost_centers WHERE school_id = ? ORDER BY center_code", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/cost-centers")
-async def create_cost_center(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["center_code", "center_name"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="center_code and center_name are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO cost_centers (school_id, center_code, center_name, department_id, is_active, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["center_code"]).strip(),
-                str(payload["center_name"]).strip(),
-                payload.get("department_id"),
-                _as_bool(payload.get("is_active"), True),
-                payload.get("description"),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM cost_centers WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create cost center: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/parties")
-async def list_finance_parties(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM finance_parties WHERE school_id = ? ORDER BY party_type, name", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/parties")
-async def create_finance_party(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["party_type", "name"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="party_type and name are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        party_type = str(payload["party_type"]).strip()
-        if party_type not in ("Vendor", "Customer", "Employee"):
-            raise HTTPException(status_code=400, detail="party_type must be Vendor, Customer, or Employee.")
-        now = datetime.now().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO finance_parties (school_id, party_type, party_code, name, email, phone, address, tax_identifier, employee_user_id, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                party_type,
-                payload.get("party_code"),
-                str(payload["name"]).strip(),
-                payload.get("email"),
-                payload.get("phone"),
-                payload.get("address"),
-                payload.get("tax_identifier"),
-                payload.get("employee_user_id"),
-                _as_bool(payload.get("is_active"), True),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM finance_parties WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except HTTPException:
-        conn.rollback()
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create finance party: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/currencies")
-async def list_currencies(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM currencies WHERE school_id = ? ORDER BY currency_code", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/currencies")
-async def create_currency(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["currency_code", "currency_name"]
-    if any(not payload.get(k) for k in required):
-        raise HTTPException(status_code=400, detail="currency_code and currency_name are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        is_base = _as_bool(payload.get("is_base"), False)
-        cur = conn.cursor()
-        if is_base:
-            cur.execute("UPDATE currencies SET is_base = FALSE, updated_at = ? WHERE school_id = ?", (now, school_id))
-        cur.execute(
-            """
-            INSERT INTO currencies (school_id, currency_code, currency_name, symbol, decimal_places, is_base, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["currency_code"]).strip().upper(),
-                str(payload["currency_name"]).strip(),
-                payload.get("symbol"),
-                int(payload.get("decimal_places", 2)),
-                is_base,
-                _as_bool(payload.get("is_active"), True),
-                now,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM currencies WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create currency: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/finance/master-data/exchange-rates")
-async def list_exchange_rates(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        rows = conn.execute("SELECT * FROM exchange_rates WHERE school_id = ? ORDER BY effective_date DESC", (school_id,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/finance/master-data/exchange-rates")
-async def create_exchange_rate(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
-    required = ["from_currency", "to_currency", "rate"]
-    if any(payload.get(k) in (None, "") for k in required):
-        raise HTTPException(status_code=400, detail="from_currency, to_currency, and rate are required.")
-    conn = get_db_connection()
-    try:
-        school_id = _resolve_school_id(conn, x_user_id)
-        now = datetime.now().isoformat()
-        effective_date = payload.get("effective_date") or datetime.now().date().isoformat()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO exchange_rates (school_id, from_currency, to_currency, rate, effective_date, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                school_id,
-                str(payload["from_currency"]).strip().upper(),
-                str(payload["to_currency"]).strip().upper(),
-                float(payload["rate"]),
-                effective_date,
-                now
-            )
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM exchange_rates WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=f"Unable to create exchange rate: {str(e)}")
-    finally:
-        conn.close()
+# --- FINANCE ROUTES EXTRACTED TO app/routers/finance.py ---
 
 
 @app.post("/api/ai/lesson-plan", response_model=LessonPlanResponse)
@@ -6856,1439 +4056,8 @@ async def get_moodle_grades(x_user_id: str = Header(None, alias="X-User-Id")):
         {"course": "HIST101", "itemname": "Ancient Civ Essay", "grade": 95.0, "range": "0-100", "feedback": "Very detailed."}
     ]
 
-def _ensure_authenticator_table(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_authenticator_secrets (
-            user_id TEXT PRIMARY KEY,
-            secret_key TEXT NOT NULL,
-            is_enabled BOOLEAN DEFAULT FALSE,
-            created_at TEXT,
-            updated_at TEXT,
-            FOREIGN KEY (user_id) REFERENCES students(id) ON DELETE CASCADE
-        )
-        """
-    )
-    conn.commit()
 
-def _generate_totp_secret() -> str:
-    return base64.b32encode(secrets.token_bytes(20)).decode("utf-8").replace("=", "")
-
-def _normalize_base32_secret(secret_key: str) -> bytes:
-    clean = (secret_key or "").strip().replace(" ", "").upper()
-    if not clean:
-        return b""
-    padding = "=" * ((8 - len(clean) % 8) % 8)
-    return base64.b32decode(clean + padding, casefold=True)
-
-def _totp_for_counter(secret_key: str, counter: int, digits: int = 6) -> str:
-    key = _normalize_base32_secret(secret_key)
-    if not key:
-        return ""
-    msg = counter.to_bytes(8, byteorder="big")
-    h = hmac.new(key, msg, hashlib.sha1).digest()
-    offset = h[-1] & 0x0F
-    binary = ((h[offset] & 0x7F) << 24) | ((h[offset + 1] & 0xFF) << 16) | ((h[offset + 2] & 0xFF) << 8) | (h[offset + 3] & 0xFF)
-    return str(binary % (10 ** digits)).zfill(digits)
-
-def _verify_totp_code(secret_key: str, submitted_code: str, step_seconds: int = 30, skew_steps: int = 1) -> bool:
-    code = "".join(ch for ch in str(submitted_code or "") if ch.isdigit())
-    if len(code) != 6:
-        return False
-    counter = int(time.time() // step_seconds)
-    for delta in range(-skew_steps, skew_steps + 1):
-        if _totp_for_counter(secret_key, counter + delta) == code:
-            return True
-    return False
-
-@app.post("/api/auth/login", response_model=LoginResponse)
-async def login_user(request: LoginRequest):
-    # Reload .env on each login so auth toggles (like ENABLE_2FA) take effect immediately.
-    load_dotenv(dotenv_path=env_path, override=True)
-    teacher_login_alias = os.getenv("TEACHER_LOGIN_ALIAS", TEACHER_LOGIN_ALIAS)
-    admin_login_email = os.getenv("ADMIN_LOGIN_EMAIL", ADMIN_LOGIN_EMAIL)
-    admin_login_password = os.getenv("ADMIN_LOGIN_PASSWORD", ADMIN_LOGIN_PASSWORD)
-    root_admin_login_email = admin_login_email
-    root_admin_login_password = admin_login_password
-    logger.info(f"Login attempt for user: {request.username}")
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    username_clean = request.username.strip()
-    username_lower = username_clean.lower()
-    if username_lower == teacher_login_alias.lower():
-        lookup_username = "teacher"
-    elif (
-        (admin_login_email and username_lower == admin_login_email.lower())
-        or (root_admin_login_email and username_lower == root_admin_login_email.lower())
-    ):
-        lookup_username = "rootadmin" if request.role.strip() == "Root_Super_Admin" else "admin"
-    else:
-        # Prefer exact identifier match first. This prevents alias IDs from shadowing
-        # direct email-based accounts when both records exist in legacy datasets.
-        exact_user = cursor.execute(
-            "SELECT id FROM students WHERE LOWER(id) = LOWER(?)",
-            (username_clean,),
-        ).fetchone()
-        if exact_user:
-            lookup_username = exact_user["id"]
-        else:
-            alias_candidates = STUDENT_LOGIN_ALIASES.get(username_lower) or PARENT_LOGIN_ALIASES.get(username_lower)
-            if alias_candidates:
-                if isinstance(alias_candidates, str):
-                    alias_candidates = (alias_candidates,)
-                lookup_username = username_clean
-                for candidate_id in alias_candidates:
-                    found_alias_user = cursor.execute(
-                        "SELECT id FROM students WHERE LOWER(id) = LOWER(?)",
-                        (candidate_id,),
-                    ).fetchone()
-                    if found_alias_user:
-                        lookup_username = found_alias_user["id"]
-                        break
-            else:
-                lookup_username = username_clean
-    # Case-insensitive username lookup
-    user = cursor.execute(
-        "SELECT id, name, password, role, failed_login_attempts, locked_until, is_super_admin, school_id, email_verified FROM students WHERE LOWER(id) = LOWER(?)",
-        (lookup_username,)
-    ).fetchone()
-
-    # Backward compatibility fallback: if Root Admin alias user is not present, reuse existing Admin/email user.
-    if not user and lookup_username == "rootadmin":
-        user = cursor.execute(
-            "SELECT id, name, password, role, failed_login_attempts, locked_until, is_super_admin, school_id, email_verified FROM students WHERE LOWER(id) = LOWER('admin')",
-        ).fetchone()
-    if not user and request.role.strip() == "Root_Super_Admin":
-        user = cursor.execute(
-            "SELECT id, name, password, role, failed_login_attempts, locked_until, is_super_admin, school_id, email_verified FROM students WHERE LOWER(id) = LOWER(?)",
-            (username_clean,),
-        ).fetchone()
-
-    if not user:
-        conn.close()
-        with open("login_debug.txt", "a") as f:
-            f.write(f"Login Failed: User {request.username} not found\n")
-        logger.warning(f"Login failed for user: {request.username} - User not found")
-        log_auth_event(request.username, "Login Failed", "User not found")
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
-
-    auth_user_id = user["id"]
-    login_email = None
-    if "@" in auth_user_id:
-        login_email = auth_user_id
-    elif auth_user_id == "teacher":
-        login_email = teacher_login_alias
-    elif auth_user_id in ("admin", "rootadmin"):
-        login_email = root_admin_login_email or admin_login_email or SMTP_EMAIL
-    elif auth_user_id in STUDENT_OTP_EMAIL_OVERRIDES:
-        login_email = STUDENT_OTP_EMAIL_OVERRIDES[auth_user_id]
-    elif auth_user_id in PARENT_OTP_EMAIL_OVERRIDES:
-        login_email = PARENT_OTP_EMAIL_OVERRIDES[auth_user_id]
-
-    # If an email-based alias was used for login, prefer that for OTP delivery.
-    if (username_lower in STUDENT_LOGIN_ALIASES or username_lower in PARENT_LOGIN_ALIASES) and "@" in username_clean:
-        login_email = username_clean
-
-    if not bool(user["email_verified"]):
-        conn.close()
-        log_auth_event(auth_user_id, "Login Failed", "Email not verified")
-        raise HTTPException(status_code=403, detail="Email not verified. Please verify your account before logging in.")
-
-    # Enforce Role Match with normalized role aliases to avoid UI label drift.
-    allow_login = False
-    db_role = user['role'].strip()
-    req_role = request.role.strip()
-
-    def normalize_role_name(role_name: str) -> str:
-        normalized = (role_name or "").strip().lower().replace("_", " ")
-        role_aliases = {
-            "principal": "tenant admin",
-            "tenant admin": "tenant admin",
-            "admin": "root super admin",
-            "super admin": "root super admin",
-            "superadmin": "root super admin",
-            "root super admin": "root super admin",
-            "parent": "parent guardian",
-            "parent guardian": "parent guardian",
-        }
-        return role_aliases.get(normalized, normalized)
-
-    db_role_norm = normalize_role_name(db_role)
-    req_role_norm = normalize_role_name(req_role)
-
-    if db_role_norm == req_role_norm:
-        allow_login = True
-    elif db_role_norm == "root super admin" and req_role_norm == "root super admin":
-        allow_login = True
-    elif db_role_norm == "tenant admin" and req_role_norm == "tenant admin":
-        allow_login = True
-    
-    # Special case: 'teacher' user might be Teacher title but lower in DB or vice versa
-    if user['id'] == 'teacher' and req_role == 'Teacher':
-        allow_login = True
-        
-    if not allow_login:
-        conn.close()
-        debug_msg = f"Role mismatch for {request.username}. DB={db_role}, Req={req_role}"
-        with open("login_debug.txt", "a") as f:
-            f.write(f"Login Failed: {debug_msg}\n")
-        logger.warning(debug_msg)
-        log_auth_event(auth_user_id, "Login Failed", f"Role Mismatch: Tried {req_role} as {db_role}")
-        raise HTTPException(status_code=403, detail=f"Access Denied: You are registered as a {db_role}, not a {req_role}.")
-
-    # Check Account Lockout
-    if user['locked_until']:
-        lock_time = datetime.fromisoformat(user['locked_until'])
-        if datetime.now() < lock_time:
-            conn.close()
-            remaining_min = int((lock_time - datetime.now()).total_seconds() / 60)
-            log_auth_event(auth_user_id, "Login Failed", "Account locked")
-            raise HTTPException(status_code=403, detail=f"Account locked. Try again in {remaining_min + 1} minutes.")
-        else:
-            cursor.execute("UPDATE students SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?", (auth_user_id,))
-            conn.commit()
-
-    # Password Verification
-    if user['password'] == request.password:
-        cursor.execute("UPDATE students SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?", (auth_user_id,))
-        
-        # --- RBAC SYNC LOGIC (Preserve legacy migration) ---
-        legacy_role_name = user['role']
-        
-        # 1. Sync Legacy Role if needed (Migration on Login)
-        user_roles_check = cursor.execute("SELECT role_id FROM user_roles WHERE user_id = ?", (auth_user_id,)).fetchall()
-        
-        if not user_roles_check:
-             # Get Role ID (Handle 'Admin' -> 'Super Admin' mapping if needed, or just match name)
-             target_role = legacy_role_name
-             if target_role == 'Super Admin':
-                 target_role = 'Root_Super_Admin'
-             
-             # Get Role ID
-             role_row = cursor.execute("""
-                 SELECT r.id 
-                 FROM roles r
-                 LEFT JOIN role_permissions rp ON r.id = rp.role_id
-                 WHERE r.name = ?
-                 GROUP BY r.id
-                 ORDER BY COUNT(rp.permission_id) DESC
-                 LIMIT 1
-             """, (target_role,)).fetchone()
-             
-             if role_row:
-                 try:
-                    cursor.execute("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", (auth_user_id, role_row['id']))
-                    conn.commit()
-                 except:
-                    pass 
-
-        # --- 2FA / EMAIL OTP FLOW ---
-        ENABLE_2FA = os.getenv("ENABLE_2FA", "false").lower() == "true"
-        tenant_auth_mode = "password_only"
-        try:
-            sec_row = cursor.execute(
-                "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
-                (user["school_id"] if user["school_id"] else 1,)
-            ).fetchone()
-            if sec_row and sec_row["auth_mode"]:
-                tenant_auth_mode = sec_row["auth_mode"]
-        except Exception:
-            tenant_auth_mode = "password_only"
-
-        if tenant_auth_mode == "authenticator_app":
-            try:
-                _ensure_authenticator_table(conn)
-                auth_row = cursor.execute(
-                    "SELECT user_id, secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
-                    (auth_user_id,)
-                ).fetchone()
-                if not auth_row:
-                    now_iso = datetime.now().isoformat()
-                    cursor.execute(
-                        """
-                        INSERT INTO user_authenticator_secrets (user_id, secret_key, is_enabled, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (auth_user_id, _generate_totp_secret(), False, now_iso, now_iso)
-                    )
-                    conn.commit()
-                log_auth_event(auth_user_id, "2FA Required", "Authenticator app verification required")
-                conn.close()
-                return LoginResponse(
-                    user_id=user['id'],
-                    success=True,
-                    requires_2fa=True,
-                    email_masked=mask_email(login_email) if login_email else None,
-                    security_mode=tenant_auth_mode
-                )
-            except HTTPException:
-                conn.close()
-                raise
-            except Exception as e:
-                conn.close()
-                logger.error(f"Authenticator setup check failed: {e}")
-                raise HTTPException(status_code=500, detail="Unable to initialize authenticator setup.")
-
-        require_email_otp = (
-            ENABLE_2FA
-            or tenant_auth_mode == "email_otp"
-            or auth_user_id in ("teacher", "admin")
-            or username_lower in STUDENT_LOGIN_ALIASES
-            or auth_user_id in STUDENT_OTP_EMAIL_OVERRIDES
-            or username_lower in PARENT_LOGIN_ALIASES
-            or auth_user_id in PARENT_OTP_EMAIL_OVERRIDES
-        )
-
-        # Trigger email OTP when enabled (or privileged account) and recipient email exists.
-        if require_email_otp and login_email:
-            # Generate Code
-            otp_code = str(random.randint(100000, 999999))
-            
-            # Store in DB (backup_codes used as OTP storage)
-            try:
-                cursor.execute("DELETE FROM backup_codes WHERE user_id = ?", (auth_user_id,))
-                cursor.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
-                            (auth_user_id, otp_code, datetime.now().isoformat()))
-                conn.commit()
-                
-                # Send Email
-                email_sent = send_email(login_email, "Your Verification Code", f"Your code is: {otp_code}")
-                if not email_sent:
-                    if ALLOW_OTP_CONSOLE_FALLBACK:
-                        logger.warning(
-                            f"2FA email send failed for {auth_user_id} to {login_email}. "
-                            f"Using terminal fallback OTP: {otp_code}"
-                        )
-                        log_auth_event(auth_user_id, "2FA Required", f"OTP generated (terminal fallback) for {login_email}")
-                    else:
-                        logger.error(f"2FA email send failed for {auth_user_id} to {login_email}")
-                        raise HTTPException(status_code=500, detail="Unable to send verification code email. Check SMTP credentials and Gmail app-password settings.")
-                
-                logger.info(f"2FA Code generated for {auth_user_id}: {otp_code}") # Log for debug/local test
-                log_auth_event(auth_user_id, "2FA Required", f"OTP generated for {login_email}")
-                
-                conn.close()
-                return LoginResponse(
-                    user_id=user['id'], 
-                    success=True,
-                    requires_2fa=True,
-                    email_masked=mask_email(login_email),
-                    security_mode=tenant_auth_mode
-                )
-            except HTTPException:
-                conn.close()
-                raise
-            except Exception as e:
-                conn.close()
-                logger.error(f"2FA Generation Error: {e}")
-                raise HTTPException(status_code=500, detail="Unable to generate 2FA verification code.")
-        elif require_email_otp and not login_email:
-            conn.close()
-            logger.error(f"2FA configured but no recipient email mapped for user {auth_user_id}")
-            raise HTTPException(status_code=500, detail="2FA is enabled but no recipient email is configured for this account.")
-        
-        # --- NORMAL LOGIN (2FA Skipped) ---
-        user_dict = dict(user)
-        role = user_dict.get('role', 'Student')
-        school_name = "Independent"
-        school_id = user_dict.get('school_id', 1)
-        is_super_admin = user_dict.get('is_super_admin', False)
-        
-        if school_id:
-            sch = cursor.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
-            if sch: school_name = sch['name']
-
-        # Fetch RBAC Data
-        # 1. Fetch Assigned Roles
-        roles_data = cursor.execute("""
-            SELECT r.name 
-            FROM roles r 
-            JOIN user_roles ur ON r.id = ur.role_id 
-            WHERE ur.user_id = ?
-        """, (auth_user_id,)).fetchall()
-        role_names = [r['name'] for r in roles_data]
-        
-        # Fallback
-        if not role_names:
-            role_names = [role]
-
-        # 2. Fetch Permissions
-        perms_data = cursor.execute("""
-            SELECT DISTINCT p.code 
-            FROM permissions p
-            JOIN role_permissions rp ON p.id = rp.permission_id
-            JOIN user_roles ur ON rp.role_id = ur.role_id
-            WHERE ur.user_id = ?
-        """, (auth_user_id,)).fetchall()
-        perm_codes = [p['code'] for p in perms_data]
-
-        # Root_Super_Admin always gets wildcard permissions
-        if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
-            perm_codes = ['*']
-            is_super_admin = True  # ensure flag is set
-
-        related_student_id = None
-        try:
-            if 'Parent' in role_names or 'Parent_Guardian' in role_names or role == 'Parent':
-                 child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (auth_user_id,)).fetchone()
-                 if not child and auth_user_id in PARENT_OTP_EMAIL_OVERRIDES:
-                     child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (PARENT_OTP_EMAIL_OVERRIDES[auth_user_id],)).fetchone()
-                 if not child and login_email:
-                     child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (login_email,)).fetchone()
-                 if child:
-                     related_student_id = child['student_id']
-        except Exception as e:
-            logger.error(f"Error fetching related student for login: {e}")
-
-        conn.close()
-        logger.info(f"Login successful for {auth_user_id}, 2FA skipped.")
-        
-        return LoginResponse(
-            user_id=user['id'], 
-            name=user_dict.get('name'),
-            role=role, 
-            roles=role_names,
-            permissions=perm_codes,
-            requires_2fa=False,
-            school_id=school_id,
-            school_name=school_name,
-            is_super_admin=bool(is_super_admin),
-            related_student_id=related_student_id,
-            security_mode=tenant_auth_mode
-        )
-
-    else:
-        new_attempts = (user['failed_login_attempts'] or 0) + 1
-        if new_attempts >= 5: 
-            lockout_duration = datetime.now() + timedelta(minutes=15)
-            cursor.execute("UPDATE students SET failed_login_attempts = ?, locked_until = ? WHERE id = ?", 
-                           (new_attempts, lockout_duration.isoformat(), auth_user_id))
-            conn.commit()
-            conn.close()
-            logger.warning(f"Account locked for user: {auth_user_id}")
-            log_auth_event(auth_user_id, "Account Locked", "Too many failed attempts")
-            raise HTTPException(status_code=403, detail="Account locked. Too many failed attempts.")
-        else:
-            cursor.execute("UPDATE students SET failed_login_attempts = ? WHERE id = ?", (new_attempts, auth_user_id))
-            conn.commit()
-            conn.close()
-            remaining = 5 - new_attempts
-            logger.warning(f"Login failed for user: {auth_user_id} - Invalid password.")
-            log_auth_event(auth_user_id, "Login Failed", f"Invalid password.")
-            log_auth_event(auth_user_id, "Login Failed", f"Invalid password.")
-            raise HTTPException(status_code=401, detail=f"Invalid credentials. {remaining} attempts remaining.")
-
-
-@app.post("/api/auth/verify-2fa", response_model=LoginResponse)
-async def verify_backup_code(request: Verify2FARequest):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    user = cursor.execute("SELECT * FROM students WHERE id = ?", (request.user_id,)).fetchone()
-    if not user:
-        conn.close()
-        raise HTTPException(status_code=404, detail="User not found.")
-
-    school_id = user["school_id"] if user["school_id"] else 1
-    tenant_auth_mode = "password_only"
-    try:
-        sec = cursor.execute(
-            "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
-            (school_id,)
-        ).fetchone()
-        if sec and sec["auth_mode"]:
-            tenant_auth_mode = sec["auth_mode"]
-    except Exception:
-        tenant_auth_mode = "password_only"
-
-    verified = False
-    if tenant_auth_mode == "authenticator_app":
-        try:
-            _ensure_authenticator_table(conn)
-            row = cursor.execute(
-                "SELECT secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
-                (request.user_id,)
-            ).fetchone()
-            if row and _verify_totp_code(row["secret_key"], request.code):
-                verified = True
-                if not bool(row["is_enabled"]):
-                    cursor.execute(
-                        "UPDATE user_authenticator_secrets SET is_enabled = ?, updated_at = ? WHERE user_id = ?",
-                        (True, datetime.now().isoformat(), request.user_id)
-                    )
-                    conn.commit()
-        except Exception:
-            verified = False
-    else:
-        code_entry = cursor.execute(
-            "SELECT code FROM backup_codes WHERE user_id = ? AND code = ?",
-            (request.user_id, request.code)
-        ).fetchone()
-        verified = bool(code_entry)
-
-    if not verified:
-        conn.close()
-        log_auth_event(request.user_id, "2FA Failed", "Invalid or used code")
-        raise HTTPException(status_code=401, detail="Invalid one-time code.")
-        
-    # cursor.execute("DELETE FROM backup_codes WHERE user_id = ? AND code = ?", (request.user_id, request.code))
-    user_dict = dict(user)
-    role = user_dict.get('role', 'Student')
-    school_name = "Independent"
-    school_id = user_dict.get('school_id', 1)
-    is_super_admin = user_dict.get('is_super_admin', False)
-
-    if school_id:
-            sch = cursor.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
-            if sch: school_name = sch['name']
-
-    # Fetch RBAC Data
-    # 1. Fetch Assigned Roles
-    roles_data = cursor.execute("""
-        SELECT r.name 
-        FROM roles r 
-        JOIN user_roles ur ON r.id = ur.role_id 
-        WHERE ur.user_id = ?
-    """, (request.user_id,)).fetchall()
-    role_names = [r['name'] for r in roles_data]
-    
-    # Fallback
-    if not role_names:
-        role_names = [role]
-
-    # 2. Fetch Permissions
-    perms_data = cursor.execute("""
-        SELECT DISTINCT p.code 
-        FROM permissions p
-        JOIN role_permissions rp ON p.id = rp.permission_id
-        JOIN user_roles ur ON rp.role_id = ur.role_id
-        WHERE ur.user_id = ?
-    """, (request.user_id,)).fetchall()
-    perm_codes = [p['code'] for p in perms_data]
-
-    # Root_Super_Admin always gets wildcard permissions
-    if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
-        perm_codes = ['*']
-        is_super_admin = True
-
-    related_student_id = None
-    try:
-        if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
-            child = cursor.execute(
-                "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                (request.user_id,),
-            ).fetchone()
-            if not child and request.user_id in PARENT_OTP_EMAIL_OVERRIDES:
-                child = cursor.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (PARENT_OTP_EMAIL_OVERRIDES[request.user_id],),
-                ).fetchone()
-            if child:
-                related_student_id = child['student_id']
-    except Exception as e:
-        logger.error(f"Error fetching related student for 2FA: {e}")
-
-    conn.commit()
-    conn.close()
-    
-    logger.info(f"2FA Successful for user: {request.user_id}")
-    log_auth_event(request.user_id, "Login Success", "2FA Verified")
-
-    return LoginResponse(
-        user_id=request.user_id,
-        name=user_dict.get('name'),
-        role=role, 
-        roles=role_names,
-        permissions=perm_codes,
-        requires_2fa=False,
-        school_id=school_id,
-        school_name=school_name,
-        is_super_admin=bool(is_super_admin),
-        related_student_id=related_student_id,
-        security_mode=tenant_auth_mode
-    )
-
-@app.post("/api/auth/authenticator/setup")
-async def setup_authenticator(request: AuthenticatorSetupRequest):
-    user_id = (request.user_id or "").strip()
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required.")
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        user = cursor.execute("SELECT id, school_id FROM students WHERE id = ?", (user_id,)).fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found.")
-
-        school_id = user["school_id"] if user["school_id"] else 1
-        sec = cursor.execute(
-            "SELECT auth_mode FROM institution_security_settings WHERE school_id = ?",
-            (school_id,)
-        ).fetchone()
-        auth_mode = (sec["auth_mode"] if sec and sec["auth_mode"] else "password_only").strip()
-        if auth_mode != "authenticator_app":
-            raise HTTPException(status_code=400, detail="Authenticator setup is not enabled for this institution.")
-
-        _ensure_authenticator_table(conn)
-        row = cursor.execute(
-            "SELECT secret_key, is_enabled FROM user_authenticator_secrets WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        now_iso = datetime.now().isoformat()
-        if row:
-            secret_key = (row["secret_key"] or "").strip() or _generate_totp_secret()
-            if not row["secret_key"]:
-                cursor.execute(
-                    "UPDATE user_authenticator_secrets SET secret_key = ?, updated_at = ? WHERE user_id = ?",
-                    (secret_key, now_iso, user_id)
-                )
-                conn.commit()
-            is_enabled = bool(row["is_enabled"])
-        else:
-            secret_key = _generate_totp_secret()
-            cursor.execute(
-                """
-                INSERT INTO user_authenticator_secrets (user_id, secret_key, is_enabled, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (user_id, secret_key, False, now_iso, now_iso)
-            )
-            conn.commit()
-            is_enabled = False
-
-        issuer = "ClassBridge"
-        account = user_id
-        otpauth_url = f"otpauth://totp/{issuer}:{account}?secret={secret_key}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
-        qr_url = "https://chart.googleapis.com/chart?cht=qr&chs=220x220&chl=" + quote(otpauth_url, safe="")
-        return {
-            "message": "Authenticator setup ready.",
-            "user_id": user_id,
-            "secret_key": secret_key,
-            "otpauth_url": otpauth_url,
-            "qr_url": qr_url,
-            "is_enabled": is_enabled
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unable to load authenticator setup: {str(e)}")
-    finally:
-        conn.close()
-
-@app.post("/api/auth/register", status_code=201)
-async def register_user(request: RegisterRequest):
-    email = normalize_and_validate_email(request.email)
-    selected_role = normalize_registration_role(request.role)
-    validate_password_strength(request.password)
-
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-
-        if request.invitation_token:
-            invite = cursor.execute(
-                "SELECT * FROM invitations WHERE token = ? AND is_used = 0",
-                (request.invitation_token,)
-            ).fetchone()
-            if not invite:
-                raise HTTPException(status_code=400, detail="Invalid or used invitation token.")
-            if datetime.now() > datetime.fromisoformat(invite['expires_at']):
-                raise HTTPException(status_code=400, detail="Invitation expired.")
-            invite_role = normalize_registration_role(invite["role"])
-            if invite_role != selected_role:
-                raise HTTPException(status_code=400, detail="Token does not match the requested role.")
-            cursor.execute("UPDATE invitations SET is_used = 1 WHERE token = ?", (request.invitation_token,))
-             
-        # Validate School ID if provided
-        school_id = request.school_id or 1
-        if school_id != 1: # If not default, check if exists
-            sch = cursor.execute("SELECT id FROM schools WHERE id = ?", (school_id,)).fetchone()
-            if not sch:
-                 raise HTTPException(status_code=400, detail="Invalid School ID selected.")
-
-        if cursor.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (email,)).fetchone():
-            raise HTTPException(status_code=400, detail="User ID/Email already exists.")
-
-        verification_token = secrets.token_urlsafe(32)
-        verification_expires_at = (datetime.now() + timedelta(hours=VERIFICATION_TOKEN_TTL_HOURS)).isoformat()
-
-        # Insert User with School ID
-        cursor.execute(
-            """
-            INSERT INTO students (
-                id, name, grade, preferred_subject, attendance_rate, home_language, password,
-                role, school_id, is_super_admin, email_verified, email_verification_token, email_verification_expires_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                email, request.name, request.grade, request.preferred_subject,
-                100.0, "English", request.password, selected_role, school_id, 0, 0, verification_token, verification_expires_at
-            ) 
-        )
-
-        verification_link = f"{VERIFICATION_LINK_BASE}/api/auth/verify-email?token={verification_token}"
-        email_body = f"""
-        <p>Hello {request.name},</p>
-        <p>Welcome to Noble Nexus. Please verify your email to activate your account.</p>
-        <p><a href="{verification_link}">Verify Email</a></p>
-        <p>This link expires in {VERIFICATION_TOKEN_TTL_HOURS} hours.</p>
-        """
-        if not send_email(email, "Verify your Noble Nexus account", email_body):
-            conn.rollback()
-            raise HTTPException(status_code=500, detail="Unable to send verification email. Check SMTP credentials and Gmail app-password settings.")
-
-        conn.commit()
-        log_auth_event(email, "Register Success", f"Role: {selected_role}, School: {school_id}, Email verification pending")
-        return {"message": "Registration successful. Please verify your email to activate your account."}
-    except sqlite3.IntegrityError:
-        log_auth_event(email, "Register Failed", "User ID already exists")
-        raise HTTPException(status_code=400, detail="User ID already exists.")
-    except Exception as e:
-        conn.rollback()
-        log_auth_event(email, "Register Failed", f"Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
-    finally:
-        conn.close()
-
-@app.get("/api/auth/verify-email")
-async def verify_email(token: str):
-    if not token or len(token.strip()) < 20:
-        raise HTTPException(status_code=400, detail="Invalid verification token.")
-
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        user = cursor.execute(
-            """
-            SELECT id, email_verification_expires_at, email_verified
-            FROM students
-            WHERE email_verification_token = ?
-            """,
-            (token.strip(),)
-        ).fetchone()
-        if not user:
-            raise HTTPException(status_code=400, detail="Invalid verification token.")
-
-        if bool(user["email_verified"]):
-            return {"message": "Email already verified. Your account is active."}
-
-        expires_at = user["email_verification_expires_at"]
-        if not expires_at or datetime.now() > datetime.fromisoformat(expires_at):
-            raise HTTPException(status_code=400, detail="Verification token has expired.")
-
-        cursor.execute(
-            """
-            UPDATE students
-            SET email_verified = TRUE,
-                email_verification_token = NULL,
-                email_verification_expires_at = NULL
-            WHERE id = ?
-            """,
-            (user["id"],)
-        )
-        conn.commit()
-        log_auth_event(user["id"], "Email Verified", "Account activated by verification link")
-        return {"message": "Email verified successfully. Your account is now active."}
-    finally:
-        conn.close()
-
-# --- SUPER ADMIN: SCHOOL MANAGEMENT ---
-
-@app.post("/api/admin/schools", status_code=201)
-async def create_school(
-    request: SchoolCreateRequest,
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    if not x_user_id:
-         raise HTTPException(status_code=401, detail="Authentication required")
-
-    conn = get_db_connection()
-    try:
-        user = conn.execute("SELECT is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
-        if not user or not user['is_super_admin']:
-             log_auth_event(x_user_id, "Unauthorized Access", "Attempted to create school without Super Admin access")
-             raise HTTPException(status_code=403, detail="Permission denied. SUPER ADMIN ONLY.")
-        
-        created_at = datetime.now().isoformat()
-        cursor = conn.cursor()
-        
-        # INSERT School
-        cursor.execute(
-            "INSERT INTO schools (name, address, contact_email, created_at) VALUES (?, ?, ?, ?)",
-            (request.name, request.address, request.contact_email, created_at)
-        )
-        school_id = cursor.lastrowid
-        
-        # Create Admin user for this school
-        # Using contact_email as the ID/Username
-        cursor.execute(
-            "INSERT INTO students (id, name, role, password, school_id) VALUES (?, ?, ?, ?, ?)",
-            (request.contact_email, f"{request.name} Admin", "Admin", request.admin_password, school_id)
-        )
-        
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail="School name or Admin email already exists.")
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-    
-    return {"message": "School and Admin account created successfully.", "school_id": school_id}
-
-@app.get("/api/admin/schools", response_model=List[SchoolResponse])
-async def list_schools():
-    # Public endpoint for registration dropdown, or secured if needed
-    conn = get_db_connection()
-    schools = conn.execute("SELECT * FROM schools ORDER BY name").fetchall()
-    conn.close()
-    return [SchoolResponse(id=s['id'], name=s['name'], address=s['address'], contact_email=s['contact_email'], created_at=s['created_at']) for s in schools]
-
-# --- ROOT ADMIN ONLY (Students + Schools) ---
-
-@app.get("/api/root-admin/students")
-async def root_list_students(x_user_id: str = Header(None, alias="X-User-Id")):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        rows = conn.execute(
-            """
-            SELECT
-                s.id,
-                s.name,
-                s.role,
-                s.grade,
-                s.preferred_subject,
-                s.home_language,
-                s.school_id,
-                s.password,
-                CASE
-                    WHEN s.email IS NOT NULL AND TRIM(s.email) <> '' THEN s.email
-                    WHEN s.role = 'Teacher' AND LOWER(s.id) = 'teacher' THEN ?
-                    WHEN s.role IN ('Parent', 'Parent_Guardian') THEN (
-                        SELECT g.email
-                        FROM guardians g
-                        WHERE LOWER(g.name) = LOWER(s.name)
-                        ORDER BY g.id DESC
-                        LIMIT 1
-                    )
-                    ELSE s.id
-                END AS display_email
-            FROM students s
-            WHERE s.role IN ('Student', 'Teacher', 'Principal', 'Tenant_Admin', 'Parent', 'Parent_Guardian', 'Academic_Admin', 'HR_Admin')
-            ORDER BY s.role, s.name
-            """,
-            (TEACHER_LOGIN_ALIAS,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-@app.post("/api/root-admin/students", status_code=201)
-async def root_add_student(req: RootAdminStudentCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        email = normalize_and_validate_email(req.email)
-        validate_password_strength(req.password)
-        target_role = _normalize_root_managed_role(req.role or "Student")
-
-        target_school_id = req.school_id or 1
-        school = conn.execute("SELECT id FROM schools WHERE id = ?", (target_school_id,)).fetchone()
-        if not school:
-            raise HTTPException(status_code=404, detail="School not found")
-
-        if conn.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (email,)).fetchone():
-            raise HTTPException(status_code=409, detail="User email already exists")
-
-        conn.execute(
-            """
-            INSERT INTO students (
-                id, name, grade, preferred_subject, attendance_rate, home_language, password,
-                math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
-            """,
-            (
-                email, req.name.strip(), req.grade, req.preferred_subject, 100.0, req.home_language,
-                req.password, 0.0, 0.0, 0.0, target_role, target_school_id
-            )
-        )
-        conn.commit()
-        return {"message": "User created", "user_id": email, "role": target_role}
-    finally:
-        conn.close()
-
-@app.patch("/api/root-admin/students/{student_id}/email")
-async def root_update_student_email(
-    student_id: str,
-    req: RootAdminStudentEmailUpdateRequest,
-    x_user_id: str = Header(None, alias="X-User-Id"),
-):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        new_email = normalize_and_validate_email(req.email)
-
-        student = conn.execute("SELECT id, role FROM students WHERE id = ?", (student_id,)).fetchone()
-        if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
-            raise HTTPException(status_code=404, detail="Managed user not found")
-        exists = conn.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (new_email,)).fetchone()
-        if exists and exists["id"].lower() != student_id.lower():
-            raise HTTPException(status_code=409, detail="Email already in use")
-
-        student_name = student["id"]
-        try:
-            row = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
-            if row and row["name"]:
-                student_name = row["name"]
-        except Exception:
-            pass
-
-        update_user_identifier_everywhere(conn, student_id, new_email)
-        conn.execute("UPDATE students SET email = ? WHERE id = ?", (new_email, new_email))
-        if student["role"] in ("Parent", "Parent_Guardian"):
-            # Keep guardian contact email in sync so UI + parent flows reflect the new login email.
-            conn.execute(
-                "UPDATE guardians SET email = ? WHERE LOWER(name) = LOWER(?)",
-                (new_email, student_name),
-            )
-        conn.commit()
-        return {"message": "User email updated", "user_id": new_email}
-    finally:
-        conn.close()
-
-@app.patch("/api/root-admin/students/{student_id}/password")
-async def root_update_student_password(
-    student_id: str,
-    req: RootAdminStudentPasswordUpdateRequest,
-    x_user_id: str = Header(None, alias="X-User-Id"),
-):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        if not req.password or len(req.password.strip()) < 3:
-            raise HTTPException(status_code=400, detail="Password must be at least 3 characters.")
-        student = conn.execute("SELECT id, role, email FROM students WHERE id = ?", (student_id,)).fetchone()
-        if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
-            raise HTTPException(status_code=404, detail="Managed user not found")
-        original_id = student["id"]
-        original_email = student["email"] if "email" in student.keys() else None
-        conn.execute("UPDATE students SET password = ? WHERE id = ?", (req.password, student_id))
-        after = conn.execute("SELECT id, email FROM students WHERE id = ?", (student_id,)).fetchone()
-        if not after or after["id"] != original_id or (after["email"] if "email" in after.keys() else None) != original_email:
-            conn.rollback()
-            raise HTTPException(status_code=500, detail="Safety check failed: password update attempted to change user email/id.")
-        conn.commit()
-        return {"message": "User password updated", "user_id": student_id}
-    finally:
-        conn.close()
-
-@app.get("/api/root-admin/schools")
-async def root_list_schools(x_user_id: str = Header(None, alias="X-User-Id")):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        rows = conn.execute(
-            """
-            SELECT id, name, address, contact_email, created_at, COALESCE(is_active, FALSE) AS is_active
-            FROM schools
-            ORDER BY name
-            """
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-# (duplicate route removed — see root_view_database below which handles both Postgres and SQLite)
-
-@app.post("/api/root-admin/schools", status_code=201)
-async def root_create_school_account(
-    req: RootAdminSchoolCreateRequest,
-    x_user_id: str = Header(None, alias="X-User-Id"),
-):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        school_email = normalize_and_validate_email(req.contact_email)
-        validate_password_strength(req.account_password)
-
-        root_sender_email = (ROOT_ADMIN_LOGIN_EMAIL or ADMIN_LOGIN_EMAIL or "").strip().lower()
-        smtp_sender_email = (os.getenv("SMTP_EMAIL", SMTP_EMAIL) or "").strip().lower()
-        if not root_sender_email:
-            raise HTTPException(status_code=400, detail="Root admin email is not configured.")
-        if smtp_sender_email != root_sender_email:
-            raise HTTPException(status_code=400, detail="OTP sender must be Root Admin email (SMTP_EMAIL must match ADMIN_LOGIN_EMAIL).")
-
-        exists = conn.execute("SELECT id FROM schools WHERE LOWER(contact_email) = LOWER(?)", (school_email,)).fetchone()
-        if exists:
-            raise HTTPException(status_code=409, detail="School email already exists.")
-
-        otp_code = str(random.randint(100000, 999999))
-        otp_hash = hashlib.sha256(otp_code.encode("utf-8")).hexdigest()
-        otp_expires_at = (datetime.now() + timedelta(minutes=10)).isoformat()
-        created_at = datetime.now().isoformat()
-
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO schools (name, address, contact_email, created_at, is_active, activation_otp_hash, activation_otp_expires_at)
-            VALUES (?, ?, ?, ?, FALSE, ?, ?)
-            """,
-            (req.name, req.address, school_email, created_at, otp_hash, otp_expires_at),
-        )
-        school_id = cursor.lastrowid
-
-        if conn.execute("SELECT id FROM students WHERE LOWER(id)=LOWER(?)", (school_email,)).fetchone():
-            raise HTTPException(status_code=409, detail="School account email already exists as user.")
-
-        cursor.execute(
-            """
-            INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified)
-            VALUES (?, ?, 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', ?, 0, 0)
-            """,
-            (school_email, f"{req.name} Admin", req.account_password, school_id),
-        )
-
-        email_body = f"""
-        <p>Hello {req.name},</p>
-        <p>Your school account activation OTP is:</p>
-        <h2>{otp_code}</h2>
-        <p>This OTP expires in 10 minutes.</p>
-        """
-        if not send_email(school_email, "School Account Activation OTP", email_body):
-            conn.rollback()
-            raise HTTPException(status_code=500, detail="Failed to send OTP email.")
-
-        conn.commit()
-        return {"message": "School created. OTP sent from Root Admin email.", "school_id": school_id}
-    finally:
-        conn.close()
-
-@app.post("/api/root-admin/schools/verify-otp")
-async def root_verify_school_otp(
-    req: RootAdminSchoolActivateRequest,
-    x_user_id: str = Header(None, alias="X-User-Id"),
-):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        school = conn.execute(
-            "SELECT id, contact_email, activation_otp_hash, activation_otp_expires_at FROM schools WHERE id = ?",
-            (req.school_id,),
-        ).fetchone()
-        if not school:
-            raise HTTPException(status_code=404, detail="School not found")
-        if not school["activation_otp_hash"] or not school["activation_otp_expires_at"]:
-            raise HTTPException(status_code=400, detail="No pending OTP for this school")
-        if datetime.now() > datetime.fromisoformat(school["activation_otp_expires_at"]):
-            raise HTTPException(status_code=400, detail="OTP expired")
-
-        submitted_hash = hashlib.sha256(req.otp.strip().encode("utf-8")).hexdigest()
-        if submitted_hash != school["activation_otp_hash"]:
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-
-        conn.execute(
-            "UPDATE schools SET is_active = TRUE, activation_otp_hash = NULL, activation_otp_expires_at = NULL WHERE id = ?",
-            (req.school_id,),
-        )
-        conn.execute(
-            "UPDATE students SET email_verified = TRUE WHERE id = ? AND school_id = ? AND role = 'Admin'",
-            (school["contact_email"], req.school_id),
-        )
-        conn.commit()
-        return {"message": "School account activated successfully"}
-    finally:
-        conn.close()
-
-@app.get("/api/root-admin/database")
-@app.get("/root-admin/database")
-@app.get("/api/root-admin/db")
-async def root_view_database(x_user_id: str = Header(None, alias="X-User-Id")):
-    conn = get_db_connection()
-    try:
-        ensure_root_admin_user(conn, x_user_id)
-        payload = []
-        if USE_POSTGRES and "postgres" in DATABASE_URL.lower():
-            tables = conn.execute(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-                ORDER BY table_name
-                """
-            ).fetchall()
-            table_names = [t["table_name"] for t in tables]
-        else:
-            tables = conn.execute(
-                """
-                SELECT name
-                FROM sqlite_master
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-                ORDER BY name
-                """
-            ).fetchall()
-            table_names = [t["name"] for t in tables]
-
-        is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
-        for table_name in table_names:
-            try:
-                if is_postgres:
-                    # Get columns from information_schema so empty tables still show columns
-                    col_rows = conn.execute(
-                        """
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_schema = 'public' AND table_name = %s
-                        ORDER BY ordinal_position
-                        """,
-                        (table_name,)
-                    ).fetchall()
-                    columns = [c["column_name"] for c in col_rows]
-                    rows_raw = conn.execute(
-                        f'SELECT * FROM "{table_name}" LIMIT 200'
-                    ).fetchall()
-                    row_dicts = [dict(r) for r in rows_raw]
-                else:
-                    rows_raw = conn.execute(
-                        f'SELECT * FROM "{table_name}" LIMIT 200'
-                    ).fetchall()
-                    row_dicts = [dict(r) for r in rows_raw]
-                    if row_dicts:
-                        columns = list(row_dicts[0].keys())
-                    else:
-                        # Use PRAGMA for column names even when table is empty
-                        pragma_rows = conn.execute(
-                            f'PRAGMA table_info("{table_name}")'
-                        ).fetchall()
-                        columns = [p[1] for p in pragma_rows]
-                payload.append({
-                    "table": table_name,
-                    "row_count": len(row_dicts),
-                    "columns": columns,
-                    "rows": row_dicts,
-                })
-            except Exception as e:
-                payload.append({
-                    "table": table_name,
-                    "row_count": 0,
-                    "columns": [],
-                    "rows": [],
-                    "error": str(e),
-                })
-        return {"tables": payload}
-    finally:
-        conn.close()
-
-
-             
-
-
-@app.post("/api/auth/logout")
-async def logout_user(request: LogoutRequest):
-    logger.info(f"Logout for user: {request.user_id}")
-    log_auth_event(request.user_id, "Logout", "User logged out")
-    return {"message": "Logged out successfully"}
-
-@app.get("/api/auth/permissions")
-async def get_role_permissions():
-    return ROLE_PERMISSIONS
-
-@app.get("/api/teacher/students/{student_id}/codes")
-async def get_student_codes(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("manage_users", x_user_id=x_user_id)
-    conn = get_db_connection()
-    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
-    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
-    conn.close()
-    
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-        
-    code_list = [row['code'] for row in codes]
-    
-    # If no codes exist (shouldn't happen with our catch-all, but safe fallback), generate one
-    if not code_list:
-        new_code = str(random.randint(100000, 999999))
-        conn = get_db_connection()
-        conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
-                     (student_id, new_code, datetime.now().isoformat()))
-        conn.commit()
-        conn.close()
-        code_list = [new_code]
-
-    return {
-        "student_id": student_id,
-        "name": student['name'],
-        "codes": code_list
-    }
-
-@app.post("/api/teacher/students/{student_id}/regenerate-code")
-async def regenerate_student_code(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("manage_users", x_user_id=x_user_id)
-    conn = get_db_connection()
-    
-    # Check if student exists
-    if not conn.execute("SELECT 1 FROM students WHERE id = ?", (student_id,)).fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    # Delete ALL existing codes for this user (Revoke old)
-    conn.execute("DELETE FROM backup_codes WHERE user_id = ?", (student_id,))
-    
-    # Generate ONE new random code
-    new_code = str(random.randint(100000, 999999))
-    conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
-                 (student_id, new_code, datetime.now().isoformat()))
-    
-    student_name = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()[0]
-    conn.commit()
-    conn.close()
-    
-    log_auth_event(student_id, "Security Update", "2FA Code Regenerated by Teacher")
-
-    return {
-        "student_id": student_id,
-        "name": student_name,
-        "codes": [new_code],
-        "message": "Old codes revoked. New code generated."
-    }
-
-@app.post("/api/students/{student_id}/email-code")
-async def send_access_code_email(student_id: str):
-    conn = get_db_connection()
-    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
-    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
-    conn.close()
-
-    if not codes:
-        raise HTTPException(status_code=404, detail="No codes found for this user.")
-
-    # Determine Email Address (Assuming ID is Email if it contains @, otherwise fail for now or use a lookup)
-    target_email = student_id if "@" in student_id else None
-    
-    if not target_email:
-         # For demo purposes, if ID isn't an email, we can't send.
-         # In a real app, we'd look up a profile.email field.
-         raise HTTPException(status_code=400, detail="Student ID is not a valid email address.")
-
-    code_list_html = "".join([f"<li style='font-size:18px; font-weight:bold;'>{row['code']}</li>" for row in codes])
-    
-    email_body = f"""
-    <html>
-        <body>
-            <h2>Noble Nexus Access Card</h2>
-            <p>Hello {student['name']},</p>
-            <p>Here are your secure access codes for logging into the portal:</p>
-            <ul>{code_list_html}</ul>
-            <p>Keep these codes safe!</p>
-            <p><i>Noble Nexus Admin</i></p>
-        </body>
-    </html>
-    """
-    
-    success = send_email(target_email, "Your Noble Nexus Access Codes", email_body)
-    
-    if success:
-        return {"message": f"Codes sent to {target_email}"}
-    else:
-        # Fallback if SMTP not configured
-        return {"message": "Email simulation: Check server logs (SMTP not configured)."}
-
-@app.post("/api/auth/google-login", response_model=LoginResponse)
-async def google_login(request: SocialTokenRequest):
-    logger.info(f"Processing Google Login...")
-    if requests is None:
-        raise HTTPException(status_code=503, detail=f"Google login unavailable: requests import failed ({REQUESTS_IMPORT_ERROR})")
-    
-    # 1. Verify Token with Google
-    try:
-        # Use Google's tokeninfo endpoint to verify the ID token
-        response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={request.token}")
-        
-        if response.status_code != 200:
-             logger.error(f"Google Token Check Failed: {response.text}")
-             raise HTTPException(status_code=401, detail="Invalid Google Token")
-        
-        google_data = response.json()
-        
-        # 2. Verify Audience matches our Client ID
-        if google_data['aud'] != GOOGLE_CLIENT_ID:
-             logger.error(f"Audience Mismatch: {google_data['aud']}")
-             raise HTTPException(status_code=401, detail="Token audience mismatch")
-             
-        user_email = google_data['email']
-        user_name = google_data.get('name', 'Google User') # Use real name from Google
-        
-    except Exception as e:
-        logger.error(f"Google Login Error: {e}")
-        raise HTTPException(status_code=401, detail=f"Google Authentication Failed.")
-
-    # 3. Handle User in Database
-    conn = get_db_connection()
-    user = conn.execute("SELECT id, role FROM students WHERE id = ?", (user_email,)).fetchone()
-    
-    role = 'Student'
-    if user:
-         role = user['role']
-    else:
-        # Auto-register new user from Google
-        conn.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (user_email, user_name, 9, "Science", 100.0, "English", "social_login", 0.0, 0.0, 0.0, 'Student', 1, False))
-        conn.commit()
-        log_auth_event(user_email, "Register Success", "Google Auto-Register")
-    
-    conn.close()
-    
-    log_auth_event(user_email, "Login Success", "Google Login")
-    return LoginResponse(
-        user_id=user_email, 
-        role=role, 
-        school_id=1, 
-        school_name="Independent", 
-        is_super_admin=False
-    )
-
-@app.post("/api/auth/microsoft-login", response_model=LoginResponse)
-async def microsoft_login(request: SocialTokenRequest):
-    logger.info("Processing Microsoft Login")
-    if requests is None:
-        raise HTTPException(status_code=503, detail=f"Microsoft login unavailable: requests import failed ({REQUESTS_IMPORT_ERROR})")
-    
-    # Check if this is a Simulated Token (starts with 'token_')
-    if request.token.startswith("token_"):
-        # Extract unique part from simulated token for uniqueness
-        unique_suffix = request.token.split("_")[-1] if "_" in request.token else str(random.randint(1000,9999))
-        user_email = f"ms_user_{unique_suffix}@example.com"
-        user_name = f"Microsoft User {unique_suffix}"
-    else:
-        # REAL TOKEN LOGIC: Verify via Microsoft Graph API
-        # The frontend sends an Access Token for Graph API (User.Read scope).
-        # We verify it by successfully calling the /me endpoint.
-        try:
-            graph_response = requests.get(
-                "https://graph.microsoft.com/v1.0/me",
-                headers={"Authorization": f"Bearer {request.token}"}
-            )
-            
-            if graph_response.status_code != 200:
-                 logger.error(f"Graph API Failed: {graph_response.text}")
-                 raise HTTPException(status_code=401, detail="Invalid Microsoft Token")
-
-            graph_data = graph_response.json()
-            # Use 'mail' (email) or 'userPrincipalName' (UPN) as the unique ID
-            user_email = graph_data.get('mail') or graph_data.get('userPrincipalName')
-            user_name = graph_data.get('displayName', 'Microsoft User')
-            
-            if not user_email:
-                 raise ValueError("No email found in Microsoft account")
-                 
-        except Exception as e:
-             logger.error(f"Microsoft Login Validation Error: {e}")
-             raise HTTPException(status_code=401, detail="Microsoft Authentication Failed")
-
-    conn = get_db_connection()
-    user = conn.execute("SELECT id, role FROM students WHERE id = ?", (user_email,)).fetchone()
-    
-    role = 'Student'
-    if user:
-         role = user['role']
-    else:
-        # Auto-register new user
-        conn.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (user_email, user_name, 9, "Math", 100.0, "English", "social_login", 0.0, 0.0, 0.0, 'Student', 1, False))
-        conn.commit()
-        log_auth_event(user_email, "Register Success", "Microsoft Auto-Register")
-
-    conn.close()
-    
-    log_auth_event(user_email, "Login Success", "Microsoft Login")
-    # For now, social logins default to school_id=1 and Student role
-    return LoginResponse(
-        user_id=user_email, 
-        role=role, 
-        school_id=1, 
-        school_name="Independent", 
-        is_super_admin=False
-    )
-
-@app.post("/api/auth/social-login", response_model=LoginResponse)
-async def generic_social_login(request: GenericSocialRequest):
-    logger.info(f"Processing {request.provider} Login")
-    user_id = f"{request.provider.lower()}_user"
-    
-    conn = get_db_connection()
-    user = conn.execute("SELECT id FROM students WHERE id = ?", (user_id,)).fetchone()
-    
-    if not user:
-        conn.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Student', 1, False)",
-                     (user_id, f"{request.provider} User", 9, "General", 100.0, "English", "social_login", 0.0, 0.0, 0.0))
-        conn.commit()
-        log_auth_event(user_id, "Register Success", f"{request.provider} Auto-Register")
-
-    conn.close()
-    
-    log_auth_event(user_id, "Login Success", f"{request.provider} Login")
-    return LoginResponse(
-        user_id=user_id, 
-        role='Student', 
-        school_id=1, 
-        school_name="Independent", 
-        is_super_admin=False
-    )
-
-@app.post("/api/auth/forgot-password")
-async def forgot_password(request: ForgotPasswordRequest):
-    logger.info(f"Password reset requested for: {request.email}")
-    conn = get_db_connection()
-    user = conn.execute("SELECT id FROM students WHERE id = ?", (request.email,)).fetchone()
-    
-    if user:
-        token = str(uuid.uuid4())
-        expires_at = (datetime.now() + timedelta(minutes=15)).isoformat()
-        conn.execute("INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)", 
-                     (token, request.email, expires_at))
-        conn.commit()
-        conn.close()
-        
-        link = f"http://127.0.0.1:8000/?reset_token={token}"
-        log_auth_event(request.email, "Password Reset Requested", f"Token generated (Dev Link: {link})")
-        return {
-            "message": "Reset link generated (DEV MODE).", 
-            "dev_link": link 
-        }
-    else:
-        conn.close()
-        log_auth_event(request.email, "Password Reset Requested", "User not found")
-        return {"message": "If an account exists, a reset link has been sent."}
-
-@app.post("/api/auth/reset-password")
-async def reset_password(request: ResetPasswordRequest):
-    conn = get_db_connection()
-    try:
-        reset_entry = conn.execute("SELECT user_id, expires_at FROM password_resets WHERE token = ?", (request.token,)).fetchone()
-        
-        if not reset_entry:
-            raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
-            
-        if datetime.now() > datetime.fromisoformat(reset_entry['expires_at']):
-            conn.execute("DELETE FROM password_resets WHERE token = ?", (request.token,))
-            conn.commit()
-            raise HTTPException(status_code=400, detail="Reset token has expired.")
-            
-        validate_password_strength(request.new_password)
-        conn.execute("UPDATE students SET password = ?, failed_login_attempts = 0, locked_until = NULL WHERE id = ?", (request.new_password, reset_entry['user_id']))
-        conn.execute("DELETE FROM password_resets WHERE token = ?", (request.token,))
-        conn.commit()
-        
-        log_auth_event(reset_entry['user_id'], "Password Reset Success", "Password updated via token & Account unlocked")
-        return {"message": "Password reset successfully. You can now login."}
-    finally:
-        conn.close()
+# --- AUTHENTICATION EXTRACTED TO app/routers/auth.py ---
 
 # --- TEACHER DASHBOARD ---
 
@@ -8506,7 +4275,7 @@ async def update_student(
         
         if request.password and request.password.strip():
             validate_password_strength(request.password)
-            cursor.execute("UPDATE students SET password = ? WHERE id = ?", (request.password, student_id))
+            cursor.execute("UPDATE students SET password = ? WHERE id = ?", (hash_password(request.password), student_id))
             log_auth_event(student_id, "Password Changed", f"Admin/Teacher ({x_user_id}) updated password")
 
         if request.roles is not None:
@@ -9271,7 +5040,7 @@ async def create_new_user(
             INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, role, school_id)
             VALUES (?, ?, ?, ?, 100.0, 'English', ?, ?, ?)
             """,
-            (request.id, request.name, request.grade, request.preferred_subject, request.password, request.role, school_id)
+            (request.id, request.name, request.grade, request.preferred_subject, hash_password(request.password), request.role, school_id)
         )
         conn.commit()
         log_auth_event(x_user_id, "User Created", f"Created user {request.id} ({request.role})")
@@ -9993,11 +5762,10 @@ async def upload_group_material(group_id: int, file: UploadFile = File(...), tit
     # LMS Phase 1: File Uploads
     try:
         file_ext = os.path.splitext(file.filename)[1]
-        unique_filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        secure_url = upload_to_cloudinary(file, folder="classbridge/materials")
+        if not secure_url:
+            raise HTTPException(status_code=500, detail="Failed to upload file to Cloudinary.")
             
         # Determine Type
         content_type = "File"
@@ -10011,8 +5779,8 @@ async def upload_group_material(group_id: int, file: UploadFile = File(...), tit
         date_str = datetime.now().strftime("%Y-%m-%d")
         display_title = title or file.filename
         
-        # URL accessible via static mount
-        file_url = f"/static/uploads/{unique_filename}"
+        # URL accessible via Cloudinary
+        file_url = secure_url
         
         cursor.execute("INSERT INTO group_materials (group_id, title, type, content, date) VALUES (?, ?, ?, ?, ?)",
                       (group_id, display_title, content_type, file_url, date_str))
@@ -11992,12 +7760,11 @@ async def upload_document(
 ):
     await verify_permission("student.info.manage", x_user_id=x_user_id)
     
-    upload_dir = f"uploads/students/{student_id}"
-    os.makedirs(upload_dir, exist_ok=True)
+    secure_url = upload_to_cloudinary(file, folder=f"classbridge/students/{student_id}")
+    if not secure_url:
+        raise HTTPException(status_code=500, detail="Failed to upload document to Cloudinary.")
     
-    file_path = f"{upload_dir}/{uuid.uuid4()}_{file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    file_path = secure_url
         
     conn = get_db_connection()
     try:
@@ -12652,17 +8419,12 @@ async def create_resource(
         # Save the file
         file_ext = os.path.splitext(file.filename)[1]
         unique_filename = f"{uuid.uuid4()}{file_ext}"
-        resources_dir = _resource_storage_dir()
-        file_location = os.path.join(resources_dir, unique_filename)
-        
-        # Ensure directory exists (redundant if mkdir run, but safe)
-        os.makedirs(resources_dir, exist_ok=True)
-
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(file.file, file_object)
+        secure_url = upload_to_cloudinary(file, folder="classbridge/resources")
+        if not secure_url:
+            raise HTTPException(status_code=500, detail="Failed to upload resource to Cloudinary.")
             
-        # Store relative path for frontend access
-        web_path = _resource_web_path(unique_filename)
+        # Store Cloudinary path for frontend access
+        web_path = secure_url
 
         cursor.execute("""
             INSERT INTO resources (title, description, category, file_path, uploaded_by, uploaded_at, school_id)
@@ -12993,7 +8755,13 @@ async def oauth_token(
         "iat": int(time.time())
     }
     # Use a persistent secret in production
-    id_token = generate_jwt(id_token_payload, "SUPER_SECRET_SIGNING_KEY")
+    jwt_secret = os.getenv("JWT_SECRET")
+    if IS_PRODUCTION and not jwt_secret:
+        raise HTTPException(status_code=500, detail="JWT_SECRET is not configured for production.")
+    elif not jwt_secret:
+        jwt_secret = "change-me-in-production"
+
+    id_token = generate_jwt(id_token_payload, jwt_secret)
     
     # Delete used code
     del OAUTH_CODES[code]
@@ -14747,6 +10515,7 @@ async def mark_email_read(email_id: int, x_user_id: str = Header(None, alias="X-
 
 @app.post("/api/email/send")
 async def send_internal_email(req: EmailSendRequest,
+                              background_tasks: BackgroundTasks,
                               x_user_id: str = Header(None, alias="X-User-Id"),
                               x_user_role: str = Header(None, alias="X-User-Role"),
                               x_school_id: Optional[int] = Header(None, alias="X-School-Id")):
@@ -14817,9 +10586,9 @@ async def send_internal_email(req: EmailSendRequest,
                 VALUES (?, ?, ?, ?, ?, FALSE)
             """, (x_user_id, rid, req.subject, req.body, ts))
 
-            # If recipient looks like an email, try SMTP send
+            # If recipient looks like an email, try SMTP send in background
             if "@" in rid:
-                send_email(rid, req.subject, req.body)
+                background_tasks.add_task(send_email, rid, req.subject, req.body)
 
         conn.commit()
         return {"success": True, "sent": len(recipients)}
@@ -15418,18 +11187,13 @@ async def upload_question_bank(
         school_id = user['school_id'] if user['school_id'] else 1
         
         # Save File
-        upload_dir = os.path.join(STATIC_DIR, "uploads", "question_banks")
-        os.makedirs(upload_dir, exist_ok=True)
-        
-        file_ext = os.path.splitext(file.filename)[1]
-        unique_filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join(upload_dir, unique_filename)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Upload to Cloudinary
+        secure_url = upload_to_cloudinary(file, folder="classbridge/question_banks")
+        if not secure_url:
+            raise HTTPException(status_code=500, detail="Failed to upload question bank to Cloudinary.")
             
-        # Store relative path for serving
-        relative_path = f"/static/uploads/question_banks/{unique_filename}"
+        # Store Cloudinary path for serving
+        relative_path = secure_url
         created_at = datetime.now().isoformat()
         
         cursor = conn.cursor()
@@ -15495,16 +11259,11 @@ async def create_pdf_exam(
         school_id = user['school_id'] if user['school_id'] else 1
 
         # Upload PDF
-        upload_dir = os.path.join(STATIC_DIR, "uploads", "exams", "questions")
-        os.makedirs(upload_dir, exist_ok=True)
-        file_ext = os.path.splitext(file.filename)[1]
-        unique_filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join(upload_dir, unique_filename)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        secure_url = upload_to_cloudinary(file, folder="classbridge/exams/questions")
+        if not secure_url:
+            raise HTTPException(status_code=500, detail="Failed to upload PDF exam to Cloudinary.")
             
-        relative_path = f"/static/uploads/exams/questions/{unique_filename}"
+        relative_path = secure_url
         
         # Insert into Quizzes Table
         cursor = conn.cursor()
@@ -15548,16 +11307,11 @@ async def submit_pdf_exam(
             raise HTTPException(status_code=400, detail="You have already submitted this exam.")
             
         # Upload Answer Sheet
-        upload_dir = os.path.join(STATIC_DIR, "uploads", "exams", "submissions")
-        os.makedirs(upload_dir, exist_ok=True)
-        file_ext = os.path.splitext(file.filename)[1]
-        unique_filename = f"{x_user_id}_{exam_id}_{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join(upload_dir, unique_filename)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        secure_url = upload_to_cloudinary(file, folder="classbridge/exams/submissions")
+        if not secure_url:
+            raise HTTPException(status_code=500, detail="Failed to upload submission to Cloudinary.")
             
-        relative_path = f"/static/uploads/exams/submissions/{unique_filename}"
+        relative_path = secure_url
         
         # Record Attempt
         cursor = conn.cursor()
@@ -15616,10 +11370,10 @@ if __name__ == "__main__":
     # Keep reload OFF by default for stability (watchfiles reload has been crashing in this environment).
     # Set BACKEND_RELOAD=true explicitly if hot reload is needed.
     reload_enabled = os.getenv("BACKEND_RELOAD", "false").lower() == "true"
-    backend_host = os.getenv("BACKEND_HOST", "127.0.0.1")
-    backend_port = int(os.getenv("BACKEND_PORT", "8000"))
+    backend_host = os.getenv("BACKEND_HOST", "0.0.0.0")
+    backend_port = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
     try:
-        uvicorn.run(app, host=backend_host, port=backend_port, reload=reload_enabled)
+        uvicorn.run("backend:app", host=backend_host, port=backend_port, reload=reload_enabled)
     except OSError as e:
         if "Address already in use" in str(e) or "address already in use" in str(e):
             print(f"[Startup Error] Port {backend_port} is already in use. Stop the old process or set BACKEND_PORT to another port.")

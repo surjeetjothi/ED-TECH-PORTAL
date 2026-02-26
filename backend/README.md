@@ -87,12 +87,23 @@ This backend is designed to be deployed on [Render](https://render.com) with aut
 
 ## 🔧 Environment Variables
 
-### Required
+### Required for Production
+
+These variables must be set in your production hosting environment (e.g., Render Dashboard).
 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
+| `REDIS_URL` | Redis Cache connection string | `rediss://red-xxxxxxxxxxx:password@host:port` |
 | `GROQ_API_KEY` | Groq API key for AI features | `gsk_xxxxx` |
+| `TEACHER_LOGIN_ALIAS` | Default email alias for teacher login | `teachernoblenexus@gmail.com` |
+| `TEACHER_LOGIN_PASSWORD` | Password for default teacher account | `stronG_pAsSWord!` |
+| `ADMIN_LOGIN_EMAIL` | Super admin login email | `admin@example.com` |
+| `ADMIN_LOGIN_PASSWORD` | Password for admin login | `secureAdminPass99` |
+| `STUDENT_G1_1_PASSWORD` | Default student password | `studentPass2026` |
+| `STUDENT1_GRADE1_EMAIL` | Default student login alias | `student@example.com` |
+| `PARENT_G1_1_PASSWORD` | Default parent password | `parentPass2026` |
+| `PARENT1_EMAIL` | Default parent login alias | `parent@example.com` |
 
 ### Optional
 
