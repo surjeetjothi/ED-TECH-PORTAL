@@ -484,6 +484,8 @@ except Exception as e:
     logger.error(f"Failed to initialize Engagement Helper AI: {e}")
     ENGAGEMENT_HELPER_CLIENT = None
 
+from contextlib import asynccontextmanager
+
 def seed_default_users():
     """Ensure the default teacher, admin and rootadmin users exist in the database.
     Safe to call on every startup — uses INSERT OR IGNORE / ON CONFLICT DO NOTHING."""
