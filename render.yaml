@@ -1,6 +1,6 @@
 services:
   # ─────────────────────────────────────────────────────────────────────────────
-  # BACKEND: FastAPI Python Web Service
+  # BACKEND: FastAPI Python Web Service (also serves the frontend HTML/JS)
   # ─────────────────────────────────────────────────────────────────────────────
   - type: web
     name: classbridge-api
@@ -21,7 +21,7 @@ services:
       - key: JWT_SECRET
         sync: false   # Generate a secure random string in Render dashboard
       - key: ALLOWED_ORIGINS
-        sync: false   # Set to your Render frontend Static Site URL after deploy
+        sync: false   # Comma-separated list of allowed origins (optional)
       - key: GROQ_API_KEY
         sync: false   # Required for AI features
       - key: GOOGLE_CLIENT_ID
@@ -31,28 +31,18 @@ services:
       - key: SMTP_PASSWORD
         sync: false   # Optional: kept as SMTP fallback for local dev
       - key: RESEND_API_KEY
-        sync: false   # REQUIRED for email on free tier — get from resend.com (3,000 free emails/month)
+        sync: false   # REQUIRED for email on free tier — get from resend.com
       - key: RESEND_FROM_EMAIL
-        sync: false   # e.g. noreply@yourdomain.com — must be verified in Resend dashboard
+        sync: false   # e.g. noreply@yourdomain.com — must be verified in Resend
+      - key: ADMIN_LOGIN_EMAIL
+        value: "info@noblenexus-ie.com"
+      - key: ADMIN_LOGIN_PASSWORD
+        sync: false   # Set in Render dashboard
+      - key: TEACHER_LOGIN_ALIAS
+        value: "teachernoblenexus@gmail.com"
       - key: CLOUDINARY_CLOUD_NAME
         sync: false   # Optional: For image uploads
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # FRONTEND: Next.js Static Site (hosted on Render's Global CDN for free)
-  # ─────────────────────────────────────────────────────────────────────────────
-  - type: web
-    name: classbridge-ui
-    env: node
-    region: oregon
-    rootDir: frontend/frontend
-    buildCommand: npm install && npm run build
-    startCommand: npm start
-    envVars:
-      - key: NODE_VERSION
-        value: "20"
-      - key: NEXT_PUBLIC_API_URL
-        sync: false   # Set to your backend Web Service URL, e.g. https://classbridge-api.onrender.com

@@ -623,7 +623,8 @@ origins = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "null",  # file:// origin
-    "https://classbridge-backend-bqj3.onrender.com",
+    "https://classbridge-api.onrender.com",
+    "https://classbridge-ui.onrender.com",
     "https://ed-tech-portal.vercel.app",
     "https://www.ed-tech-portal.vercel.app",
 ]
@@ -668,9 +669,9 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-if IS_PRODUCTION:
-    app.add_middleware(HTTPSRedirectMiddleware)
+# NOTE: Do NOT add HTTPSRedirectMiddleware on Render.
+# Render's load balancer handles HTTPS termination; the app receives plain HTTP internally.
+# Adding this middleware would cause redirect loops and break health checks.
 
 
 import os
