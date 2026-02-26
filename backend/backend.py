@@ -598,10 +598,16 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# ─── Serve the Vite production build ────────────────────────────────────────
-# This lets users open http://localhost:8000 directly in the browser without
-# needing a separate Vite dev server. If the dist folder does not exist yet,
-# we skip gracefully so development still works via `npm run dev`.
+# ─── Mount /frontend/static as alias so paths like /frontend/static/noble_nexus_logo.png work ───
+# index.html and script.js reference assets via /frontend/static/ (legacy path from pre-deployment)
+# This alias ensures they resolve correctly whether running locally or on Render
+app.mount("/frontend/static", StaticFiles(directory=STATIC_DIR), name="frontend_static_alias")
+
+# ─── Serve index.html at root ────────────────────────────────────────────────
+# First try: bundled in backend/static/index.html (production / Render)
+# Second try: dist/index.html (Vite build)
+# Third try: frontend/static_app/index.html (local dev with full monorepo)
+_STATIC_INDEX = os.path.join(STATIC_DIR, "index.html")
 _DIST_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "dist"))
 _DIST_ASSETS = os.path.join(_DIST_DIR, "assets")
 _DIST_INDEX  = os.path.join(_DIST_DIR, "index.html")
@@ -609,10 +615,17 @@ _DIST_INDEX  = os.path.join(_DIST_DIR, "index.html")
 if os.path.isdir(_DIST_ASSETS):
     app.mount("/assets", StaticFiles(directory=_DIST_ASSETS), name="vite_assets")
 
-if os.path.isfile(_DIST_INDEX):
+def _get_index_html() -> str | None:
+    for candidate in [_STATIC_INDEX, _DIST_INDEX, FRONTEND_INDEX]:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+_index_path = _get_index_html()
+if _index_path:
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def serve_frontend(request: Request):
-        with open(_DIST_INDEX, "r", encoding="utf-8") as f:
+        with open(_index_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
 app.include_router(rbac_router)
 
