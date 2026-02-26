@@ -3,7 +3,7 @@ uvicorn==0.23.2
 pandas==2.1.0
 numpy==1.25.2
 scikit-learn==1.3.0
-groq==0.9.0
+groq==0.13.0
 pydantic==2.4.2
 python-multipart==0.0.6
 requests==2.31.0
@@ -22,5 +22,6 @@ asyncpg
 greenlet
 cloudinary==1.41.0
 pytest
-httpx
+httpx==0.27.2
 pytest-asyncio
+aiosqlite
