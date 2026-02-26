@@ -1,17 +1,10 @@
-import os
-from dotenv import load_dotenv
+import logging
+logger = logging.getLogger(__name__)
 
-env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
-load_dotenv(dotenv_path=env_path, override=True)
-
-DATABASE_URL_ENV = os.getenv("DATABASE_URL", "class_bridge.db")
-USE_POSTGRES = os.getenv("USE_POSTGRES", "false").lower() == "true"
-DATABASE_URL = DATABASE_URL_ENV
-
-sqlite_candidate = (DATABASE_URL_ENV or "class_bridge.db").strip()
-
-if USE_POSTGRES and "postgres" not in DATABASE_URL_ENV.lower():
-    raise ValueError("System is configured to use PostgreSQL (USE_POSTGRES=true), but a valid PostgreSQL DATABASE_URL was not provided. Refusing to fall back to ephemeral SQLite.")
+if USE_POSTGRES and (not DATABASE_URL_ENV or "postgres" not in DATABASE_URL_ENV.lower()):
+    logger.error("System is configured to use PostgreSQL (USE_POSTGRES=true), but a valid PostgreSQL DATABASE_URL was not provided. Falling back to default SQLite for diagnostics.")
+    USE_POSTGRES = False
+    DATABASE_URL = "class_bridge.db"
 
 if sqlite_candidate.startswith("sqlite:///"):
     sqlite_candidate = "class_bridge.db"

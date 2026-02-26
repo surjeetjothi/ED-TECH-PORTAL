@@ -581,36 +581,49 @@ def seed_default_users():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    """
+    Application Lifespan Watchdog.
+    Ensures that individual module failures do not crash the entire gunicorn worker.
+    """
+    logger.info("=== SERVICE STARTUP SEQUENCE STARTING ===")
+    
+    # 1. Database Initialization
     try:
-        logger.info("Initializing Database...")
+        logger.info("Lifespan [1/4]: Initializing Database Schema...")
         await initialize_db_schema()
-        logger.info("Database Initialized.")
+        logger.info("Lifespan [1/4]: Database Initialized successfully.")
     except Exception as e:
-        logger.error(f"Startup DB Error: {e}")
-    try:
-        logger.info("Seeding default users...")
-        seed_default_users()
-        logger.info("Default users seeded.")
-    except Exception as e:
-        logger.error(f"Startup seed error: {e}")
-    try:
-        logger.info("Initializing RBAC module...")
-        init_rbac_module()
-        logger.info("RBAC module initialized.")
-    except Exception as e:
-        logger.error(f"Startup RBAC module error: {e}")
+        logger.error(f"Lifespan [1/4]: CRITICAL ERROR during DB init: {e}", exc_info=True)
 
+    # 2. Data Seeding
     try:
-        logger.info("Training Recommendation Model (Lazy loaded on demand)...")
-        # train_recommendation_model() # Disabled to prevent startup hang
-        logger.info("Model training deferred.")
+        logger.info("Lifespan [2/4]: Seeding default user accounts...")
+        seed_default_users()
+        logger.info("Lifespan [2/4]: Seeding completed.")
     except Exception as e:
-        logger.warning(f"Startup ML Error: {e}")
+        logger.error(f"Lifespan [2/4]: ERROR during seeding: {e}", exc_info=True)
+
+    # 3. RBAC Initialization
+    try:
+        logger.info("Lifespan [3/4]: Initializing RBAC module...")
+        init_rbac_module()
+        logger.info("Lifespan [3/4]: RBAC module initialized.")
+    except Exception as e:
+        logger.error(f"Lifespan [3/4]: ERROR during RBAC init: {e}", exc_info=True)
+
+    # 4. Background Systems
+    try:
+        logger.info("Lifespan [4/4]: Preparing background systems (ML, Caching)...")
+        # train_recommendation_model() # Deferred to prevent startup hang
+        logger.info("Lifespan [4/4]: Background systems ready (Diagnostic mode).")
+    except Exception as e:
+        logger.warning(f"Lifespan [4/4]: Non-fatal error in background systems: {e}")
+    
+    logger.info("=== SERVICE STARTUP SEQUENCE COMPLETE - ACCEPTING REQUESTS ===")
     
     yield
-    # Shutdown (if any cleanup is needed)
-    logger.info("Shutting down...")
+    
+    logger.info("=== SERVICE SHUTDOWN INITIATED ===")
 
 
 # --- NEW AI ENGAGEMENT MODELS ---
