@@ -483,7 +483,85 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Engagement Helper AI: {e}")
     ENGAGEMENT_HELPER_CLIENT = None
-from contextlib import asynccontextmanager
+
+def seed_default_users():
+    """Ensure the default teacher, admin and rootadmin users exist in the database.
+    Safe to call on every startup — uses INSERT OR IGNORE / ON CONFLICT DO NOTHING."""
+    try:
+        from app.core.database import get_db_connection
+        from app.core.auth_utils import hash_password
+        from app.core.config import ADMIN_LOGIN_EMAIL, ADMIN_LOGIN_PASSWORD, TEACHER_LOGIN_ALIAS
+        import os
+
+        teacher_email = TEACHER_LOGIN_ALIAS or os.getenv("TEACHER_LOGIN_ALIAS", "teachernoblenexus@gmail.com")
+        admin_email   = ADMIN_LOGIN_EMAIL   or os.getenv("ADMIN_LOGIN_EMAIL",   "info@noblenexus-ie.com")
+        admin_pass    = ADMIN_LOGIN_PASSWORD or os.getenv("ADMIN_LOGIN_PASSWORD", "KingCross@17")
+        teacher_pass  = os.getenv("TEACHER_DEFAULT_PASSWORD", "Teacher@123")
+
+        conn = get_db_connection()
+        try:
+            cur = conn.cursor()
+            # Ensure a default school exists
+            cur.execute("""
+                INSERT INTO schools (id, name) VALUES (1, 'Noble Nexus Academy')
+                ON CONFLICT (id) DO NOTHING
+            """)
+            conn.commit()
+
+            default_users = [
+                {
+                    "id":          "teacher",
+                    "name":        "Demo Teacher",
+                    "role":        "Teacher",
+                    "password":    hash_password(teacher_pass),
+                    "is_super":    False,
+                },
+                {
+                    "id":          "admin",
+                    "name":        "Admin",
+                    "role":        "Root_Super_Admin",
+                    "password":    hash_password(admin_pass),
+                    "is_super":    True,
+                },
+                {
+                    "id":          "rootadmin",
+                    "name":        "Root Admin",
+                    "role":        "Root_Super_Admin",
+                    "password":    hash_password(admin_pass),
+                    "is_super":    True,
+                },
+                {
+                    "id":          admin_email,
+                    "name":        "Root Admin",
+                    "role":        "Root_Super_Admin",
+                    "password":    hash_password(admin_pass),
+                    "is_super":    True,
+                },
+                {
+                    "id":          teacher_email,
+                    "name":        "Demo Teacher",
+                    "role":        "Teacher",
+                    "password":    hash_password(teacher_pass),
+                    "is_super":    False,
+                },
+            ]
+            for u in default_users:
+                cur.execute("""
+                    INSERT INTO students
+                        (id, name, grade, preferred_subject, attendance_rate, home_language,
+                         password, role, school_id, is_super_admin, email_verified)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
+                """, (
+                    u["id"], u["name"], "N/A", "General", 100.0, "English",
+                    u["password"], u["role"], 1, 1 if u["is_super"] else 0, 1
+                ))
+            conn.commit()
+            logger.info("Default users seeded successfully.")
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"seed_default_users: non-fatal error — {exc}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -494,6 +572,12 @@ async def lifespan(app: FastAPI):
         logger.info("Database Initialized.")
     except Exception as e:
         logger.error(f"Startup DB Error: {e}")
+    try:
+        logger.info("Seeding default users...")
+        seed_default_users()
+        logger.info("Default users seeded.")
+    except Exception as e:
+        logger.error(f"Startup seed error: {e}")
     try:
         logger.info("Initializing RBAC module...")
         init_rbac_module()
@@ -511,6 +595,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown (if any cleanup is needed)
     logger.info("Shutting down...")
+
 
 # --- NEW AI ENGAGEMENT MODELS ---
 app = FastAPI(title="EdTech AI Portal API - Enhanced", lifespan=lifespan)
