@@ -707,10 +707,11 @@ if _index_path:
                 content = f.read()
                 
                 # Dynamic Template Injection
+                render_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
                 replacements = {
                     "{{GOOGLE_CLIENT_ID}}": os.getenv("GOOGLE_CLIENT_ID", ""),
-                    "{{RENDER_URL}}": os.getenv("RENDER_EXTERNAL_URL", ""),
-                    "{{API_BASE_URL}}": "/api" # Default to relative
+                    "{{RENDER_URL}}": render_url,
+                    "{{API_BASE_URL}}": f"{render_url}/api" if render_url else "/api"
                 }
                 for k, v in replacements.items():
                     content = content.replace(k, v)
