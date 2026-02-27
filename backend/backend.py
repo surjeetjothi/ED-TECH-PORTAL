@@ -510,58 +510,24 @@ def seed_default_users():
             """)
             conn.commit()
 
-            default_users = [
-                {
-                    "id":          "teacher",
-                    "name":        "Demo Teacher",
-                    "role":        "Teacher",
-                    "password":    hash_password(teacher_pass),
-                    "is_super":    False,
-                },
-                {
-                    "id":          "admin",
-                    "name":        "Admin",
-                    "role":        "Root_Super_Admin",
-                    "password":    hash_password(admin_pass),
-                    "is_super":    True,
-                },
-                {
-                    "id":          "rootadmin",
-                    "name":        "Root Admin",
-                    "role":        "Root_Super_Admin",
-                    "password":    hash_password(admin_pass),
-                    "is_super":    True,
-                },
-                {
-                    "id":          admin_email,
-                    "name":        "Root Admin",
-                    "role":        "Root_Super_Admin",
-                    "password":    hash_password(admin_pass),
-                    "is_super":    True,
-                },
-                {
-                    "id":          teacher_email,
-                    "name":        "Demo Teacher",
-                    "role":        "Teacher",
-                    "password":    hash_password(teacher_pass),
-                    "is_super":    False,
-                },
-                {
-                    "id":          "student@noblenexus.com",
-                    "name":        "Demo Student",
-                    "role":        "Student",
-                    "password":    hash_password("Student@123"),
-                    "is_super":    False,
-                },
-                {
-                    "id":          "parent@noblenexus.com",
-                    "name":        "Demo Parent",
-                    "role":        "Parent_Guardian",
-                    "password":    hash_password("Parent@123"),
-                    "is_super":    False,
-                },
+            default_users_data = [
+                ("teacher",      "Demo Teacher", "Teacher",          teacher_pass,  False),
+                ("admin",        "Admin",        "Root_Super_Admin", admin_pass,    True),
+                ("rootadmin",    "Root Admin",   "Root_Super_Admin", admin_pass,    True),
+                (admin_email,    "Root Admin",   "Root_Super_Admin", admin_pass,    True),
+                (teacher_email,  "Demo Teacher", "Teacher",          teacher_pass,  False),
+                ("student@noblenexus.com", "Demo Student", "Student", "Student@123", False),
+                ("parent@noblenexus.com",  "Demo Parent",  "Parent_Guardian", "Parent@123", False),
             ]
-            for u in default_users:
+
+            for uid, name, role, raw_pass, is_super in default_users_data:
+                # Check if user already exists to save expensive hashing
+                cur.execute("SELECT 1 FROM students WHERE id = ?", (uid,))
+                if cur.fetchone():
+                    continue
+                
+                # Only hash if user doesn't exist
+                hashed = hash_password(raw_pass)
                 cur.execute("""
                     INSERT INTO students
                         (id, name, grade, preferred_subject, attendance_rate, home_language,
@@ -569,11 +535,11 @@ def seed_default_users():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO NOTHING
                 """, (
-                    u["id"], u["name"], "N/A", "General", 100.0, "English",
-                    u["password"], u["role"], 1, 1 if u["is_super"] else 0, 1
+                    uid, name, "N/A", "General", 100.0, "English",
+                    hashed, role, 1, 1 if is_super else 0, 1
                 ))
             conn.commit()
-            logger.info("Default users seeded successfully.")
+            logger.info("Default users seeding check complete.")
     except Exception as exc:
         logger.warning(f"seed_default_users: non-fatal error — {exc}")
 
