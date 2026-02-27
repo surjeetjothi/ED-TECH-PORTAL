@@ -333,15 +333,7 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
                 logger.error(f"Authenticator setup check failed: {e}")
                 raise HTTPException(status_code=500, detail="Unable to initialize authenticator setup.")
 
-        require_email_otp = (
-            ENABLE_2FA
-            or tenant_auth_mode == "email_otp"
-            or auth_user_id in ("teacher", "admin")
-            or username_lower in STUDENT_LOGIN_ALIASES
-            or auth_user_id in STUDENT_OTP_EMAIL_OVERRIDES
-            or username_lower in PARENT_LOGIN_ALIASES
-            or auth_user_id in PARENT_OTP_EMAIL_OVERRIDES
-        )
+        require_email_otp = (ENABLE_2FA or tenant_auth_mode == "email_otp")
 
         # Trigger email OTP when enabled (or privileged account) and recipient email exists.
         if require_email_otp and login_email:
