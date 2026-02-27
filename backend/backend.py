@@ -669,9 +669,19 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# ─── Mount /frontend/static as alias so paths like /frontend/static/noble_nexus_logo.png work ───
-# index.html and script.js reference assets via /frontend/static/ (legacy path from pre-deployment)
-# This alias ensures they resolve correctly whether running locally or on Render
+# --- ROOT ASSET MOUNTS ---
+# The index.html at root references "./src/assets/..." and "./src/modules/..."
+# These mounts ensure those paths resolve correctly when index.html is served from /
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+if os.path.exists(SRC_DIR):
+    app.mount("/src", StaticFiles(directory=SRC_DIR), name="src_assets")
+
+FRONTEND_ROOT = os.path.join(PROJECT_ROOT, "frontend")
+if os.path.exists(FRONTEND_ROOT):
+    app.mount("/frontend", StaticFiles(directory=FRONTEND_ROOT), name="frontend_root")
+
+# Mount /frontend/static as alias for legacy code
 app.mount("/frontend/static", StaticFiles(directory=STATIC_DIR), name="frontend_static_alias")
 
 _STATIC_INDEX = os.path.join(STATIC_DIR, "index.html")
