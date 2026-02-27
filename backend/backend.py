@@ -679,9 +679,12 @@ _FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "static
 _FRONTEND_INDEX = os.path.join(_FRONTEND_DIR, "index.html")
 
 def _get_index_html() -> str | None:
-    # 1. Check backend/static/index.html (likely placement on Render)
+    # 1. Check root directory (ClassBridge layout)
+    root_index = os.path.abspath(os.path.join(BASE_DIR, "..", "index.html"))
+    if os.path.isfile(root_index): return root_index
+    # 2. Check backend/static/index.html (Render placement)
     if os.path.isfile(_STATIC_INDEX): return _STATIC_INDEX
-    # 2. Check frontend/static_app/index.html (local dev or alternative layout)
+    # 3. Check frontend/static_app/index.html (Local dev)
     if os.path.isfile(_FRONTEND_INDEX): return _FRONTEND_INDEX
     return None
 
@@ -691,7 +694,18 @@ if _index_path:
     async def serve_frontend(request: Request):
         try:
             with open(_index_path, "r", encoding="utf-8") as f:
-                return HTMLResponse(content=f.read())
+                content = f.read()
+                
+                # Dynamic Template Injection
+                replacements = {
+                    "{{GOOGLE_CLIENT_ID}}": os.getenv("GOOGLE_CLIENT_ID", ""),
+                    "{{RENDER_URL}}": os.getenv("RENDER_EXTERNAL_URL", ""),
+                    "{{API_BASE_URL}}": "/api" # Default to relative
+                }
+                for k, v in replacements.items():
+                    content = content.replace(k, v)
+                    
+                return HTMLResponse(content=content)
         except Exception as e:
             logger.error(f"Error serving index.html: {e}")
             return HTMLResponse(content="<h1>Server Error</h1><p>Frontend file missing.</p>", status_code=500)

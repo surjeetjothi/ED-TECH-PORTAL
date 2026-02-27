@@ -794,3 +794,5 @@ window.handleLogin = handleLogin;
 window.handle2FASubmit = handle2FASubmit;
 window.handleCredentialResponse = handleCredentialResponse;
 window.handleSocialLogin = handleSocialLogin;
+window.authModuleLoaded = true;
+console.log("Auth Module Loaded & Signalled.");
