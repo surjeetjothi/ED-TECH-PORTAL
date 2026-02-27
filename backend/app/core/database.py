@@ -114,6 +114,15 @@ class PostgresConnectionWrapper:
         self.conn.rollback()
     def close(self):
         self.conn.close()
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            try:
+                self.rollback()
+            except:
+                pass
+        self.close()
 
 class PooledPostgresConnectionWrapper(PostgresConnectionWrapper):
     def close(self):

@@ -22,7 +22,7 @@ from app.core.config import (
     STUDENT_LOGIN_ALIASES, PARENT_LOGIN_ALIASES, ALLOW_OTP_CONSOLE_FALLBACK,
     VERIFICATION_TOKEN_TTL_HOURS, VERIFICATION_LINK_BASE, GOOGLE_CLIENT_ID
 )
-from backend import send_email, REQUESTS_IMPORT_ERROR
+# from backend import send_email, REQUESTS_IMPORT_ERROR # Circular import risk removed
 
 # We might need to import these from a utils file, but for now we'll mock or keep them
 # Since they are in backend.py, we either import them from backend (circular import risk) 
@@ -356,6 +356,7 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
                 conn.commit()
                 
                 # Send Email
+                from backend import send_email
                 background_tasks.add_task(send_email, login_email, "Your Verification Code", f"Your code is: {otp_code}")
                 
                 if ALLOW_OTP_CONSOLE_FALLBACK:
@@ -735,6 +736,7 @@ async def register_user(request: RegisterRequest, background_tasks: BackgroundTa
         <p><a href="{verification_link}">Verify Email</a></p>
         <p>This link expires in {VERIFICATION_TOKEN_TTL_HOURS} hours.</p>
         """
+        from backend import send_email
         background_tasks.add_task(send_email, email, "Verify your Noble Nexus account", email_body)
 
         conn.commit()
@@ -797,6 +799,7 @@ async def verify_email(token: str):
 async def google_login(request: SocialTokenRequest):
     logger.info(f"Processing Google Login...")
     if requests is None:
+        from backend import REQUESTS_IMPORT_ERROR
         raise HTTPException(status_code=503, detail=f"Google login unavailable: requests import failed ({REQUESTS_IMPORT_ERROR})")
     
     # 1. Verify Token with Google
@@ -851,6 +854,7 @@ async def google_login(request: SocialTokenRequest):
 async def microsoft_login(request: SocialTokenRequest):
     logger.info("Processing Microsoft Login")
     if requests is None:
+        from backend import REQUESTS_IMPORT_ERROR
         raise HTTPException(status_code=503, detail=f"Microsoft login unavailable: requests import failed ({REQUESTS_IMPORT_ERROR})")
     
     # Check if this is a Simulated Token (starts with 'token_')

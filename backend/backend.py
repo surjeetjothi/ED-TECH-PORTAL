@@ -63,6 +63,7 @@ from app.core.config import (
 from app.core.caching import redis_client, api_ttl_cache, clear_student_cache as _clear_student_cache
 from app.core.security import RateLimiter
 from app.core.auth_utils import hash_password, verify_password, log_auth_event, validate_password_strength
+from app.core.database import engine, get_db, initialize_db_schema, get_db_connection
 
 # Initialize config
 DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL_ENV)
@@ -500,8 +501,7 @@ def seed_default_users():
         admin_pass    = ADMIN_LOGIN_PASSWORD or os.getenv("ADMIN_LOGIN_PASSWORD", "KingCross@17")
         teacher_pass  = os.getenv("TEACHER_DEFAULT_PASSWORD", "Teacher@123")
 
-        conn = get_db_connection()
-        try:
+        with get_db_connection() as conn:
             cur = conn.cursor()
             # Ensure a default school exists
             cur.execute("""
@@ -574,8 +574,6 @@ def seed_default_users():
                 ))
             conn.commit()
             logger.info("Default users seeded successfully.")
-        finally:
-            conn.close()
     except Exception as exc:
         logger.warning(f"seed_default_users: non-fatal error — {exc}")
 
@@ -700,11 +698,6 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Health Check Endpoint (Required for Render health checks and 503 resolution)
-@app.get("/api/health", include_in_schema=False)
-async def health_check():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
 # Mount uploads directory for assignment files
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
@@ -784,8 +777,7 @@ def format_df_to_markdown(df):
         rows.append(row_str)
     return f"\n{header}\n{separator}\n" + "\n".join(rows) + "\n"
 
-# --- POSTGRES COMPATIBILITY LAYER ---
-from app.core.database import engine, get_db, initialize_db_schema, get_db_connection
+# --- Phase 1 Legacy Adapters (Restored for backward compatibility) ---
 
  
 

@@ -6,9 +6,7 @@ from app.core.database import get_db_connection
 from pydantic import BaseModel
 
 import sys
-# Hack to allow importing from backend without circular issues if executed oddly
-if "backend" not in sys.modules:
-    import backend
+# No longer importing backend here to avoid circular dependencies
 
 from app.core.security import verify_any_permission
 from app.core.models import *

@@ -7,7 +7,7 @@
     <!-- FIX: Ensure Referrer matches Origin for Google OAuth -->
     <meta name="referrer" content="no-referrer-when-downgrade">
     <title>ClassBridge</title>
-    <link rel="icon" type="image/x-icon" href="./frontend/static/noble_logo.png">
+    <link rel="icon" type="image/x-icon" href="./src/assets/noble_logo.png">
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Material Icons -->
@@ -1642,7 +1642,7 @@
     <!-- Sidebar -->
     <nav id="sidebar">
         <a href="#" class="brand d-flex align-items-center gap-2 text-decoration-none">
-            <img src="./frontend/static/noble_logo.png" alt="Logo"
+            <img src="./src/assets/noble_logo.png" alt="Logo"
                 style="width: 45px; height: 45px; border-radius: 12px; object-fit: cover;">
             <div class="d-flex flex-column">
                 <span class="fw-bold fs-5 text-white" style="line-height: 1.2;">Class Bridge</span>
@@ -1821,7 +1821,7 @@
                 <span class="material-icons" style="font-size: 28px;">menu</span>
             </button>
             <div class="d-flex align-items-center">
-                <img src="./frontend/static/noble_logo.png" alt="Logo"
+                <img src="./src/assets/noble_logo.png" alt="Logo"
                     style="height: 40px; width: auto; margin-right: 10px; border-radius: 8px;">
                 <div class="d-flex flex-column">
                     <h5 class="m-0 fw-bold text-primary-custom" style="line-height: 1.2;">Class Bridge</h5>
@@ -1845,7 +1845,7 @@
                 <div class="container d-flex align-items-center justify-content-between">
                     <!-- Brand -->
                     <a class="navbar-brand d-flex align-items-center gap-3 text-white" href="#">
-                        <img src="./frontend/static/noble_logo.png" alt="Logo"
+                        <img src="./src/assets/noble_logo.png" alt="Logo"
                             style="width: 45px; height: 45px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2);">
                         <div class="d-flex flex-column">
                             <span class="fw-bold fs-4"
@@ -1963,6 +1963,7 @@
                             <!-- Teacher Card -->
                             <div class="col">
                                 <div class="role-card p-4 rounded-4 cursor-pointer glass-card h-100"
+                                    data-login-role="Teacher"
                                     onclick="selectLoginRole('Teacher'); showLogin()" style="cursor: pointer;">
                                     <div class="d-flex flex-column align-items-center gap-3">
                                         <div class="icon-circle d-flex align-items-center justify-content-center rounded-circle mb-2"
@@ -1978,6 +1979,7 @@
                             <!-- Parent Card -->
                             <div class="col">
                                 <div class="role-card p-4 rounded-4 cursor-pointer glass-card h-100"
+                                    data-login-role="Parent"
                                     onclick="selectLoginRole('Parent'); showLogin()" style="cursor: pointer;">
                                     <div class="d-flex flex-column align-items-center gap-3">
                                         <div class="icon-circle d-flex align-items-center justify-content-center rounded-circle mb-2"
@@ -1993,6 +1995,7 @@
                             <!-- Student Card -->
                             <div class="col">
                                 <div class="role-card p-4 rounded-4 cursor-pointer glass-card h-100"
+                                    data-login-role="Student"
                                     onclick="selectLoginRole('Student'); showLogin()" style="cursor: pointer;">
                                     <div class="d-flex flex-column align-items-center gap-3">
                                         <div class="icon-circle d-flex align-items-center justify-content-center rounded-circle mb-2"
@@ -2176,7 +2179,7 @@
                                 More</button>
                         </div>
                         <div class="col-lg-6">
-                            <img src="./frontend/static/admin_dashboard_preview.png" alt="Admin Dashboard Preview"
+                            <img src="./src/assets/admin_dashboard_preview.png" alt="Admin Dashboard Preview"
                                 class="img-fluid rounded-4 shadow-lg border"
                                 style="width: 100%; height: auto; object-fit: cover;">
                         </div>
@@ -2212,7 +2215,7 @@
                         <!-- Left Column: Brand & Downloads -->
                         <div class="col-lg-3 col-md-12 mb-4 mb-lg-0">
                             <div class="d-flex align-items-center gap-3 mb-3">
-                                <img src="./frontend/static/noble_logo.png" alt="Logo"
+                                <img src="./src/assets/noble_logo.png" alt="Logo"
                                     style="width: 50px; height: 50px; border-radius: 12px; object-fit: cover;">
                                 <div class="d-flex flex-column">
                                     <span class="fw-bold fs-4 text-white" style="line-height: 1.2;">Class Bridge</span>
@@ -2312,7 +2315,7 @@
                                 <div class="mt-4 pt-3 border-top border-secondary border-opacity-25">
                                     <div class="d-flex align-items-start gap-3">
                                         <div class="bg-white p-1 rounded-3 d-inline-block">
-                                            <img src="./frontend/static/noble_nexus_qr.png" alt="Scan"
+                                            <img src="./src/assets/noble_nexus_qr.png" alt="Scan"
                                                 style="width: 60px; height: 60px;"
                                                 onerror="this.src='https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://noblenexus.com'">
                                         </div>
@@ -2321,7 +2324,7 @@
                                                 style="font-size: 10px; letter-spacing: 0.5px;"
                                                 data-i18n="text_a_product_by">A Product By</small>
                                             <div class="d-flex align-items-center gap-2">
-                                                <img src="./frontend/static/noble_nexus_logo.png" width="20" height="20"
+                                                <img src="./src/assets/noble_nexus_logo.png" width="20" height="20"
                                                     class="rounded-circle" onerror="this.style.display='none'">
                                                 <span class="fw-bold text-white small">Noble Nexus</span>
                                             </div>
@@ -2362,8 +2365,8 @@
                 <div class="container d-flex align-items-center justify-content-between">
                     <a class="navbar-brand d-flex align-items-center gap-3 text-primary-custom"
                         href="javascript:void(0)" onclick="switchView('landing-view')">
-                        <img src="./frontend/static/class_bridge_logo.jpg"
-                            onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                        <img src="./src/assets/class_bridge_logo.jpg"
+                            onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                             style="width: 45px; height: 45px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1);">
                         <div class="d-flex flex-column lh-1">
                             <span class="fw-bold fs-4" style="font-family: 'Poppins', sans-serif;">Class Bridge</span>
@@ -3327,8 +3330,8 @@
                 <div class="container d-flex align-items-center justify-content-between">
                     <a class="navbar-brand d-flex align-items-center gap-3 text-primary-custom"
                         href="javascript:void(0)" onclick="switchView('landing-view')">
-                        <img src="./frontend/static/class_bridge_logo.jpg"
-                            onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                        <img src="./src/assets/class_bridge_logo.jpg"
+                            onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                             style="width: 45px; height: 45px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1);">
                         <div class="d-flex flex-column lh-1">
                             <span class="fw-bold fs-4" style="font-family: 'Poppins', sans-serif;">Class
@@ -3508,8 +3511,8 @@
                 <div class="container d-flex align-items-center justify-content-between">
                     <a class="navbar-brand d-flex align-items-center gap-3 text-primary-custom"
                         href="javascript:void(0)" onclick="switchView('landing-view')">
-                        <img src="./frontend/static/class_bridge_logo.jpg"
-                            onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                        <img src="./src/assets/class_bridge_logo.jpg"
+                            onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                             style="width: 45px; height: 45px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1);">
                         <div class="d-flex flex-column lh-1">
                             <span class="fw-bold fs-4" style="font-family: 'Poppins', sans-serif;">Class
@@ -3665,8 +3668,8 @@
                 <div class="container d-flex align-items-center justify-content-between">
                     <a class="navbar-brand d-flex align-items-center gap-3 text-primary-custom"
                         href="javascript:void(0)" onclick="switchView('landing-view')">
-                        <img src="./frontend/static/class_bridge_logo.jpg"
-                            onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                        <img src="./src/assets/class_bridge_logo.jpg"
+                            onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                             style="width: 45px; height: 45px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1);">
                         <div class="d-flex flex-column lh-1">
                             <span class="fw-bold fs-4" style="font-family: 'Poppins', sans-serif;">Class
@@ -3837,8 +3840,8 @@
                     <div class="position-absolute top-0 start-0 p-5" style="z-index: 2;">
                         <a href="#" class="d-flex align-items-center gap-3 text-white text-decoration-none"
                             onclick="switchView('landing-view')">
-                            <img src="./frontend/static/class_bridge_logo.jpg"
-                                onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                            <img src="./src/assets/class_bridge_logo.jpg"
+                                onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                                 style="width: 40px; height: 40px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.2);">
                             <div class="d-flex flex-column lh-1 gap-2">
                                 <span class="fw-bold fs-5">Class Bridge</span>
@@ -3905,8 +3908,8 @@
                     <div class="px-4 py-3 mx-auto w-100" style="max-width: 480px; margin-bottom: auto;">
                         <div class="text-center mb-4">
                             <div class="d-lg-none d-flex flex-column align-items-center mb-4">
-                                <img src="./frontend/static/class_bridge_logo.jpg"
-                                    onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                                <img src="./src/assets/class_bridge_logo.jpg"
+                                    onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                                     style="width: 60px; height: 60px; border-radius: 12px; margin-bottom: 0.5rem;">
                                 <h5 class="fw-bold mb-2 text-dark">Class Bridge</h5>
                                 <small class="text-muted text-uppercase" style="font-size: 0.6rem;">a product by
@@ -4086,8 +4089,8 @@
                     <div class="position-absolute top-0 start-0 p-5">
                         <a href="#" class="d-flex align-items-center gap-3 text-white text-decoration-none"
                             onclick="switchView('landing-view')">
-                            <img src="./frontend/static/class_bridge_logo.jpg"
-                                onerror="this.src='./frontend/static/noble_nexus_logo.png'" alt="Logo"
+                            <img src="./src/assets/class_bridge_logo.jpg"
+                                onerror="this.onerror=null;this.src='./src/assets/noble_nexus_logo.png'" alt="Logo"
                                 style="width: 40px; height: 40px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.2);">
                             <div class="d-flex flex-column lh-1">
                                 <span class="fw-bold fs-5">Class Bridge</span>
@@ -5057,6 +5060,17 @@
                                     <option>(GMT -05:00) Eastern Time</option>
                                     <option>(GMT +00:00) UTC</option>
                                 </select>
+                            </div>
+                            <div class="mb-4">
+                                <label class="form-label small fw-bold text-muted">Language</label>
+                                <select class="form-select" id="settings-language-select" aria-label="Language">
+                                    <option value="en">English</option>
+                                    <option value="es">Español</option>
+                                    <option value="ar">العربية</option>
+                                    <option value="hi">हिन्दी</option>
+                                    <option value="ja">日本語</option>
+                                </select>
+                                <div class="form-text text-muted small">This applies across your dashboard views.</div>
                             </div>
                             <button type="submit" class="btn btn-primary-custom">Save Changes</button>
                         </form>
@@ -9526,66 +9540,132 @@
         <!-- Scripts -->
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
         <!-- Plotly removed from initial load — lazy-loaded on-demand via loadPlotlyAndRender() in script.js (saved 3.4MB) -->
+        <script>
+            // Defensive fallback so role-card navigation still works if app bootstrap is delayed.
+            (function () {
+                if (typeof window.switchView !== 'function') {
+                    window.switchView = function (viewId) {
+                        document.querySelectorAll('.view').forEach(function (v) {
+                            v.classList.remove('active');
+                            v.style.display = 'none';
+                        });
+                        var target = document.getElementById(viewId);
+                        if (target) {
+                            target.classList.add('active');
+                            target.style.display = '';
+                        }
+                    };
+                }
 
-        <script src="./frontend/static/grid_plasma.js"></script>
-        <script src="./frontend/static/shader_background_webgl.js"></script>
-        <script src="./frontend/static/glowing_cards.js"></script>
-        <script src="./frontend/static/testimonial_cards.js"></script>
+                if (typeof window.selectLoginRole !== 'function') {
+                    window.selectLoginRole = function (role) {
+                        var selected = document.getElementById('selected-role');
+                        if (selected) selected.value = role;
+                        var title = document.getElementById('login-title');
+                        if (title) title.textContent = role + ' Login';
+                        var label = document.getElementById('login-role-label');
+                        if (label) label.textContent = role;
+                    };
+                }
+
+                if (typeof window.showLogin !== 'function') {
+                    window.showLogin = function (e) {
+                        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                        window.switchView('login-view');
+                    };
+                }
+
+                document.addEventListener('DOMContentLoaded', function () {
+                    var isLocalDevHost = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+                    if (isLocalDevHost && 'serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(function (regs) {
+                            regs.forEach(function (reg) { reg.unregister(); });
+                        }).catch(function () { });
+                    }
+                    if (isLocalDevHost && 'caches' in window) {
+                        caches.keys().then(function (keys) {
+                            keys.forEach(function (key) { caches.delete(key); });
+                        }).catch(function () { });
+                    }
+
+                    document.querySelectorAll('[data-login-role]').forEach(function (card) {
+                        card.addEventListener('click', function () {
+                            var role = card.getAttribute('data-login-role');
+                            if (!role) return;
+                            window.selectLoginRole(role);
+                            window.showLogin();
+                        });
+                    });
+
+                    if (typeof window.initAllAnimations === 'function') {
+                        try { window.initAllAnimations(); } catch (e) { }
+                    }
+                    if (typeof window.initBackgroundPaths === 'function') {
+                        try { window.initBackgroundPaths(); } catch (e) { }
+                    }
+                });
+            })();
+        </script>
+
+        <script defer src="./src/assets/grid_plasma.js"></script>
+        <script defer src="./src/assets/shader_background_webgl.js"></script>
+        <script defer src="./src/assets/glowing_cards.js"></script>
+        <script defer src="./src/assets/testimonial_cards.js"></script>
         <!-- ═══════════════════════════════════════════════════════════════
              MODULAR FRONTEND — load order matters (deps before dependants)
              ═══════════════════════════════════════════════════════════════ -->
 
         <!-- Infrastructure (zero deps) -->
-        <script src="./frontend/static/cb_perf.js"></script>
-        <script src="./frontend/static/cb_view_registry.js"></script>
+        <script defer src="./src/assets/cb_perf.js"></script>
+        <script defer src="./src/assets/cb_view_registry.js"></script>
 
         <!-- Shared helpers — must load before any feature module -->
-        <script src="./frontend/modules/shared/localization.js"></script>
-        <script src="./frontend/modules/shared/sidebar.js"></script>
-        <script src="./frontend/modules/shared/ai_chat.js"></script>
+        <script defer src="./src/modules/shared/localization.js"></script>
+        <script defer src="./src/modules/shared/sidebar.js"></script>
+        <script defer src="./src/modules/shared/ai_chat.js"></script>
 
         <!-- Auth & Identity -->
-        <script src="./frontend/modules/auth/auth.js"></script>
+        <script defer src="./src/modules/auth/auth.js"></script>
 
         <!-- Roles & Permissions -->
-        <script src="./frontend/modules/roles_permissions/rbac.js"></script>
+        <script defer src="./src/modules/roles_permissions/rbac.js"></script>
 
         <!-- Admin panels -->
-        <script src="./frontend/modules/admin/root_admin.js"></script>
-        <script src="./frontend/modules/admin/super_admin.js"></script>
+        <script defer src="./src/modules/admin/root_admin.js"></script>
+        <script defer src="./src/modules/admin/super_admin.js"></script>
 
         <!-- Teacher modules -->
-        <script src="./frontend/modules/teacher/teacher_reports.js"></script>
-        <script src="./frontend/modules/teacher/teacher_dashboard.js"></script>
-        <script src="./frontend/modules/teacher/teacher_students.js"></script>
-        <script src="./frontend/modules/teacher/teacher_quiz.js"></script>
-        <script src="./frontend/modules/teacher/teacher_assignments.js"></script>
-        <script src="./frontend/modules/teacher/teacher_attendance.js"></script>
-        <script src="./frontend/modules/teacher/teacher_leave.js"></script>
-        <script src="./frontend/modules/teacher/teacher_progress.js"></script>
+        <script defer src="./src/modules/teacher/teacher_reports.js"></script>
+        <script defer src="./src/modules/teacher/teacher_dashboard.js"></script>
+        <script defer src="./src/modules/teacher/teacher_students.js"></script>
+        <script defer src="./src/modules/teacher/teacher_quiz.js"></script>
+        <script defer src="./src/modules/teacher/teacher_assignments.js"></script>
+        <script defer src="./src/modules/teacher/teacher_attendance.js"></script>
+        <script defer src="./src/modules/teacher/teacher_leave.js"></script>
+        <script defer src="./src/modules/teacher/teacher_progress.js"></script>
 
         <!-- Student modules -->
-        <script src="./frontend/modules/student/student_dashboard.js"></script>
-        <script src="./frontend/modules/student/student_exams.js"></script>
-        <script src="./frontend/modules/student/student_leave.js"></script>
-        <script src="./frontend/modules/student/student_attendance.js"></script>
-        <script src="./frontend/modules/student/student_notifications.js"></script>
+        <script defer src="./src/modules/student/student_dashboard.js"></script>
+        <script defer src="./src/modules/student/student_exams.js"></script>
+        <script defer src="./src/modules/student/student_leave.js"></script>
+        <script defer src="./src/modules/student/student_attendance.js"></script>
+        <script defer src="./src/modules/student/student_notifications.js"></script>
 
         <!-- Parent modules -->
-        <script src="./frontend/modules/parent/parent_dashboard.js"></script>
-        <script src="./frontend/modules/parent/parent_exams.js"></script>
-        <script src="./frontend/modules/parent/parent_leave.js"></script>
-        <script src="./frontend/modules/parent/parent_fees.js"></script>
-        <script src="./frontend/modules/parent/parent_progress.js"></script>
+        <script defer src="./src/modules/parent/parent_dashboard.js"></script>
+        <script defer src="./src/modules/parent/parent_exams.js"></script>
+        <script defer src="./src/modules/parent/parent_leave.js"></script>
+        <script defer src="./src/modules/parent/parent_fees.js"></script>
+        <script defer src="./src/modules/parent/parent_progress.js"></script>
 
         <!-- Cross-persona modules -->
-        <script src="./frontend/modules/messaging/messaging.js"></script>
-        <script src="./frontend/modules/lms/lms.js"></script>
-        <script src="./frontend/modules/timetable/timetable.js"></script>
-        <script src="./frontend/modules/resources/resources.js"></script>
+        <script defer src="./src/modules/messaging/messaging.js"></script>
+        <script defer src="./src/modules/lms/lms.js"></script>
+        <script defer src="./src/modules/timetable/timetable.js"></script>
+        <script defer src="./src/modules/resources/resources.js"></script>
 
         <!-- App shell — LAST: depends on all modules above -->
-        <script src="./frontend/script.js?v=4.0"></script>
+        <script defer src="./src/script.js"></script>
 
         <!-- View Submissions Modal (Teacher) -->
         <div class="view full-page-view" id="viewSubmissionsModal" tabindex="-1">
@@ -10051,7 +10131,7 @@
                     <!-- Column 1: Brand & Language -->
                     <div class="col-lg-3 col-md-12">
                         <div class="d-flex align-items-center gap-3 mb-4">
-                            <img src="./frontend/static/noble_nexus_logo.png" alt="Noble Nexus"
+                            <img src="./src/assets/noble_nexus_logo.png" alt="Noble Nexus"
                                 style="width: 48px; border-radius: 12px; background: white; padding: 2px;">
                             <div>
                                 <h5 class="fw-bold mb-0">ClassBridge</h5>
@@ -10134,7 +10214,7 @@
                         <div class="bg-white p-3 rounded-4 shadow-lg d-inline-block position-relative text-center">
                             <h6 class="fw-bold text-dark mb-3 text-center" style="font-size: 0.9rem;">Get the
                                 ClassBridge app</h6>
-                            <img src="./frontend/static/noble_nexus_qr.png" alt="QR Code" class="img-fluid"
+                            <img src="./src/assets/noble_nexus_qr.png" alt="QR Code" class="img-fluid"
                                 style="width: 140px; height: 140px;">
                         </div>
                     </div>
@@ -10165,7 +10245,7 @@
                     </div>
                     <div class="modal-body p-4">
                         <div class="text-center mb-4">
-                            <img src="./frontend/static/noble_logo.png" width="80" class="mb-3 rounded-3 shadow-sm">
+                            <img src="./src/assets/noble_logo.png" width="80" class="mb-3 rounded-3 shadow-sm">
                             <h4 class="fw-bold mb-2">Class Bridge</h4>
                             <p class="text-uppercase small text-muted letter-spacing-1">A Product by Noble Nexus
                             </p>
