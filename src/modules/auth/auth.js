@@ -475,8 +475,9 @@ function handleLogin(e) {
                     msgEl.textContent += ` (${appState.schoolName})`;
                 }
                 msgEl.className = 'text-success fw-bold';
-                setTimeout(() => {
+                setTimeout(async () => {
                     msgEl.textContent = '';
+                    await window.loadDashboardModules(appState.role);
                     initializeDashboard();
                 }, 500);
             }
@@ -562,6 +563,7 @@ function handle2FASubmit(e) {
                     msgEl2FA.textContent = `Success! Welcome, ${data.user_id}`;
                     msgEl2FA.className = 'text-success fw-bold';
                 }
+                await (window.loadDashboardModules(appState.role));
                 initializeDashboard();
             }
             else {
@@ -619,8 +621,9 @@ function handleCredentialResponse(response) {
                 }
                 elements.loginMessage.textContent = t('msg_welcome', { user_id: data.user_id });
                 elements.loginMessage.className = 'text-success fw-bold';
-                setTimeout(() => {
+                setTimeout(async () => {
                     elements.loginMessage.textContent = '';
+                    await window.loadDashboardModules(appState.role);
                     initializeDashboard();
                 }, 1000);
             }
@@ -701,8 +704,9 @@ function handleSocialLogin(provider) {
                             elements.loginMessage.textContent += ` (${appState.schoolName})`;
                         }
                         elements.loginMessage.className = 'text-success fw-bold';
-                        setTimeout(() => {
+                        setTimeout(async () => {
                             elements.loginMessage.textContent = '';
+                            await window.loadDashboardModules(appState.role);
                             initializeDashboard();
                         }, 1000);
                     }
@@ -747,8 +751,9 @@ function handleSocialLogin(provider) {
                     elements.loginMessage.textContent += ` (${appState.schoolName})`;
                 }
                 elements.loginMessage.className = 'text-success fw-bold';
-                setTimeout(() => {
+                setTimeout(async () => {
                     elements.loginMessage.textContent = '';
+                    await window.loadDashboardModules(appState.role);
                     initializeDashboard();
                 }, 1000);
             }

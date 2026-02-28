@@ -2081,50 +2081,78 @@ function initializeSettingsLanguageControl() {
         });
     }
 }
-// Initialize Language on Load
 // Initialize Language & Auth on Load
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.__cbBootInitialized)
-        return;
-    window.__cbBootInitialized = true;
-    initializeSettingsLanguageControl();
-    updateTranslations();
-    const isLoggedIn = restoreAuthState();
-    if (isLoggedIn) {
-        const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
-        const userNameEl = document.getElementById('header-user-name');
-        const userRoleEl = document.getElementById('header-user-role');
-        const userImgEl = document.getElementById('header-user-img');
-        if (userNameEl) userNameEl.textContent = isAdminLike ? 'System Admin' : (appState.name || appState.userId || 'User');
-        if (userRoleEl) {
-            userRoleEl.textContent = appState.role || 'User';
-            if (appState.schoolName && appState.schoolName !== 'Independent') userRoleEl.textContent += ` • ${appState.schoolName}`;
+    (async () => {
+        if (window.__cbBootInitialized)
+            return;
+        window.__cbBootInitialized = true;
+        initializeSettingsLanguageControl();
+        updateTranslations();
+        const isLoggedIn = restoreAuthState();
+        if (isLoggedIn) {
+            const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
+            const userNameEl = document.getElementById('header-user-name');
+            const userRoleEl = document.getElementById('header-user-role');
+            const userImgEl = document.getElementById('header-user-img');
+            if (userNameEl) userNameEl.textContent = isAdminLike ? 'System Admin' : (appState.name || appState.userId || 'User');
+            if (userRoleEl) {
+                userRoleEl.textContent = appState.role || 'User';
+                if (appState.schoolName && appState.schoolName !== 'Independent') userRoleEl.textContent += ` • ${appState.schoolName}`;
+            }
+            if (userImgEl) userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : (appState.userId || 'User'))}&background=random`;
         }
-        if (userImgEl) userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : (appState.userId || 'User'))}&background=random`;
-    }
-    if (isLoggedIn) {
-        if (appState.role === 'Student') {
-            renderStudentControls();
-            // Ensure views are cleared before routing logic takes over, 
-            // though renderStudentControls might have already tried routing.
+        if (isLoggedIn) {
+            // Phase-2: load dashboard modules for this role before rendering
+            if (window.loadDashboardModules) {
+                await window.loadDashboardModules(appState.role);
+            }
+            if (appState.role === 'Student') {
+                renderStudentControls();
+            }
+            else if (isParentRole(appState.role)) {
+                renderParentControls();
+            }
+            else {
+                renderTeacherControls();
+            }
         }
-        else if (isParentRole(appState.role)) {
-            renderParentControls();
+        syncSettingsLanguageControl();
+        // Strict Hash-Based Routing Logic
+        const hash = window.location.hash.substring(1);
+        const safeSwitch = (id) => {
+            // Only switch if the element exists to avoid errors
+            if (document.getElementById(id)) {
+                switchView(id, false);
+            }
+            else {
+                // Fallback for invalid hash
+                if (isLoggedIn) {
+                    if (appState.role === 'Student')
+                        switchView('student-view', false);
+                    else if (isParentRole(appState.role))
+                        switchView('parent-dashboard-view', false);
+                    else
+                        switchView('teacher-view', false);
+                }
+                else {
+                    switchView('landing-view', false);
+                }
+            }
+        };
+        if (hash) {
+            const protectedViews = ['teacher-view', 'student-view', 'parent-dashboard-view', 'roles-view', 'permissions-view'];
+            // If user is NOT logged in and tries to access a protected view, redirect to landing
+            if (!isLoggedIn && protectedViews.some(v => hash.startsWith(v))) {
+                switchView('landing-view', false);
+            }
+            else {
+                // Otherwise (Logged in OR Public Page), try to load the specific view from hash
+                safeSwitch(hash);
+            }
         }
         else {
-            renderTeacherControls();
-        }
-    }
-    syncSettingsLanguageControl();
-    // Strict Hash-Based Routing Logic
-    const hash = window.location.hash.substring(1);
-    const safeSwitch = (id) => {
-        // Only switch if the element exists to avoid errors
-        if (document.getElementById(id)) {
-            switchView(id, false);
-        }
-        else {
-            // Fallback for invalid hash
+            // No hash provided
             if (isLoggedIn) {
                 if (appState.role === 'Student')
                     switchView('student-view', false);
@@ -2137,33 +2165,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 switchView('landing-view', false);
             }
         }
-    };
-    if (hash) {
-        const protectedViews = ['teacher-view', 'student-view', 'parent-dashboard-view', 'roles-view', 'permissions-view'];
-        // If user is NOT logged in and tries to access a protected view, redirect to landing
-        if (!isLoggedIn && protectedViews.some(v => hash.startsWith(v))) {
-            switchView('landing-view', false);
-        }
-        else {
-            // Otherwise (Logged in OR Public Page), try to load the specific view from hash
-            safeSwitch(hash);
-        }
-    }
-    else {
-        // No hash provided
-        if (isLoggedIn) {
-            if (appState.role === 'Student')
-                switchView('student-view', false);
-            else if (isParentRole(appState.role))
-                switchView('parent-dashboard-view', false);
-            else
-                switchView('teacher-view', false);
-        }
-        else {
-            switchView('landing-view', false);
-        }
-    }
-    window.__cbInitialBootComplete = true;
+        window.__cbInitialBootComplete = true;
+    })();
 });
 // --- DOM ELEMENTS & MODALS ---
 const viewStack = [];
