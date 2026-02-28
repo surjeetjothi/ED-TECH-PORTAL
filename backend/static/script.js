@@ -34,14 +34,18 @@ const resolvedLocalHost = (!window.location.hostname || window.location.hostname
     ? '127.0.0.1'
     : window.location.hostname;
 const LOCAL_API_BASE = `http://${resolvedLocalHost}:8000/api`;
-const PROD_API_DEFAULT = 'https://deploy-backend-2-yr70.onrender.com/api';
-// Allow override via window.__API_BASE_URL__ (optional)
+const PROD_API_DEFAULT = `${window.location.origin}/api`;
+// Use injected URL from backend template. If template wasn't replaced (still contains
+// the placeholder literal) or is empty, fall back to same-origin /api which always works
+// on Render since backend and frontend are the same service.
+const _injected = window.__API_BASE_URL__;
+const _injectedIsValid = _injected && !_injected.includes('{{') && _injected !== '';
 const API_BASE_URL = isLocal
     ? LOCAL_API_BASE
-    : (window.__API_BASE_URL__ || PROD_API_DEFAULT);
+    : (_injectedIsValid ? _injected : PROD_API_DEFAULT);
 
 console.log("------------------------------------------");
-console.log(" FRONTEND VERSION 3.1 - CONNECTING TO CLASSBRIDGE BACKEND");
+console.log(" FRONTEND VERSION 3.2 - CONNECTING TO CLASSBRIDGE BACKEND");
 console.log("------------------------------------------");
 
 console.log("ClassBridge API Base URL:", API_BASE_URL);
