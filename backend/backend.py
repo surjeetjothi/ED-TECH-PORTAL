@@ -824,18 +824,24 @@ def fetch_data_df(query, params=()):
     try:
         import pandas as pd
     except ImportError:
-        logger.warning("Pandas not installed. Returning empty dataframe.")
-        return None # Callers must handle None or empty
+        logger.warning("Pandas not installed. Returning empty results.")
+        # If pandas is missing, callers using .to_dict() or .empty will fail unless we return something compatible
+        # For now, return None and assume callers check for it
+        return None
+
     try:
         engine = get_db_engine()
         use_pg = os.getenv("USE_POSTGRES", "false").lower() == "true"
         db_url = os.getenv("DATABASE_URL", "class_bridge.db")
-        if use_pg and "postgres" in db_url.lower():
+        
+        # Format query for Postgres if needed
+        if use_pg and db_url and "postgres" in db_url.lower():
             query = query.replace('?', '%s')
+            
         return pd.read_sql_query(query, engine, params=params)
     except Exception as e:
         logger.error(f"Pandas SQL Error: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame() # Return empty df on error if pd is loaded
 
 from app.core.auth_utils import (
     log_auth_event, update_user_logout, validate_password_strength,
@@ -4317,6 +4323,16 @@ async def get_teacher_overview(
             
         students_df = fetch_data_df(query, params=tuple(params))
         
+        # Safety check: Ensure students_df is not None/empty before proceeding
+        if students_df is None or students_df.empty:
+            return {
+                "total_students": 0,
+                "class_avg_attendance": 0.0,
+                "attendance_over_time": [],
+                "recent_activities": [],
+                "students": []
+            }
+        
         # Handle Section ID/Name if table exists (dynamic schema check)
         students_df['section_id'] = None
         students_df['section_name'] = None
@@ -5208,6 +5224,8 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
             query += " AND grade = ?"
             params.append(grade)
         df = fetch_data_df(query, params=tuple(params))
+        if df is None or df.empty:
+            return []
         return df.to_dict('records')
 
     return api_ttl_cache(cache_key, ttl_seconds=30, fn=_fetch)
