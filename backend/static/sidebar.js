@@ -35,7 +35,7 @@ function getSidebarConfig(role) {
                 ]
             },
             {
-                label: 'sidebar_profile', icon: 'person', id: 'cat-profile',
+                label: 'sidebar_profile', icon: 'account_circle', id: 'cat-profile',
                 children: [
                     { label: 'sidebar_view_profile', onClick: () => openProfileView(), route: '/student/profile' },
                     { label: 'sidebar_settings', onClick: () => alert('Settings Coming Soon'), route: '/student/settings' }
@@ -46,13 +46,13 @@ function getSidebarConfig(role) {
             { label: 'header_notifications', icon: 'notifications', view: 'student-notifications-view', route: '/student/notifications' },
             {
                 label: 'Finance', icon: 'account_balance_wallet', id: 'cat-finance-student',
-                permission: () => hasAnyPermission(['finance.fees.self.read']) || appState.role === 'Student',
+                permission: () => hasAnyPermission(['finance_fees_self_read']) || appState.role === 'Student',
                 children: [
                     {
                         label: 'Fee Invoices & Receipts',
                         view: 'parent-fees-view',
                         route: '/student/finance/fees',
-                        permission: () => hasPermission('finance.fees.self.read') || appState.role === 'Student'
+                        permission: () => hasPermission('finance_fees_self_read') || appState.role === 'Student'
                     }
                 ]
             },
@@ -113,25 +113,25 @@ function getSidebarConfig(role) {
             // 6. Finance (self payroll only)
             {
                 label: 'Finance', icon: 'account_balance_wallet', id: 'cat-finance-teacher',
-                permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher',
+                permission: () => hasAnyPermission(['finance_payroll_self_read', 'finance_payroll']) || appState.role === 'Teacher',
                 children: [
                     {
                         label: 'Salary Slips',
                         view: 'payroll-view-view',
                         route: '/teacher/finance/payroll-self',
-                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher'
+                        permission: () => hasAnyPermission(['finance_payroll_self_read', 'finance_payroll']) || appState.role === 'Teacher'
                     },
                     {
                         label: 'Tax Statements',
                         view: 'payroll-print-view',
                         route: '/teacher/finance/tax-statements',
-                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher'
+                        permission: () => hasAnyPermission(['finance_payroll_self_read', 'finance_payroll']) || appState.role === 'Teacher'
                     }
                 ]
             },
             // 7. Messages & Notifications
             {
-                label: 'header_messages', icon: 'notifications', id: 'cat-messages',
+                label: 'header_messages', icon: 'chat', id: 'cat-messages',
                 children: [
                     { label: 'View Messages', view: 'messages-view-view', route: '/teacher/messages' },
                     { label: 'View Notifications', view: 'notifications-view', route: '/teacher/notifications' }
@@ -200,13 +200,13 @@ function getSidebarConfig(role) {
             // 8. Finance (child fees only)
             {
                 label: 'Finance', icon: 'account_balance_wallet', id: 'p-cat-finance',
-                permission: () => hasAnyPermission(['finance.fees.child.read', 'finance.invoices']) || appState.role === 'Parent' || appState.role === 'Parent_Guardian',
+                permission: () => hasAnyPermission(['finance_fees_child_read', 'finance_invoices']) || appState.role === 'Parent' || appState.role === 'Parent_Guardian',
                 children: [
                     {
                         label: 'Child Fees & Payments',
                         view: 'parent-fees-view',
                         route: '/parent/finance/fees',
-                        permission: () => hasAnyPermission(['finance.fees.child.read', 'finance.invoices']) || appState.role === 'Parent' || appState.role === 'Parent_Guardian'
+                        permission: () => hasAnyPermission(['finance_fees_child_read', 'finance_invoices']) || appState.role === 'Parent' || appState.role === 'Parent_Guardian'
                     }
                 ]
             },
@@ -362,67 +362,67 @@ function getSidebarConfig(role) {
     if (isFinanceAdmin || isFinancePrincipal) {
         items.push({
             label: 'Finance',
-            icon: 'account_balance',
+            icon: 'account_balance_wallet',
             id: 'cat-finance-admin',
             permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission([
-                'finance.view',
-                'finance.dashboard.read',
-                'finance.reports.read'
+                'finance_view',
+                'finance_dashboard_read',
+                'finance_reports_read'
             ]),
             children: [
                 {
                     label: 'Dashboard',
                     route: '/admin/finance/dashboard',
                     onClick: () => openFinanceModuleDetails('dashboard'),
-                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance.dashboard.read', 'finance.view'])
+                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance_dashboard_read', 'finance_view'])
                 },
                 {
                     label: 'Master Data',
                     route: '/admin/finance/master-data',
                     onClick: () => openFinanceModuleDetails('master-data'),
-                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance.masterdata.read', 'finance.masterdata.manage'])
+                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance_masterdata_read', 'finance_masterdata_manage'])
                 },
                 {
                     label: 'General Ledger',
                     route: '/admin/finance/gl',
                     onClick: () => openFinanceModuleDetails('gl'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.gl.manage', 'finance.manage'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_gl_manage', 'finance_manage'])
                 },
                 {
                     label: 'Receivables',
                     route: '/admin/finance/receivables',
                     onClick: () => openFinanceModuleDetails('receivables'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.receivables.manage', 'finance.invoices'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_receivables_manage', 'finance_invoices'])
                 },
                 {
                     label: 'Payables',
                     route: '/admin/finance/payables',
                     onClick: () => openFinanceModuleDetails('payables'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.payables.manage', 'finance.payables.approve'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_payables_manage', 'finance_payables_approve'])
                 },
                 {
                     label: 'Inventory',
                     route: '/admin/finance/inventory',
                     onClick: () => openFinanceModuleDetails('inventory'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.inventory.manage'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_inventory_manage'])
                 },
                 {
                     label: 'Assets',
                     route: '/admin/finance/assets',
                     onClick: () => openFinanceModuleDetails('assets'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.assets.manage'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_assets_manage'])
                 },
                 {
                     label: 'Payroll',
                     route: '/admin/finance/payroll',
                     onClick: () => openFinanceModuleDetails('payroll'),
-                    permission: () => isFinanceAdmin || hasAnyPermission(['finance.payroll'])
+                    permission: () => isFinanceAdmin || hasAnyPermission(['finance_payroll'])
                 },
                 {
                     label: 'Reports',
                     route: '/admin/finance/reports',
                     onClick: () => openFinanceModuleDetails('reports'),
-                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance.reports.read', 'finance.view'])
+                    permission: () => isFinanceAdmin || isFinancePrincipal || hasAnyPermission(['finance_reports_read', 'finance_view'])
                 }
             ]
         });

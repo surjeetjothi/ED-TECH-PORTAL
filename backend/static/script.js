@@ -6115,19 +6115,21 @@ function getSidebarConfig(role) {
             // 6. Finance (self payroll only)
             {
                 label: 'Finance', icon: 'account_balance_wallet', id: 'cat-finance-teacher',
-                permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher',
+                permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']),
                 children: [
                     {
-                        label: 'Salary Slips',
+                        label: 'Salary Slips & Payments',
                         view: 'payroll-view-view',
-                        route: '/teacher/finance/payroll-self',
-                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher'
+                        route: '/teacher/finance/payroll',
+                        onClick: () => switchView('payroll-view-view'),
+                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll'])
                     },
                     {
-                        label: 'Tax Statements',
+                        label: 'Print Salary Slip',
                         view: 'payroll-print-view',
-                        route: '/teacher/finance/tax-statements',
-                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll']) || appState.role === 'Teacher'
+                        route: '/teacher/finance/payroll/print',
+                        onClick: () => switchView('payroll-print-view'),
+                        permission: () => hasAnyPermission(['finance.payroll.self.read', 'finance.payroll'])
                     }
                 ]
             },
@@ -6323,8 +6325,8 @@ function getSidebarConfig(role) {
         {
             label: 'Classes', icon: 'class', id: 'cat-classes',
             children: [
-                { label: 'Create Class', view: 'create-class-view', route: '/teacher/classes/create' },
-                { label: 'Manage Classes', view: 'teacher-class-management-view', route: '/teacher/classes/manage', onClick: () => handleTeacherViewToggle('teacher-class-management-view') },
+                { label: 'Create Class', view: 'create-class-view', route: '/teacher/classes/create', permission: () => hasPermission('class_create') },
+                { label: 'Manage Classes', view: 'teacher-class-management-view', route: '/teacher/classes/manage', permission: () => hasPermission('class_view'), onClick: () => handleTeacherViewToggle('teacher-class-management-view') },
             ]
         },
         {

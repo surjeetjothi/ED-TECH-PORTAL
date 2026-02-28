@@ -49,6 +49,7 @@ window.cbRefreshView = function (viewId) {
 // ── Role Constants ────────────────────────────────────────────────────────────
 
 const TEACHER_ROLES = ['Teacher', 'Admin', 'Principal', 'Tenant_Admin'];
+const ADMIN_ROLES = ['Admin', 'Principal', 'Tenant_Admin'];
 const PARENT_ROLES = ['Parent', 'Parent_Guardian'];
 const STUDENT_ROLES = ['Student'];
 const COMMS_ROLES = [...TEACHER_ROLES, ...PARENT_ROLES, ...STUDENT_ROLES];
@@ -196,17 +197,17 @@ const VIEW_LOADERS = {
 
     // ── Admin/Teacher: Role & Permission Management ──────────────────────────
     // These views are ONLY for Admin/Principal/Tenant_Admin — block Student/Parent via URL hash
-    'role-management-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
-    'roles-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
-    'role-form-view': { roles: TEACHER_ROLES, loader: () => { } },
-    'permissions-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadPermissionsSetup === 'function') loadPermissionsSetup(); } },
+    'role-management-view': { roles: ADMIN_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
+    'roles-view': { roles: ADMIN_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
+    'role-form-view': { roles: ADMIN_ROLES, loader: () => { } },
+    'permissions-view': { roles: ADMIN_ROLES, loader: () => { if (typeof loadPermissionsSetup === 'function') loadPermissionsSetup(); } },
 
     // ── Admin: Staff, Compliance, Settings ──────────────────────────────────
-    'staff-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'staff-view': { roles: ADMIN_ROLES, loader: () => { } },
     'settings-view': { roles: COMMS_ROLES, loader: () => { } },   // all roles can access settings
-    'compliance-view': { roles: TEACHER_ROLES, loader: () => { } },
-    'reports-view': { roles: TEACHER_ROLES, loader: () => { } },
-    'performance-report-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'compliance-view': { roles: ADMIN_ROLES, loader: () => { } },
+    'reports-view': { roles: ADMIN_ROLES, loader: () => { } },
+    'performance-report-view': { roles: ADMIN_ROLES, loader: () => { } },
     'finance-view': { roles: TEACHER_ROLES, loader: () => { } },
     'root-admin-view': { roles: TEACHER_ROLES, superAdminOnly: true, loader: () => { } },  // Super Admin ONLY
 
