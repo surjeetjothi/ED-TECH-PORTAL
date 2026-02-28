@@ -11840,7 +11840,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error initializing database: {e}")
     import uvicorn
-    # Keep reload OFF by default for stability (watchfiles reload has been crashing in this environment).
+     # Keep reload OFF by default for stability (watchfiles reload has been crashing in this environment).
     # Set BACKEND_RELOAD=true explicitly if hot reload is needed.
     reload_enabled = os.getenv("BACKEND_RELOAD", "false").lower() == "true"
     backend_host = os.getenv("BACKEND_HOST", "0.0.0.0")

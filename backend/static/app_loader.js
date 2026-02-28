@@ -66,7 +66,6 @@
         try {
             // ── Phase 2a: Shared infrastructure (every logged-in role needs these) ──
             await loadSequential([
-                'sidebar.js',
                 'ai_chat.js',
                 'rbac.js',
             ]);
