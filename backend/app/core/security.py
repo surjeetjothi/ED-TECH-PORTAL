@@ -70,28 +70,57 @@ from app.core.database import get_db_connection
 from app.core.auth_utils import log_auth_event
 ROLE_PERMISSIONS = {
     "Admin": [
-        "view_dashboard", "manage_users", "manage_invitations", 
-        "view_all_grades", "edit_all_grades", 
+        "view_dashboard", "manage_users", "manage_invitations",
+        "view_all_grades", "edit_all_grades",
         "schedule_active_class", "manage_groups", "view_audit_logs",
-        "assignment.view", "assignment.create", "assignment.grade"
+        "assignment_view", "assignment_create", "assignment_grade",
+        "view_permissions", "edit_permissions", "permission_management",
+        "staff_view", "finance_view", "finance_dashboard_read", "finance_reports_read",
+        "finance_gl_manage", "finance_receivables_manage", "finance_payables_manage",
+        "finance_payroll_manage", "role_management",
+        # RBAC management permissions (legacy fallback)
+        "view_role_management", "add_roles", "edit_roles", "delete_roles",
+        "user_management"
     ],
     "Principal": [
-        "view_dashboard", "manage_users", "manage_invitations", 
-        "view_all_grades", "edit_all_grades", 
+        "view_dashboard", "manage_users", "manage_invitations",
+        "view_all_grades", "edit_all_grades",
         "schedule_active_class", "manage_groups", "view_audit_logs",
-        "assignment.view", "assignment.create", "assignment.grade"
+        "assignment_view", "assignment_create", "assignment_grade",
+        "view_permissions", "edit_permissions", "permission_management",
+        "staff_view", "finance_view", "finance_dashboard_read", "finance_reports_read",
+        "role_management",
+        # RBAC management (read-only for Principal)
+        "view_role_management"
+    ],
+    "Tenant_Admin": [
+        "view_dashboard", "manage_users", "manage_invitations",
+        "view_all_grades", "edit_all_grades",
+        "view_permissions", "edit_permissions", "permission_management",
+        "finance_view", "finance_dashboard_read", "finance_reports_read",
+        "finance_gl_manage", "finance_receivables_manage", "finance_payables_manage",
+        "finance_payroll_manage", "role_management",
+        "view_role_management", "add_roles", "edit_roles", "delete_roles",
+        "user_management", "staff_view"
     ],
     "Teacher": [
-        "view_dashboard", "invite_students", 
-        "view_all_grades", "edit_all_grades", 
+        "view_dashboard", "invite_students",
+        "view_all_grades", "edit_all_grades",
         "schedule_active_class", "manage_groups",
-        "assignment.view", "assignment.create", "assignment.grade"
+        "assignment_view", "assignment_create", "assignment_grade",
+        "finance_payroll_self_read"
     ],
     "Student": [
-        "view_dashboard", "view_own_grades", "join_active_class"
+        "view_dashboard", "view_own_grades", "join_active_class",
+        "finance_fees_self_read"
     ],
     "Parent": [
-        "view_dashboard", "view_child_grades"
+        "view_dashboard", "view_child_grades",
+        "finance_fees_child_read"
+    ],
+    "Parent_Guardian": [
+        "view_dashboard", "view_child_grades",
+        "finance_fees_child_read"
     ]
 }
 
@@ -113,7 +142,17 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
         user = conn.execute("SELECT role, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
         
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            # Also try case-insensitive lookup (handles ID casing differences between DBs)
+            user = conn.execute(
+                "SELECT role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)",
+                (x_user_id,)
+            ).fetchone()
+        
+        if not user:
+            # User ID was provided but doesn't exist — this is a 403 (forbidden),
+            # NOT a 401 (unauthenticated). The request has an identity but no access.
+            log_auth_event(x_user_id, "Unauthorized Access", f"User ID not found in system, permission: {permission}")
+            raise HTTPException(status_code=403, detail="Access denied: user identity not recognized.")
 
         current_role = user['role']
         is_super = user['is_super_admin']
@@ -122,7 +161,7 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
         if is_super or current_role in ('Super Admin', 'Root_Super_Admin'):
             return True
 
-        # 2. Check DB Permissions
+        # 2. Check DB Permissions via user_roles table
         # Join user_roles -> roles -> role_permissions -> permissions
         # Also check for wildcard '*' permission assignment
         query = """
@@ -136,8 +175,19 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
         has_perm = conn.execute(query, (x_user_id, permission)).fetchone()
 
         if not has_perm:
-            # Fallback to legacy hardcoded check if DB check fails (temporary migration specific)
-            # Remove this if fully migrated
+            # Also check via role name directly in roles table (for users assigned by role name)
+            role_query = """
+                SELECT 1
+                FROM roles r
+                JOIN role_permissions rp ON r.id = rp.role_id
+                JOIN permissions p ON rp.permission_id = p.id
+                WHERE r.name = ?
+                AND (p.code = ? OR p.code = '*')
+            """
+            has_perm = conn.execute(role_query, (current_role, permission)).fetchone()
+
+        if not has_perm:
+            # Fallback to legacy hardcoded check (temporary migration bridge)
             if current_role in ROLE_PERMISSIONS and permission in ROLE_PERMISSIONS[current_role]:
                 return True
                 
@@ -164,4 +214,3 @@ async def verify_any_permission(permission_codes: List[str], x_user_id: str) -> 
     if denied:
         raise denied
     raise HTTPException(status_code=403, detail="Permission denied.")
-

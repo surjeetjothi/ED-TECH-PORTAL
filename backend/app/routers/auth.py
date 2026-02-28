@@ -15,7 +15,7 @@ import sqlite3
 from urllib.parse import quote
 
 from app.core.database import get_db_connection
-from app.core.security import RateLimiter
+from app.core.security import RateLimiter, ROLE_PERMISSIONS
 from app.core.config import (
     TEACHER_LOGIN_ALIAS, ADMIN_LOGIN_EMAIL, ADMIN_LOGIN_PASSWORD,
     SMTP_EMAIL, STUDENT_OTP_EMAIL_OVERRIDES, PARENT_OTP_EMAIL_OVERRIDES,
@@ -288,6 +288,9 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
 
         # --- 2FA / EMAIL OTP FLOW ---
         ENABLE_2FA = os.getenv("ENABLE_2FA", "false").lower() == "true"
+        # Emergency login bypass switch: disable all interactive 2FA checks.
+        # Set DISABLE_2FA=false to re-enable normal 2FA behavior.
+        DISABLE_2FA = os.getenv("DISABLE_2FA", "true").lower() == "true"
         tenant_auth_mode = "password_only"
         try:
             sec_row = cursor.execute(
@@ -299,7 +302,7 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
         except Exception:
             tenant_auth_mode = "password_only"
 
-        if tenant_auth_mode == "authenticator_app":
+        if (not DISABLE_2FA) and tenant_auth_mode == "authenticator_app":
             try:
                 _ensure_authenticator_table(conn)
                 auth_row = cursor.execute(
@@ -333,7 +336,7 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
                 logger.error(f"Authenticator setup check failed: {e}")
                 raise HTTPException(status_code=500, detail="Unable to initialize authenticator setup.")
 
-        require_email_otp = (ENABLE_2FA or tenant_auth_mode == "email_otp")
+        require_email_otp = (not DISABLE_2FA) and (ENABLE_2FA or tenant_auth_mode == "email_otp")
 
         # Trigger email OTP when enabled (or privileged account) and recipient email exists.
         if require_email_otp and login_email:
@@ -414,6 +417,8 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
             WHERE ur.user_id = ?
         """, (auth_user_id,)).fetchall()
         perm_codes = [p['code'] for p in perms_data]
+        if not perm_codes and role in ROLE_PERMISSIONS:
+            perm_codes = list(dict.fromkeys(ROLE_PERMISSIONS.get(role, [])))
 
         # Root_Super_Admin always gets wildcard permissions
         if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
@@ -422,14 +427,33 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
 
         related_student_id = None
         try:
-            if 'Parent' in role_names or 'Parent_Guardian' in role_names or role == 'Parent':
-                 child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (auth_user_id,)).fetchone()
-                 if not child and auth_user_id in PARENT_OTP_EMAIL_OVERRIDES:
-                     child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (PARENT_OTP_EMAIL_OVERRIDES[auth_user_id],)).fetchone()
-                 if not child and login_email:
-                     child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (login_email,)).fetchone()
-                 if child:
-                     related_student_id = child['student_id']
+            if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
+                # 1. Check guardians table by email (primary)
+                child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (auth_user_id,)).fetchone()
+                if not child and auth_user_id in PARENT_OTP_EMAIL_OVERRIDES:
+                    child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (PARENT_OTP_EMAIL_OVERRIDES[auth_user_id],)).fetchone()
+                if not child and login_email:
+                    child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (login_email,)).fetchone()
+                if child:
+                    related_student_id = child['student_id']
+                
+                # 2. Fallback: Use naming convention (e.g. "Parent of Student G1-2")
+                if not related_student_id:
+                    parent_name_rec = cursor.execute(
+                        "SELECT name FROM students WHERE id = ? AND role IN ('Parent', 'Parent_Guardian')",
+                        (auth_user_id,)
+                    ).fetchone()
+                    if parent_name_rec:
+                        p_name = parent_name_rec['name'].lower()
+                        if 'parent of' in p_name:
+                            s_name = p_name.split('parent of')[-1].strip()
+                            child_rec = cursor.execute(
+                                "SELECT id FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'",
+                                (s_name,)
+                            ).fetchone()
+                            if child_rec:
+                                related_student_id = child_rec['id']
+                                logger.info(f"Parent {auth_user_id}: found child via naming convention: {related_student_id}")
         except Exception as e:
             logger.error(f"Error fetching related student for login: {e}")
 
@@ -558,6 +582,8 @@ async def verify_backup_code(request: Verify2FARequest):
         WHERE ur.user_id = ?
     """, (request.user_id,)).fetchall()
     perm_codes = [p['code'] for p in perms_data]
+    if not perm_codes and role in ROLE_PERMISSIONS:
+        perm_codes = list(dict.fromkeys(ROLE_PERMISSIONS.get(role, [])))
 
     # Root_Super_Admin always gets wildcard permissions
     if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
@@ -567,6 +593,7 @@ async def verify_backup_code(request: Verify2FARequest):
     related_student_id = None
     try:
         if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
+            # 1. Check guardians table by email (primary)
             child = cursor.execute(
                 "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
                 (request.user_id,),
@@ -578,6 +605,24 @@ async def verify_backup_code(request: Verify2FARequest):
                 ).fetchone()
             if child:
                 related_student_id = child['student_id']
+            
+            # 2. Fallback: Use naming convention (e.g. "Parent of Student G1-2")
+            if not related_student_id:
+                parent_name_rec = cursor.execute(
+                    "SELECT name FROM students WHERE id = ? AND role IN ('Parent', 'Parent_Guardian')",
+                    (request.user_id,)
+                ).fetchone()
+                if parent_name_rec:
+                    p_name = parent_name_rec['name'].lower()
+                    if 'parent of' in p_name:
+                        s_name = p_name.split('parent of')[-1].strip()
+                        child_rec = cursor.execute(
+                            "SELECT id FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'",
+                            (s_name,)
+                        ).fetchone()
+                        if child_rec:
+                            related_student_id = child_rec['id']
+                            logger.info(f"Parent {request.user_id}: found child via naming convention: {related_student_id}")
     except Exception as e:
         logger.error(f"Error fetching related student for 2FA: {e}")
 

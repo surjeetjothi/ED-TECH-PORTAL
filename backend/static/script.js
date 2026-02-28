@@ -138,6 +138,37 @@ function hasAnyPermission(codes) {
 function isParentRole(role) {
     return role === 'Parent' || role === 'Parent_Guardian';
 }
+
+function showAccessDeniedView() {
+    const mainContent = document.getElementById('main-content');
+    if (!mainContent) return;
+
+    // Hide all other views
+    document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+
+    let deniedView = document.getElementById('access-denied-view');
+    if (!deniedView) {
+        deniedView = document.createElement('div');
+        deniedView.id = 'access-denied-view';
+        deniedView.className = 'view active d-flex align-items-center justify-content-center';
+        deniedView.style.minHeight = '70vh';
+        deniedView.innerHTML = `
+            <div class="text-center p-5 shadow-lg rounded-4 bg-white" style="max-width: 450px; border-top: 5px solid #dc3545;">
+                <div class="mb-4">
+                    <span class="material-icons text-danger" style="font-size: 80px;">gpp_maybe</span>
+                </div>
+                <h2 class="fw-bold text-dark mb-3">Access Denied</h2>
+                <p class="text-muted mb-4">You do not have the required permissions to view this section. If you believe this is an error, please contact your administrator.</p>
+                <button class="btn btn-primary px-4 py-2 rounded-pill shadow-sm" onclick="appState.role === 'Student' ? switchView('student-view') : (isParentRole(appState.role) ? switchView('parent-dashboard-view') : switchView('teacher-view'))">
+                    <span class="material-icons align-middle me-1">dashboard</span> Back to Dashboard
+                </button>
+            </div>
+        `;
+        mainContent.appendChild(deniedView);
+    } else {
+        deniedView.classList.add('active');
+    }
+}
 function restoreAuthState() {
     const stored = localStorage.getItem('classbridge_session');
     if (stored) {
@@ -151,6 +182,11 @@ function restoreAuthState() {
         appState.isSuperAdmin = session.is_super_admin;
         appState.roles = session.roles || [];
         appState.permissions = session.permissions || [];
+        if (appState.isSuperAdmin || appState.role === 'Root_Super_Admin') {
+            appState.permissions = ['*'];
+        } else if ((!appState.permissions || appState.permissions.length === 0) && (appState.role === 'Admin' || appState.role === 'Principal')) {
+            appState.permissions = ['view_permissions', 'edit_permissions', 'permission_management'];
+        }
         appState.activeStudentId = session.active_student_id || null;
         applyRoleTheme();
         return true;
@@ -2051,6 +2087,18 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTranslations();
     const isLoggedIn = restoreAuthState();
     if (isLoggedIn) {
+        const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
+        const userNameEl = document.getElementById('header-user-name');
+        const userRoleEl = document.getElementById('header-user-role');
+        const userImgEl = document.getElementById('header-user-img');
+        if (userNameEl) userNameEl.textContent = isAdminLike ? 'System Admin' : (appState.name || appState.userId || 'User');
+        if (userRoleEl) {
+            userRoleEl.textContent = appState.role || 'User';
+            if (appState.schoolName && appState.schoolName !== 'Independent') userRoleEl.textContent += ` • ${appState.schoolName}`;
+        }
+        if (userImgEl) userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : (appState.userId || 'User'))}&background=random`;
+    }
+    if (isLoggedIn) {
         if (appState.role === 'Student') {
             renderStudentControls();
             // Ensure views are cleared before routing logic takes over, 
@@ -2532,7 +2580,7 @@ function loadRoles() {
         // Show loading spinner row
         tableBody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center py-5 text-muted">
+                <td colspan="4" class="text-center py-5 text-muted">
                     <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                     Loading roles...
                 </td>
@@ -2546,7 +2594,7 @@ function loadRoles() {
             } else {
                 tableBody.innerHTML = `
                     <tr>
-                        <td colspan="5" class="text-center py-5 text-danger">
+                        <td colspan="4" class="text-center py-5 text-danger">
                             <span class="material-icons fs-2 d-block mb-2">error_outline</span>
                             Failed to load roles.
                         </td>
@@ -2556,7 +2604,7 @@ function loadRoles() {
             console.error('loadRoles error:', e);
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="text-center py-5 text-danger">
+                    <td colspan="4" class="text-center py-5 text-danger">
                         <span class="material-icons fs-2 d-block mb-2">wifi_off</span>
                         Network error. Please try again.
                     </td>
@@ -2572,7 +2620,7 @@ function renderRolesList(roles) {
     if (!roles || roles.length === 0) {
         tableBody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center py-5">
+                <td colspan="4" class="text-center py-5">
                     <span class="material-icons text-muted" style="font-size:3rem;opacity:0.4;">manage_accounts</span>
                     <p class="text-muted mt-2 mb-0">No roles found.</p>
                 </td>
@@ -3003,14 +3051,14 @@ function loadPermissionsSetup() {
         // Show table loading spinner
         tableBody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center py-5 text-muted">
+                <td colspan="4" class="text-center py-5 text-muted">
                     <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                     Loading permissions...
                 </td>
             </tr>`;
 
         // Reset summary cards to loading state
-        ['perm-stat-total', 'perm-stat-groups', 'perm-stat-desc'].forEach(id => {
+        ['perm-stat-total', 'perm-stat-active', 'perm-stat-inactive'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = '<div class="spinner-border spinner-border-sm" style="opacity:.6;width:18px;height:18px;border-width:2px;"></div>';
         });
@@ -3030,12 +3078,12 @@ function loadPermissionsSetup() {
             if (summaryRes.ok) {
                 const summary = yield summaryRes.json();
                 const totalEl = document.getElementById('perm-stat-total');
-                const groupsEl = document.getElementById('perm-stat-groups');
-                const descEl = document.getElementById('perm-stat-desc');
+                const activeEl = document.getElementById('perm-stat-active');
+                const inactiveEl = document.getElementById('perm-stat-inactive');
 
-                if (totalEl) totalEl.textContent = summary.total_permissions ?? '—';
-                if (groupsEl) groupsEl.textContent = summary.total_groups ?? '—';
-                if (descEl) descEl.textContent = summary.with_description ?? '—';
+                if (totalEl) totalEl.textContent = summary.total_permissions ?? '-';
+                if (activeEl) activeEl.textContent = summary.active_permissions ?? '-';
+                if (inactiveEl) inactiveEl.textContent = summary.inactive_permissions ?? '-';
             }
 
             // --- Populate table ---
@@ -3043,10 +3091,20 @@ function loadPermissionsSetup() {
                 const perms = yield listRes.json();
                 _cachedPermissions = perms;
                 renderPermissionsSetupTable(perms);
+                if (!summaryRes.ok) {
+                    const totalEl = document.getElementById('perm-stat-total');
+                    const activeEl = document.getElementById('perm-stat-active');
+                    const inactiveEl = document.getElementById('perm-stat-inactive');
+                    const activeCount = perms.filter(p => (p.status || 'Active').toLowerCase() === 'active').length;
+                    const totalCount = perms.length;
+                    if (totalEl) totalEl.textContent = String(totalCount);
+                    if (activeEl) activeEl.textContent = String(activeCount);
+                    if (inactiveEl) inactiveEl.textContent = String(Math.max(totalCount - activeCount, 0));
+                }
             } else {
                 tableBody.innerHTML = `
                     <tr>
-                        <td colspan="5" class="text-center py-5 text-danger">
+                        <td colspan="4" class="text-center py-5 text-danger">
                             <span class="material-icons fs-2 d-block mb-2">error_outline</span>
                             Failed to load permissions.
                         </td>
@@ -3056,7 +3114,7 @@ function loadPermissionsSetup() {
             console.error('loadPermissionsSetup error:', e);
             tableBody.innerHTML = `
                 <tr>
-                    <td colspan="5" class="text-center py-5 text-danger">
+                    <td colspan="4" class="text-center py-5 text-danger">
                         <span class="material-icons fs-2 d-block mb-2">wifi_off</span>
                         Network error. Please try again.
                     </td>
@@ -3070,39 +3128,18 @@ function renderPermissionsSetupTable(perms) {
     if (!perms || perms.length === 0) {
         tableBody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center py-5">
+                <td colspan="4" class="text-center py-5">
                     <span class="material-icons text-muted" style="font-size:3rem;opacity:0.4;">vpn_key</span>
                     <p class="text-muted mt-2 mb-0">No permissions found.</p>
                 </td>
             </tr>`;
         return;
     }
-    // Allow edit if super admin, wildcard, or any admin-level role
-    const canEdit = appState.isSuperAdmin
-        || (appState.permissions || []).includes('*')
-        || hasPermission('edit_permissions')
-        || hasPermission('permission_management')
-        || appState.role === 'Root_Super_Admin';
-
-    // Group badge colour mapping
-    const groupColours = {
-        'User Management': { bg: '#dbeafe', text: '#1d4ed8' },
-        'Role Management': { bg: '#ede9fe', text: '#7c3aed' },
-        'Permission Management': { bg: '#fee2e2', text: '#dc2626' },
-        'System': { bg: '#f1f5f9', text: '#374151' },
-        'Academics': { bg: '#d1fae5', text: '#059669' },
-        'Analytics': { bg: '#cffafe', text: '#0891b2' },
-        'Finance': { bg: '#fef3c7', text: '#b45309' },
-        'Communication': { bg: '#fce7f3', text: '#be185d' },
-        'Compliance': { bg: '#ffe4e6', text: '#9f1239' },
-        'HR': { bg: '#ecfccb', text: '#65a30d' },
-        'Student Info': { bg: '#e0f2fe', text: '#0369a1' },
-        'General': { bg: '#f3f4f6', text: '#6b7280' }
-    };
+    // Edit icon visibility is limited to edit-permitted users.
+    const canEdit = hasPermission('edit_permissions');
 
     tableBody.innerHTML = '';
     perms.forEach(p => {
-        const gc = groupColours[p.group_name] || groupColours['General'];
         const safeCode = (p.code || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
         const safeDesc = (p.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
@@ -3119,12 +3156,6 @@ function renderPermissionsSetupTable(perms) {
             </td>
             <td class="small text-secondary" style="max-width:340px;">
                 ${p.description || '<em class="text-muted fst-italic" style="opacity:.6;">No description set</em>'}
-            </td>
-            <td>
-                <span class="badge rounded-pill px-2 py-1"
-                    style="background:${gc.bg};color:${gc.text};font-size:0.68rem;font-weight:600;border:1px solid ${gc.text}22;">
-                    ${p.group_name || 'General'}
-                </span>
             </td>
             <td class="text-center">
                 ${canEdit ? `
@@ -3155,8 +3186,7 @@ function filterPermissionsTable(query) {
     const filtered = _cachedPermissions.filter(p =>
         (p.code || '').toLowerCase().includes(q) ||
         (p.display_code || '').toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q) ||
-        (p.group_name || '').toLowerCase().includes(q)
+        (p.description || '').toLowerCase().includes(q)
     );
     renderPermissionsSetupTable(filtered);
 }
@@ -3321,12 +3351,20 @@ function switchView(viewId, updateHistory = true) {
     }
     const loaderDef = VIEW_LOADERS[viewId];
     if (loaderDef && appState.isLoggedIn) {
-        // 1. Permission guard — block if user's role is not in the allowed list
-        const allowed = loaderDef.roles.length === 0
-            || loaderDef.roles.includes(appState.role)
+        // 1. Permission guard — check superAdminOnly flag first
+        if (loaderDef.superAdminOnly && !appState.isSuperAdmin) {
+            console.warn(`[CB] View '${viewId}' requires Super Admin access.`);
+            showAccessDeniedView();
+            return;
+        }
+        // Check role-based access (null roles = allow all logged-in users)
+        const rolesArray = loaderDef.roles;
+        const allowed = (rolesArray === null || rolesArray === undefined)
+            || rolesArray.includes(appState.role)
             || appState.isSuperAdmin;
         if (!allowed) {
             console.warn(`[CB] Role '${appState.role}' not permitted for view '${viewId}'`);
+            showAccessDeniedView();
             return;
         }
         // 2. Cache guard — fire loader only on first visit (or alwaysReload views)
@@ -3334,6 +3372,10 @@ function switchView(viewId, updateHistory = true) {
             window._cbViewLoaded[viewId] = true;
             try { loaderDef.loader(); } catch (e) { console.error(`[CB] Loader error for ${viewId}:`, e); }
         }
+    }
+    // Ensure Permission Setup always loads on direct hash refresh as well.
+    if (viewId === 'permissions-view' && appState.isLoggedIn) {
+        try { loadPermissionsSetup(); } catch (e) { console.error('permissions-view loader error:', e); }
     }
 
     // Update Browser History
@@ -4177,7 +4219,14 @@ function handleSocialLogin(provider) {
                 appState.schoolName = data.school_name;
                 appState.isSuperAdmin = data.is_super_admin;
                 appState.name = data.name || data.user_id;
-                appState.activeStudentId = (isParentRole(data.role) || data.role === 'Student') ? data.user_id : null;
+                // For parents: use related_student_id returned from server, not own ID
+                if (isParentRole(data.role) && data.related_student_id) {
+                    appState.activeStudentId = data.related_student_id;
+                } else if (data.role === 'Student') {
+                    appState.activeStudentId = data.user_id;
+                } else {
+                    appState.activeStudentId = null;
+                }
                 elements.loginMessage.textContent = `Success! Welcome, ${data.user_id}`;
                 if (appState.schoolName && appState.schoolName !== 'Independent') {
                     elements.loginMessage.textContent += ` (${appState.schoolName})`;
@@ -4225,8 +4274,10 @@ function initializeDashboard() {
         applyRoleTheme();
 
         // ── UI Setup only — no API calls here ────────────────────────────────
+        const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
+        const headerDisplayName = isAdminLike ? 'System Admin' : (appState.name || appState.userId);
         const userNameEl = document.getElementById('header-user-name');
-        if (userNameEl) userNameEl.textContent = appState.name || appState.userId;
+        if (userNameEl) userNameEl.textContent = headerDisplayName;
         const userRoleEl = document.getElementById('header-user-role');
         if (userRoleEl) {
             userRoleEl.textContent = appState.role;
@@ -4235,7 +4286,7 @@ function initializeDashboard() {
         }
         const userImgEl = document.getElementById('header-user-img');
         if (userImgEl)
-            userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(appState.userId)}&background=random`;
+            userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : appState.userId)}&background=random`;
         elements.authStatus.innerHTML =
             `<strong>Role:</strong> ${appState.role} <span class="mx-2">|</span> <strong>User:</strong> ${appState.userId}` +
             (appState.schoolName ? ` <span class="mx-2">|</span> <strong>School:</strong> ${appState.schoolName}` : '');
@@ -5323,13 +5374,25 @@ function renderInstitutionWizardAddresses() {
     if (!host)
         return;
     host.innerHTML = institutionWizardAddresses.map((a, idx) => `
-        <div class="border rounded-3 p-3 mb-2">
-            <div class="row g-2">
-                <div class="col-md-4"><input class="form-control wiz-address-line" data-idx="${idx}" placeholder="Address" value="${a.address_line || ''}"></div>
-                <div class="col-md-3"><input class="form-control wiz-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}"></div>
-                <div class="col-md-2"><input class="form-control wiz-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}"></div>
-                <div class="col-md-2"><input class="form-control wiz-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}"></div>
-                <div class="col-md-1 d-grid">${idx === 0 ? '<button type="button" class="btn btn-outline-secondary btn-sm" disabled>Primary</button>' : `<button type="button" class="btn btn-outline-danger btn-sm" onclick="removeInstitutionWizardAddress(${idx})">X</button>`}</div>
+        <div class="bg-light border rounded-4 p-3 mb-3 position-relative">
+            ${idx !== 0 ? `<button type="button" class="btn-close position-absolute top-0 end-0 m-2" onclick="removeInstitutionWizardAddress(${idx})" aria-label="Close"></button>` : `<span class="badge bg-primary position-absolute top-0 end-0 m-2 rounded-pill px-3 shadow-sm">Primary</span>`}
+            <div class="row g-3 mt-1">
+                <div class="col-md-12">
+                    <label class="form-label text-secondary small fw-bold mb-1">Full Address</label>
+                    <input class="form-control bg-white border-light-subtle py-2 wiz-address-line" data-idx="${idx}" placeholder="e.g. 123 Main St" value="${a.address_line || ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label text-secondary small fw-bold mb-1">Region / City</label>
+                    <input class="form-control bg-white border-light-subtle py-2 wiz-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label text-secondary small fw-bold mb-1">Timezone</label>
+                    <input class="form-control bg-white border-light-subtle py-2 wiz-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label text-secondary small fw-bold mb-1">Language</label>
+                    <input class="form-control bg-white border-light-subtle py-2 wiz-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}">
+                </div>
             </div>
         </div>
     `).join('');
@@ -5449,17 +5512,24 @@ function goInstitutionCreateStep(step) {
         alert('Please save Section 1 before proceeding to Section 2.');
         return;
     }
+    const progressBar = document.getElementById('wizard-progress-bar');
     if (step === 1) {
         details.classList.remove('d-none');
         contacts.classList.add('d-none');
-        detailsTab.classList.add('active');
-        contactsTab.classList.remove('active');
+        detailsTab.classList.add('active', 'btn-primary', 'text-white', 'shadow-sm');
+        detailsTab.classList.remove('btn-light', 'text-muted', 'border');
+        contactsTab.classList.remove('active', 'btn-primary', 'text-white', 'shadow-sm');
+        contactsTab.classList.add('btn-light', 'text-muted', 'border');
+        if (progressBar) progressBar.style.backgroundColor = '#e9ecef';
     }
     else {
         details.classList.add('d-none');
         contacts.classList.remove('d-none');
-        detailsTab.classList.remove('active');
-        contactsTab.classList.add('active');
+        detailsTab.classList.remove('active', 'btn-primary', 'text-white', 'shadow-sm');
+        detailsTab.classList.add('btn-light', 'text-muted', 'border');
+        contactsTab.classList.add('active', 'btn-primary', 'text-white', 'shadow-sm');
+        contactsTab.classList.remove('btn-light', 'text-muted', 'border');
+        if (progressBar) progressBar.style.backgroundColor = '#2563EB';
     }
 }
 function saveInstitutionWizardStep1AndContinue() {
@@ -5469,27 +5539,53 @@ function saveInstitutionWizardStep1AndContinue() {
     goInstitutionCreateStep(2);
 }
 function validateInstitutionWizardStep1() {
-    const name = (document.getElementById('new-school-name').value || '').trim();
-    const type = (document.getElementById('institution-type').value || '').trim();
-    const structure = (document.getElementById('institution-structure').value || '').trim();
+    let isValid = true;
+    let firstInvalidEl = null;
+
+    const nameEl = document.getElementById('wiz-inst-name');
+    const name = (nameEl.value || '').trim();
+    const type = (document.getElementById('wiz-inst-type').value || '').trim();
+    const structure = (document.getElementById('wiz-inst-structure').value || '').trim();
+
+    if (!name) {
+        nameEl.classList.add('is-invalid', 'border-danger');
+        if (!firstInvalidEl) firstInvalidEl = nameEl;
+        isValid = false;
+    } else {
+        nameEl.classList.remove('is-invalid', 'border-danger');
+    }
+
     if (!name || !type || !structure) {
-        alert('Please complete Institution Details before continuing.');
+        alert('Please complete the highlighted required fields (e.g. Institution Official Name) before continuing.');
+        if (firstInvalidEl) firstInvalidEl.focus();
         return false;
     }
-    if (!institutionWizardAddresses.length || !institutionWizardAddresses[0].address_line.trim()) {
-        alert('Primary address is required.');
-        return false;
-    }
+
     if (structure === 'Sole Entity' && institutionWizardAddresses.length > 1) {
-        alert('Sole Entity supports one address only. Use Union for multiple addresses.');
+        alert('Sole Entity supports one address only. Use Union structure for multiple addresses.');
         return false;
     }
+
+    let addressValid = true;
     for (let i = 0; i < institutionWizardAddresses.length; i++) {
+        const addressEl = document.querySelector(`.wiz-address-line[data-idx="${i}"]`);
         if (!(institutionWizardAddresses[i].address_line || '').trim()) {
-            alert(`Address is required for entry #${i + 1}.`);
-            return false;
+            if (addressEl) {
+                addressEl.classList.add('is-invalid', 'border-danger');
+                if (!firstInvalidEl) firstInvalidEl = addressEl;
+            }
+            addressValid = false;
+        } else {
+            if (addressEl) addressEl.classList.remove('is-invalid', 'border-danger');
         }
     }
+
+    if (!addressValid) {
+        alert('Please provide the Full Address for all highlighted locations.');
+        if (firstInvalidEl) firstInvalidEl.focus();
+        return false;
+    }
+
     return true;
 }
 function showCreateSchoolModal() {
@@ -5497,105 +5593,146 @@ function showCreateSchoolModal() {
     if (!document.getElementById('createSchoolModal')) {
         const modalHtml = `
           <div class="view full-page-view" id="createSchoolModal" tabindex="-1">
-            <div class="modal-dialog">
-              <div class="modal-content rounded-4 border-0 shadow">
-                <div class="modal-header border-0 pb-0">
-                  <h5 class="modal-title fw-bold text-primary">Create New Institution</h5>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+              <div class="modal-content rounded-4 border-0 shadow-lg" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
+                <div class="modal-header border-0 pb-0 pt-4 px-4">
+                  <h4 class="modal-title fw-bold text-primary mb-0">Create New Institution</h4>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="closeView()"></button>
                 </div>
                 <div class="modal-body p-4">
-                  <div class="d-flex gap-2 mb-3">
-                    <button id="wizard-step-details" type="button" class="btn btn-sm btn-primary active" onclick="goInstitutionCreateStep(1)">Step 1: Details + Address</button>
-                    <button id="wizard-step-contacts" type="button" class="btn btn-sm btn-outline-primary" onclick="goInstitutionCreateStep(2)">Step 2: Contacts + Security + Branding</button>
+                  <div class="d-flex justify-content-center align-items-center mb-4 mt-2 px-3 position-relative">
+                      <button id="wizard-step-details" type="button" class="btn btn-primary rounded-pill px-4 fw-bold active text-white shadow-sm" style="z-index: 2;" onclick="goInstitutionCreateStep(1)">1. Details & Address</button>
+                      <div class="transition-all" id="wizard-progress-bar" style="height: 4px; width: 60px; background-color: #2563EB; margin: 0 -5px; z-index: 1;"></div>
+                      <button id="wizard-step-contacts" type="button" class="btn btn-light border rounded-pill px-4 text-muted fw-bold" style="z-index: 2;" onclick="goInstitutionCreateStep(2)">2. Contacts & Settings</button>
                   </div>
-                  <form id="create-school-form">
-                    <div id="institution-step-details">
-                        <div class="form-floating mb-3">
-                            <select id="institution-structure" class="form-select bg-light border-0">
-                                <option value="Sole Entity">Sole Entity</option>
-                                <option value="Union">Union</option>
-                            </select>
-                            <label>Institution Structure</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="new-school-name" class="form-control bg-light border-0" placeholder="Institution Name" required>
-                            <label>Institution Official Name</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="new-school-visual-name" class="form-control bg-light border-0" placeholder="Visual Name">
-                            <label>Institution Visual Name</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="new-school-brief" class="form-control bg-light border-0" placeholder="Brief Details">
-                            <label>Institution Brief Details</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <select id="institution-type" class="form-select bg-light border-0">
-                                <option value="Pre school">Pre school</option>
-                                <option value="Primary School">Primary School</option>
-                                <option value="Secondary School">Secondary School</option>
-                                <option value="K12 School" selected>K12 School</option>
-                                <option value="College">College</option>
-                                <option value="Company">Company</option>
-                            </select>
-                            <label>Institution Type</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <select id="institution-state" class="form-select bg-light border-0">
-                                <option value="Trial" selected>Trial</option>
-                                <option value="Active">Active</option>
-                                <option value="Suspended">Suspended</option>
-                                <option value="Archived">Archived</option>
-                                <option value="Deleted">Deleted</option>
-                            </select>
-                            <label>State</label>
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label fw-bold mb-0">Institution Address(es)</label>
-                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInstitutionWizardAddress()">Add Address</button>
-                        </div>
-                        <div id="new-school-address-list"></div>
-                        <div class="d-grid mt-3">
-                            <button type="button" class="btn btn-outline-primary" onclick="saveInstitutionWizardStep1AndContinue()">Save & Continue</button>
-                        </div>
-                    </div>
-                    <div id="institution-step-contacts" class="d-none">
-                        <div class="card border-0 shadow-sm rounded-4 mb-3">
-                            <div class="card-body">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <h6 class="fw-bold mb-0">Section 3: Primary Contacts</h6>
-                                    <button class="btn btn-outline-primary btn-sm" type="button" onclick="addInstitutionContactRow()">Add Key Individual</button>
+                  <form id="create-school-form" class="px-md-3">
+                    <div id="institution-step-details" class="animate-fade-in">
+                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
+                            <div class="card-body p-4">
+                                <h6 class="fw-bold text-secondary mb-3">Basic Information</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Official Name <span class="text-danger">*</span></label>
+                                        <input type="text" id="wiz-inst-name" class="form-control bg-light border-light-subtle py-2" placeholder="Institution Name" required>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Visual Name</label>
+                                        <input type="text" id="wiz-inst-visual-name" class="form-control bg-light border-light-subtle py-2" placeholder="Visual Name">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Structure</label>
+                                        <select id="wiz-inst-structure" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="Sole Entity">Sole Entity</option>
+                                            <option value="Union">Union</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Type</label>
+                                        <select id="wiz-inst-type" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="Pre school">Pre school</option>
+                                            <option value="Primary School">Primary School</option>
+                                            <option value="Secondary School">Secondary School</option>
+                                            <option value="K12 School" selected>K12 School</option>
+                                            <option value="College">College</option>
+                                            <option value="Company">Company</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Brief Details</label>
+                                        <input type="text" id="wiz-inst-brief" class="form-control bg-light border-light-subtle py-2" placeholder="Brief Details">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">State</label>
+                                        <select id="wiz-inst-state" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="Trial" selected>Trial</option>
+                                            <option value="Active">Active</option>
+                                            <option value="Suspended">Suspended</option>
+                                            <option value="Archived">Archived</option>
+                                            <option value="Deleted">Deleted</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                <div id="institution-contacts-list"></div>
                             </div>
                         </div>
-                        <div class="form-floating mb-3">
-                            <input type="email" id="new-school-email" class="form-control bg-light border-0" placeholder="Email" required>
-                            <label>Primary Contact Email</label>
+
+                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
+                            <div class="card-body p-4">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold text-secondary mb-0">Location & Addresses</h6>
+                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="addInstitutionWizardAddress()">+ Add Address</button>
+                                </div>
+                                <div id="new-school-address-list"></div>
+                            </div>
                         </div>
-                        <div class="form-floating mb-3">
-                            <select id="wizard-security-mode" class="form-select bg-light border-0">
-                                <option value="password_only">Option 1: User ID + Password</option>
-                                <option value="email_otp" selected>Option 2: Email OTP</option>
-                                <option value="authenticator_app">Option 3: Authenticator App</option>
-                            </select>
-                            <label>Tenant Security</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="wizard-security-recommendation" class="form-control bg-light border-0" placeholder="Recommendation">
-                            <label>Security Recommendation</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="wizard-color-theme" class="form-control bg-light border-0" placeholder="Color Theme">
-                            <label>Branding Color Theme</label>
-                        </div>
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-4"><input type="text" id="wizard-date-format" class="form-control bg-light border-0" placeholder="Date Format" value="YYYY-MM-DD"></div>
-                            <div class="col-md-4"><input type="text" id="wizard-time-format" class="form-control bg-light border-0" placeholder="Time Format" value="24h"></div>
-                            <div class="col-md-4"><input type="text" id="wizard-currency-code" class="form-control bg-light border-0" placeholder="Currency" value="USD"></div>
+
+                        <div class="d-flex justify-content-end mt-4">
+                            <button type="button" class="btn btn-primary px-5 py-2 rounded-pill fw-bold shadow-sm" onclick="saveInstitutionWizardStep1AndContinue()">Continue to Step 2 <span class="ms-2">→</span></button>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary-custom w-100 py-3 rounded-pill fw-bold">Create Institution</button>
+                    <div id="institution-step-contacts" class="d-none animate-fade-in">
+                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
+                            <div class="card-body p-4">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0 text-secondary">Primary Contacts</h6>
+                                    <button class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" type="button" onclick="addInstitutionContactRow()">+ Add Key Individual</button>
+                                </div>
+                                <div id="institution-contacts-list"></div>
+                                <div class="mt-3">
+                                    <label class="form-label text-secondary small fw-bold mb-1">Master Primary Contact Email <span class="text-danger">*</span></label>
+                                    <input type="email" id="wiz-inst-email" class="form-control bg-light border-light-subtle py-2" placeholder="Email" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
+                            <div class="card-body p-4">
+                                <h6 class="fw-bold text-secondary mb-3">Security & Branding Settings</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Tenant Security Mode</label>
+                                        <select id="wizard-security-mode" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="password_only">User ID + Password</option>
+                                            <option value="email_otp" selected>Email OTP (Recommended)</option>
+                                            <option value="authenticator_app">Authenticator App</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Security Recommendation</label>
+                                        <input type="text" id="wizard-security-recommendation" class="form-control bg-light border-light-subtle py-2" placeholder="Recommendation" readonly>
+                                    </div>
+                                    <div class="col-md-12">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Branding Color Theme (Hex or Name)</label>
+                                        <input type="text" id="wizard-color-theme" class="form-control bg-light border-light-subtle py-2" placeholder="Color Theme">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Date Format</label>
+                                        <input type="date" id="wizard-date-format" class="form-control bg-light border-light-subtle py-2">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Time Format</label>
+                                        <select id="wizard-time-format" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="12h">12-hour (AM/PM)</option>
+                                            <option value="24h" selected>24-hour</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label text-secondary small fw-bold mb-1">Currency Code</label>
+                                        <select id="wizard-currency-code" class="form-select bg-light border-light-subtle py-2">
+                                            <option value="USD" selected>USD ($)</option>
+                                            <option value="EUR">EUR (€)</option>
+                                            <option value="GBP">GBP (£)</option>
+                                            <option value="INR">INR (₹)</option>
+                                            <option value="AUD">AUD ($)</option>
+                                            <option value="CAD">CAD ($)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-light border px-4 py-2 rounded-pill fw-bold text-muted" onclick="goInstitutionCreateStep(1)"><span class="me-2">←</span> Back</button>
+                            <button type="submit" class="btn btn-success px-5 py-2 rounded-pill fw-bold shadow-sm">Complete Creation <span class="ms-2">✓</span></button>
+                        </div>
+                    </div>
                   </form>
                 </div>
               </div>
@@ -5604,7 +5741,7 @@ function showCreateSchoolModal() {
         `;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
         document.getElementById('create-school-form').addEventListener('submit', handleCreateSchool);
-        const structureEl = document.getElementById('institution-structure');
+        const structureEl = document.getElementById('wiz-inst-structure');
         if (structureEl) {
             structureEl.addEventListener('change', () => {
                 institutionWizardStep1Saved = false;
@@ -5615,14 +5752,14 @@ function showCreateSchoolModal() {
                 }
             });
         }
-        ['new-school-name', 'new-school-visual-name', 'new-school-brief', 'institution-type', 'institution-state'].forEach((id) => {
+        ['wiz-inst-name', 'wiz-inst-visual-name', 'wiz-inst-brief', 'wiz-inst-type', 'wiz-inst-state'].forEach((id) => {
             const el = document.getElementById(id);
             if (el)
                 el.addEventListener('input', () => {
                     institutionWizardStep1Saved = false;
                 });
         });
-        const typeElInit = document.getElementById('institution-type');
+        const typeElInit = document.getElementById('wiz-inst-type');
         const secElInit = document.getElementById('wizard-security-mode');
         const recElInit = document.getElementById('wizard-security-recommendation');
         const syncWizardRec = () => {
@@ -5662,13 +5799,13 @@ function handleCreateSchool(e) {
             e.preventDefault();
         if (!validateInstitutionWizardStep1())
             return;
-        const name = (document.getElementById('new-school-name').value || '').trim();
-        const email = (document.getElementById('new-school-email').value || '').trim();
-        const structureEl = document.getElementById('institution-structure');
-        const typeEl = document.getElementById('institution-type');
-        const stateEl = document.getElementById('institution-state');
-        const visualNameEl = document.getElementById('new-school-visual-name');
-        const briefEl = document.getElementById('new-school-brief');
+        const name = (document.getElementById('wiz-inst-name').value || '').trim();
+        const email = (document.getElementById('wiz-inst-email').value || '').trim();
+        const structureEl = document.getElementById('wiz-inst-structure');
+        const typeEl = document.getElementById('wiz-inst-type');
+        const stateEl = document.getElementById('wiz-inst-state');
+        const visualNameEl = document.getElementById('wiz-inst-visual-name');
+        const briefEl = document.getElementById('wiz-inst-brief');
         const securityModeEl = document.getElementById('wizard-security-mode');
         const securityRecEl = document.getElementById('wizard-security-recommendation');
         const colorThemeEl = document.getElementById('wizard-color-theme');
@@ -5919,8 +6056,9 @@ function getSidebarConfig(role) {
                         permission: () => hasPermission('finance.fees.self.read') || appState.role === 'Student'
                     }
                 ]
-            },
-            { label: 'sidebar_question_bank', icon: 'collections_bookmark', view: 'test-question-bank-view', route: '/student/question-bank' }
+            }
+            // Note: test-question-bank-view is a TEACHER-ONLY view and has been removed from Student sidebar
+            // Students access questions through their assignments/exams views instead
         ];
     }
     if (role === 'Teacher') {
@@ -5940,7 +6078,7 @@ function getSidebarConfig(role) {
                 children: [
                     { label: 'sidebar_take_attendance', view: 'attendance-take-view', route: '/teacher/attendance/take' },
                     { label: 'sidebar_attendance_sheet', view: 'attendance-sheet-view', route: '/teacher/attendance/sheet' },
-                    { label: 'sidebar_monthly_report', view: 'attendance-report-view', route: '/teacher/attendance/report' },
+                    { label: 'sidebar_monthly_report', view: 'attendance-report-view', route: '/teacher/attendance/report', onClick: () => { switchView('attendance-report-view'); initMonthlyReport(); } },
                     { label: 'sidebar_approve_leave', view: 'attendance-leave-approval-view', route: '/teacher/attendance/approve-leave', onClick: () => { switchView('attendance-leave-approval-view'); loadTeacherLeaveApprovals(); } },
                     { label: 'sidebar_apply_leave', view: 'teacher-leave-apply-view', route: '/teacher/attendance/apply-leave' }
                 ]
@@ -6030,7 +6168,7 @@ function getSidebarConfig(role) {
                 label: 'sidebar_attendance', icon: 'rule', id: 'p-cat-attendance',
                 children: [
                     { label: 'sidebar_attendance_report', view: 'parent-attendance-view', route: '/parent/attendance' },
-                    { label: 'sidebar_monthly_report', view: 'parent-attendance-report-view', route: '/parent/attendance/report' }
+                    { label: 'sidebar_monthly_report', view: 'parent-attendance-report-view', route: '/parent/attendance/report', onClick: () => { switchView('parent-attendance-report-view'); initMonthlyReport(); } },
                 ]
             },
             // 4. Timetable
@@ -6210,7 +6348,7 @@ function getSidebarConfig(role) {
         {
             label: 'sidebar_reports', icon: 'bar_chart', id: 'cat-reports',
             children: [
-                { label: 'sidebar_attendance_report', view: 'attendance-report-view', route: '/teacher/reports/attendance' },
+                { label: 'sidebar_attendance_report', view: 'attendance-report-view', route: '/teacher/reports/attendance', onClick: () => { switchView('attendance-report-view'); initMonthlyReport(); } },
                 { label: 'sidebar_performance_report', view: 'performance-report-view', route: '/teacher/reports/performance' }
             ]
         },
@@ -7601,7 +7739,7 @@ function loadStudentDashboard(studentId) {
                 });
             }
             else {
-                historyHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No activity history available.</td></tr>';
+                historyHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No activity history available.</td></tr>';
             }
             if (elements.historyTable)
                 elements.historyTable.innerHTML = historyHTML;
@@ -10511,13 +10649,13 @@ function openUserManagement() {
 function loadUserList() {
     return __awaiter(this, void 0, void 0, function* () {
         const tbody = document.getElementById('users-table-body');
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
         try {
             const response = yield fetchAPI('/admin/users');
             if (response.ok) {
                 const users = yield response.json();
                 if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No users found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No users found.</td></tr>';
                     return;
                 }
                 tbody.innerHTML = users.map(u => `
@@ -10533,11 +10671,11 @@ function loadUserList() {
             `).join('');
             }
             else {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Failed to load users.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load users.</td></tr>';
             }
         }
         catch (e) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Network error.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Network error.</td></tr>';
         }
     });
 }
@@ -13934,7 +14072,7 @@ function loadStaffAttendance() {
                             <td>${l.check_in_time || '-'}</td>
                             <td>${l.check_out_time || '-'}</td>
                         </tr>
-                    `).join('') : '<tr><td colspan="5" class="text-center text-muted">No attendance records.</td></tr>'}
+                    `).join('') : '<tr><td colspan="4" class="text-center text-muted">No attendance records.</td></tr>'}
                 </tbody>
             </table>
         `;
@@ -16493,7 +16631,7 @@ function loadStudentAttendanceView() {
                                         <td>${m.late || 0}</td>
                                         <td class="pe-3 fw-semibold">${m.attendance_rate ?? 0}%</td>
                                     </tr>
-                                `).join('') : '<tr><td colspan="5" class="text-center text-muted p-3">No monthly summary available.</td></tr>'}
+                                `).join('') : '<tr><td colspan="4" class="text-center text-muted p-3">No monthly summary available.</td></tr>'}
                             </tbody>
                         </table>
                     </div>
@@ -19522,3 +19660,6 @@ window.handleCreatePDFExam = handleCreatePDFExam;
 window.initProgressEnterView = initProgressEnterView;
 window.initProgressPublishView = initProgressPublishView;
 window.loadAttendanceSheetData = loadAttendanceSheetData;
+
+
+

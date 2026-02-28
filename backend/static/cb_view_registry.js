@@ -80,13 +80,17 @@ function loadStudentDashboardData() {
 function loadParentDashboardData() {
     if (typeof fetchStudents === 'function') {
         fetchStudents().then(() => {
-            if (!appState.activeStudentId && Array.isArray(appState.allStudents)) {
-                const linked = appState.allStudents.find(
-                    s => (s.role || '').toLowerCase() === 'student'
-                );
-                appState.activeStudentId = linked
-                    ? (linked.id || linked.student_id || null)
-                    : null;
+            // If activeStudentId not yet set, pick the first result from allStudents
+            // (the backend already filters /api/students/all for parents to return only their children)
+            if (!appState.activeStudentId && Array.isArray(appState.allStudents) && appState.allStudents.length > 0) {
+                const firstChild = appState.allStudents[0];
+                appState.activeStudentId = firstChild.id || firstChild.ID || firstChild.student_id || null;
+                // Save to session
+                try {
+                    const session = JSON.parse(localStorage.getItem('classbridge_session') || '{}');
+                    session.active_student_id = appState.activeStudentId;
+                    localStorage.setItem('classbridge_session', JSON.stringify(session));
+                } catch (e) { }
             }
             if (appState.activeStudentId) {
                 const el = document.getElementById('parent-child-id');
@@ -189,4 +193,55 @@ const VIEW_LOADERS = {
 
     // ── Resources ────────────────────────────────────────────────────────────
     'resources-view': { roles: COMMS_ROLES, loader: () => { if (typeof initResourcesView === 'function') initResourcesView(); } },
+
+    // ── Admin/Teacher: Role & Permission Management ──────────────────────────
+    // These views are ONLY for Admin/Principal/Tenant_Admin — block Student/Parent via URL hash
+    'role-management-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
+    'roles-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadRoles === 'function') loadRoles(); } },
+    'role-form-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'permissions-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadPermissionsSetup === 'function') loadPermissionsSetup(); } },
+
+    // ── Admin: Staff, Compliance, Settings ──────────────────────────────────
+    'staff-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'settings-view': { roles: COMMS_ROLES, loader: () => { } },   // all roles can access settings
+    'compliance-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'reports-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'performance-report-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'finance-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'root-admin-view': { roles: TEACHER_ROLES, superAdminOnly: true, loader: () => { } },  // Super Admin ONLY
+
+    // ── Teacher: Attendance ──────────────────────────────────────────────────
+    'attendance-take-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'attendance-report-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'attendance-leave-approval-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadTeacherLeaveApprovals === 'function') loadTeacherLeaveApprovals(); } },
+    'teacher-leave-apply-view': { roles: TEACHER_ROLES, loader: () => { } },
+
+    // ── Teacher: Quick-access sub-views ─────────────────────────────────────
+    'student-info-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'groups-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'create-class-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'teacher-class-management-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'add-user-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'grade-helper-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'engagement-helper-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'communication-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'messages-view-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'notifications-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'payroll-view-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'payroll-print-view': { roles: TEACHER_ROLES, loader: () => { } },
+
+    // ── Student-specific ────────────────────────────────────────────────────
+    'student-leave-view': { roles: STUDENT_ROLES, loader: () => { if (typeof loadStudentLeaveView === 'function') loadStudentLeaveView(); } },
+    'student-communication-view': { roles: STUDENT_ROLES, loader: () => { } },
+    'student-academics-view': { roles: STUDENT_ROLES, loader: () => { } },
+
+    // ── Parent-specific ─────────────────────────────────────────────────────
+    'parent-assignment-view': { roles: PARENT_ROLES, loader: () => { } },
+    'parent-assignment-scores-view': { roles: PARENT_ROLES, loader: () => { } },
+    'parent-attendance-report-view': { roles: PARENT_ROLES, loader: () => { } },
+    'parent-online-test-view': { roles: PARENT_ROLES, loader: () => { } },
+    'parent-feedback-view': { roles: PARENT_ROLES, loader: () => { } },
+
+    // ── Profile — accessible to all logged-in users ──────────────────────────
+    'profile-password-view': { roles: COMMS_ROLES, loader: () => { } },
 };

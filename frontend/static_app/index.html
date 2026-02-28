@@ -1483,10 +1483,7 @@
             <div class="title-area">
                 <h2 id="page-title" data-i18n="sidebar_dashboard">Dashboard</h2>
             </div>
-            <div class="search-box">
-                <span class="material-icons">search</span>
-                <input type="text" data-i18n-placeholder="ph_search" placeholder="Search here...">
-            </div>
+
             <div class="user-menu">
                 <!-- Messages Dropdown -->
                 <div class="dropdown">
@@ -3017,13 +3014,13 @@
                         <div class="card-body d-flex align-items-center gap-3 p-4">
                             <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
                                 style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
-                                <span class="material-icons" style="font-size:24px;">category</span>
+                                <span class="material-icons" style="font-size:24px;">check_circle</span>
                             </div>
                             <div>
-                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-groups">—
+                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-active">—
                                 </div>
                                 <div style="font-size:0.78rem;opacity:0.85;font-weight:600;letter-spacing:0.02em;">
-                                    Permission Groups</div>
+                                    Active Permissions</div>
                             </div>
                         </div>
                     </div>
@@ -3034,12 +3031,13 @@
                         <div class="card-body d-flex align-items-center gap-3 p-4">
                             <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
                                 style="width:48px;height:48px;background:rgba(255,255,255,0.18);">
-                                <span class="material-icons" style="font-size:24px;">description</span>
+                                <span class="material-icons" style="font-size:24px;">remove_circle_outline</span>
                             </div>
                             <div>
-                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-desc">—</div>
+                                <div class="fw-bold" style="font-size:1.8rem;line-height:1;" id="perm-stat-inactive">—
+                                </div>
                                 <div style="font-size:0.78rem;opacity:0.85;font-weight:600;letter-spacing:0.02em;">
-                                    With Descriptions</div>
+                                    Inactive Permissions</div>
                             </div>
                         </div>
                     </div>
@@ -3066,11 +3064,11 @@
                         <table class="table table-hover align-middle mb-0" id="permissions-setup-table">
                             <thead class="bg-light">
                                 <tr>
-                                    <th class="ps-4" style="width:120px;">Permission Code</th>
-                                    <th style="width:220px;">Permission Title</th>
-                                    <th>Description</th>
-                                    <th style="width:100px;">Group</th>
-                                    <th class="text-center" style="width:80px;">Actions</th>
+                                    <th class="ps-4" style="width:120px; white-space: nowrap;">Permission Code</th>
+                                    <th style="width:220px; white-space: nowrap;">Permission Title</th>
+                                    <th style="white-space: nowrap;">Description</th>
+                                    <th style="width:100px; white-space: nowrap;">Group</th>
+                                    <th class="text-center" style="width:80px; white-space: nowrap;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="permissions-setup-body">

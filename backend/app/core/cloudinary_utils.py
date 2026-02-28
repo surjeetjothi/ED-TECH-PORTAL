@@ -1,7 +1,10 @@
 import os
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
+try:
+    import cloudinary
+    import cloudinary.uploader
+    import cloudinary.api
+except Exception:
+    cloudinary = None
 from fastapi import UploadFile, HTTPException
 
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
@@ -9,7 +12,7 @@ CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
 # Initialize Cloudinary if credentials are provided
-if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+if cloudinary and CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
     cloudinary.config(
         cloud_name=CLOUDINARY_CLOUD_NAME,
         api_key=CLOUDINARY_API_KEY,
@@ -21,7 +24,7 @@ def upload_to_cloudinary(file: UploadFile, folder: str = "classbridge") -> str:
     Uploads a file to Cloudinary and returns the secure URL.
     Returns None if Cloudinary is not configured or an error occurs.
     """
-    if not CLOUDINARY_CLOUD_NAME:
+    if not cloudinary or not CLOUDINARY_CLOUD_NAME:
         # Fallback for local dev if cloudinary is not set up
         return None
         

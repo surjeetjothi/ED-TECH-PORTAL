@@ -2,6 +2,7 @@ import logging
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import text
+from fastapi import HTTPException
 from app.core.config import DATABASE_URL, USE_POSTGRES
 from app.models.domain import Base
 
@@ -19,6 +20,8 @@ else:
     ASYNC_DB_URL = f"sqlite+aiosqlite:///{sqlite_db_path}"
 
 # Create the Engine with connection pooling settings suitable for Gunicorn Workers
+engine = None
+AsyncSessionLocal = None
 try:
     if "sqlite" in ASYNC_DB_URL:
         # SQLite doesn't use standard connection pooling tuning
@@ -49,6 +52,7 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Async SQLAlchemy Engine: {e}")
     # We allow the module to load even if engine fails, so we can see logs
+    engine = None
     AsyncSessionLocal = None
 
 async def get_db():
@@ -91,12 +95,25 @@ class PostgresCursorWrapper:
         q = query.replace("?", "%s")
         self.cursor.execute(q, params)
         return self
+    def executemany(self, query, param_list):
+        q = query.replace("?", "%s")
+        self.cursor.executemany(q, param_list)
+        return self
     def fetchone(self):
         return self.cursor.fetchone()
     def fetchall(self):
         return self.cursor.fetchall()
     def close(self):
         self.cursor.close()
+    @property
+    def description(self):
+        return self.cursor.description
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
 
 class PostgresConnectionWrapper:
     def __init__(self, conn):

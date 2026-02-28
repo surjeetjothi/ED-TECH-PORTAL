@@ -518,6 +518,9 @@ def seed_default_users():
                 (teacher_email,  "Demo Teacher", "Teacher",          teacher_pass,  False),
                 ("student@noblenexus.com", "Demo Student", "Student", "Student@123", False),
                 ("parent@noblenexus.com",  "Demo Parent",  "Parent_Guardian", "Parent@123", False),
+                ("S001", "Student One", "Student", "Student@123", False),
+                ("S002", "Student Two", "Student", "Student@123", False),
+                ("parent_demo", "Demo Parent", "Parent_Guardian", "Parent@123", False),
             ]
 
             for uid, name, role, raw_pass, is_super in default_users_data:
@@ -535,13 +538,13 @@ def seed_default_users():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO NOTHING
                 """, (
-                    uid, name, "N/A", "General", 100.0, "English",
-                    hashed, role, 1, 1 if is_super else 0, 1
+                    uid, name, 0, "General", 100.0, "English",
+                    hashed, role, 1, True if is_super else False, True
                 ))
             conn.commit()
             logger.info("Default users seeding check complete.")
     except Exception as exc:
-        logger.warning(f"seed_default_users: non-fatal error — {exc}")
+        logger.warning(f"seed_default_users: non-fatal error — {exc}\n")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -842,9 +845,20 @@ from app.core.auth_utils import (
 def ensure_root_admin_user(conn, user_id: str):
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Special bypass for the hardcoded 'rootadmin' account
+    # This matches the same bypass in verify_permission()
+    if user_id == "rootadmin":
+        return {"id": "rootadmin", "role": "Root_Super_Admin", "is_super_admin": False}
+    
+    # Try exact match first, then case-insensitive
     user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        user = conn.execute(
+            "SELECT id, role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)", (user_id,)
+        ).fetchone()
+    if not user:
+        raise HTTPException(status_code=403, detail="Access denied: user identity not recognized.")
     # Allow both Root_Super_Admin role AND Super Admin users (is_super_admin=1)
     is_root = user["role"] == "Root_Super_Admin"
     is_super = bool(user["is_super_admin"])
@@ -855,9 +869,16 @@ def ensure_root_admin_user(conn, user_id: str):
 def ensure_super_admin_user(conn, user_id: str):
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
+    # Super admin bypass for rootadmin
+    if user_id == "rootadmin":
+        return {"id": "rootadmin", "role": "Root_Super_Admin", "is_super_admin": True}
     user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        user = conn.execute(
+            "SELECT id, role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)", (user_id,)
+        ).fetchone()
+    if not user:
+        raise HTTPException(status_code=403, detail="Access denied: user identity not recognized.")
     if not bool(user["is_super_admin"]):
         raise HTTPException(status_code=403, detail="Super Admin access required")
     return user
@@ -1222,9 +1243,11 @@ def initialize_db():
         id {pk_def},
         code TEXT UNIQUE,
         description TEXT,
-        group_name TEXT -- e.g. 'User Management', 'Academics'
+        group_name TEXT, -- e.g. 'User Management', 'Academics'
+        status TEXT DEFAULT 'Active'
     )
     """)
+    safe_migrate("ALTER TABLE permissions ADD COLUMN status TEXT DEFAULT 'Active'")
 
     # 2. Roles
     cursor.execute(f"""
@@ -2523,52 +2546,52 @@ def seed_rbac_data(conn):
         ('add_roles', 'Create New Roles', 'Role Management'),
         ('edit_roles', 'Edit Role Details', 'Role Management'),
         ('delete_roles', 'Delete Roles', 'Role Management'),
-        ('school.manage', 'Manage Institutions', 'System'),
-        ('class.view', 'View Classes', 'Academics'),
-        ('class.create', 'Create/Schedule Classes', 'Academics'),
-        ('class.edit', 'Edit Classes', 'Academics'),
-        ('assignment.view', 'View Assignments', 'Academics'),
-        ('assignment.create', 'Create Assignments', 'Academics'),
-        ('assignment.grade', 'Grade Assignments', 'Academics'),
-        ('reports.view', 'View Reports/Analytics', 'Analytics'),
-        ('finance.view', 'View Finance', 'Administration'),
-        ('finance.dashboard.read', 'View Finance Dashboard', 'Finance'),
-        ('finance.reports.read', 'View Finance Reports', 'Finance'),
-        ('finance.masterdata.read', 'View Finance Master Data', 'Finance'),
-        ('finance.masterdata.manage', 'Manage Finance Master Data', 'Finance'),
-        ('communication.view', 'View Communication', 'Communication'),
-        ('communication.announce', 'Post Announcements', 'Communication'),
-        ('communication.events', 'Manage Calendar Events', 'Communication'),
-        ('compliance.view', 'View Compliance & Security', 'Compliance'),
-        ('compliance.manage', 'Manage Compliance Settings', 'Compliance'),
-        ('finance.manage', 'Manage Finance Settings', 'Finance'),
-        
+        ('school_manage', 'Manage Institutions', 'System'),
+        ('class_view', 'View Classes', 'Academics'),
+        ('class_create', 'Create/Schedule Classes', 'Academics'),
+        ('class_edit', 'Edit Classes', 'Academics'),
+        ('assignment_view', 'View Assignments', 'Academics'),
+        ('assignment_create', 'Create Assignments', 'Academics'),
+        ('assignment_grade', 'Grade Assignments', 'Academics'),
+        ('reports_view', 'View Reports/Analytics', 'Analytics'),
+        ('finance_view', 'View Finance', 'Administration'),
+        ('finance_dashboard_read', 'View Finance Dashboard', 'Finance'),
+        ('finance_reports_read', 'View Finance Reports', 'Finance'),
+        ('finance_masterdata_read', 'View Finance Master Data', 'Finance'),
+        ('finance_masterdata_manage', 'Manage Finance Master Data', 'Finance'),
+        ('communication_view', 'View Communication', 'Communication'),
+        ('communication_announce', 'Post Announcements', 'Communication'),
+        ('communication_events', 'Manage Calendar Events', 'Communication'),
+        ('compliance_view', 'View Compliance & Security', 'Compliance'),
+        ('compliance_manage', 'Manage Compliance Settings', 'Compliance'),
+        ('finance_manage', 'Manage Finance Settings', 'Finance'),
+
         # New Detailed Permissions
-        ('finance.invoices', 'Manage Invoices', 'Finance'),
-        ('finance.payroll', 'Manage Payroll', 'Finance'),
-        ('finance.payroll.self.read', 'View Own Payroll', 'Finance'),
-        ('finance.fees.self.read', 'View Own Fee Invoices', 'Finance'),
-        ('finance.fees.child.read', "View Child's Fee Invoices", 'Finance'),
-        ('finance.gl.manage', 'Manage General Ledger', 'Finance'),
-        ('finance.receivables.manage', 'Manage Receivables', 'Finance'),
-        ('finance.payables.manage', 'Manage Payables', 'Finance'),
-        ('finance.payables.approve', 'Approve Payables', 'Finance'),
-        ('finance.inventory.manage', 'Manage Inventory Accounting', 'Finance'),
-        ('finance.assets.manage', 'Manage Asset Accounting', 'Finance'),
-        ('finance.payroll.manage', 'Manage Payroll Runs', 'Finance'),
-        ('finance.payroll.approve', 'Approve and Lock Payroll', 'Finance'),
-        ('finance.posting.manage', 'Manage Finance Posting Rules', 'Finance'),
-        ('finance.approvals.manage', 'Manage Finance Approvals', 'Finance'),
-        ('finance.period.close', 'Close Accounting Periods', 'Finance'),
-        ('finance.audit.read', 'View Finance Audit Logs', 'Finance'),
-        ('staff.view', 'View Staff & Faculty', 'HR'),
-        ('staff.manage', 'Manage Staff & Faculty', 'HR'),
-        ('staff.assets', 'Manage Assets & Lending', 'HR'),
-        
-        ('student.info.view', 'View Student Information', 'Student Info'),
-        ('student.info.manage', 'Manage Student Information', 'Student Info'),
-        ('student.progress.view', 'View Student Progress', 'Student Info'),
-        ('attendance.manage', 'Manage Student Attendance', 'Academics'),
+        ('finance_invoices', 'Manage Invoices', 'Finance'),
+        ('finance_payroll', 'Manage Payroll', 'Finance'),
+        ('finance_payroll_self_read', 'View Own Payroll', 'Finance'),
+        ('finance_fees_self_read', 'View Own Fee Invoices', 'Finance'),
+        ('finance_fees_child_read', "View Child's Fee Invoices", 'Finance'),
+        ('finance_gl_manage', 'Manage General Ledger', 'Finance'),
+        ('finance_receivables_manage', 'Manage Receivables', 'Finance'),
+        ('finance_payables_manage', 'Manage Payables', 'Finance'),
+        ('finance_payables_approve', 'Approve Payables', 'Finance'),
+        ('finance_inventory_manage', 'Manage Inventory Accounting', 'Finance'),
+        ('finance_assets_manage', 'Manage Asset Accounting', 'Finance'),
+        ('finance_payroll_manage', 'Manage Payroll Runs', 'Finance'),
+        ('finance_payroll_approve', 'Approve and Lock Payroll', 'Finance'),
+        ('finance_posting_manage', 'Manage Finance Posting Rules', 'Finance'),
+        ('finance_approvals_manage', 'Manage Finance Approvals', 'Finance'),
+        ('finance_period_close', 'Close Accounting Periods', 'Finance'),
+        ('finance_audit_read', 'View Finance Audit Logs', 'Finance'),
+        ('staff_view', 'View Staff & Faculty', 'HR'),
+        ('staff_manage', 'Manage Staff & Faculty', 'HR'),
+        ('staff_assets', 'Manage Assets & Lending', 'HR'),
+
+        ('student_info_view', 'View Student Information', 'Student Info'),
+        ('student_info_manage', 'Manage Student Information', 'Student Info'),
+        ('student_progress_view', 'View Student Progress', 'Student Info'),
+        ('attendance_manage', 'Manage Student Attendance', 'Academics'),
     ]
 
     # Create Finance Settings Table if not exists
@@ -2592,7 +2615,42 @@ def seed_rbac_data(conn):
             logger.warning(f"Migration warning (resources.extracted_text): {e}")
 
     cursor.executemany("INSERT INTO permissions (code, description, group_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", perms)
-    
+
+    # --- MIGRATION: rename dot-format permission codes to underscore format ---
+    # Runs every startup but is a no-op once all codes are clean.
+    try:
+        existing_dotted = cursor.execute(
+            "SELECT id, code FROM permissions WHERE code LIKE '%.%'"
+        ).fetchall()
+        for row in existing_dotted:
+            try:
+                old_code = row['code']
+                perm_id  = row['id']
+            except (TypeError, KeyError, IndexError):
+                perm_id, old_code = row[0], row[1]
+            new_code = old_code.replace('.', '_')
+            # Check if the new underscore code already exists (to avoid UNIQUE conflicts)
+            existing_new = cursor.execute(
+                "SELECT id FROM permissions WHERE code = ?", (new_code,)
+            ).fetchone()
+            if existing_new:
+                # New code already exists – remove the stale dot-format duplicate
+                cursor.execute("DELETE FROM permissions WHERE id = ?", (perm_id,))
+            else:
+                cursor.execute(
+                    "UPDATE permissions SET code = ? WHERE id = ?",
+                    (new_code, perm_id)
+                )
+        if existing_dotted:
+            logger.info(f"Permission code migration: cleaned {len(existing_dotted)} dot-format codes.")
+        conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.warning(f"Permission code migration warning: {e}")
+
     conn.commit()
     
     # 2. Key Roles
@@ -2645,110 +2703,110 @@ def seed_rbac_data(conn):
 
     # Root Super Admin (Restricted to student + school record management only)
     assign('Root_Super_Admin', [
-        'student.info.view',
-        'student.info.manage',
-        'school.manage',
+        'student_info_view',
+        'student_info_manage',
+        'school_manage',
     ])
     
     # Tenant Admin (School Management)
     assign('Tenant_Admin', [
         'user_management', 'role_management', 'permission_management', 
-        'class.view', 'reports.view', 
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read',
-        'finance.masterdata.read', 'finance.masterdata.manage',
-        'finance.manage', 'finance.invoices', 'finance.payroll',
-        'finance.payroll.manage', 'finance.payroll.approve',
-        'finance.gl.manage', 'finance.receivables.manage', 'finance.payables.manage',
-        'finance.inventory.manage', 'finance.assets.manage', 'finance.payables.approve',
-        'finance.posting.manage', 'finance.approvals.manage', 'finance.period.close', 'finance.audit.read',
-        'communication.view', 'communication.announce', 'communication.events', 
-        'compliance.view', 'compliance.manage', 
-        'staff.view', 'staff.manage', 
-        'student.info.view', 'student.info.manage', 'student.progress.view'
+        'class_view', 'reports_view', 
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read',
+        'finance_masterdata_read', 'finance_masterdata_manage',
+        'finance_manage', 'finance_invoices', 'finance_payroll',
+        'finance_payroll_manage', 'finance_payroll_approve',
+        'finance_gl_manage', 'finance_receivables_manage', 'finance_payables_manage',
+        'finance_inventory_manage', 'finance_assets_manage', 'finance_payables_approve',
+        'finance_posting_manage', 'finance_approvals_manage', 'finance_period_close', 'finance_audit_read',
+        'communication_view', 'communication_announce', 'communication_events', 
+        'compliance_view', 'compliance_manage', 
+        'staff_view', 'staff_manage', 
+        'student_info_view', 'student_info_manage', 'student_progress_view'
     ])
 
     # Admin (full finance ownership)
     assign('Admin', [
         'user_management', 'role_management', 'permission_management',
-        'class.view', 'reports.view',
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read',
-        'finance.masterdata.read', 'finance.masterdata.manage',
-        'finance.manage', 'finance.invoices', 'finance.payroll',
-        'finance.payroll.manage', 'finance.payroll.approve',
-        'finance.gl.manage', 'finance.receivables.manage', 'finance.payables.manage',
-        'finance.inventory.manage', 'finance.assets.manage', 'finance.payables.approve',
-        'finance.posting.manage', 'finance.approvals.manage', 'finance.period.close', 'finance.audit.read',
-        'communication.view', 'communication.announce', 'communication.events',
-        'staff.view', 'staff.manage',
-        'student.info.view', 'student.info.manage', 'student.progress.view'
+        'class_view', 'reports_view',
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read',
+        'finance_masterdata_read', 'finance_masterdata_manage',
+        'finance_manage', 'finance_invoices', 'finance_payroll',
+        'finance_payroll_manage', 'finance_payroll_approve',
+        'finance_gl_manage', 'finance_receivables_manage', 'finance_payables_manage',
+        'finance_inventory_manage', 'finance_assets_manage', 'finance_payables_approve',
+        'finance_posting_manage', 'finance_approvals_manage', 'finance_period_close', 'finance_audit_read',
+        'communication_view', 'communication_announce', 'communication_events',
+        'staff_view', 'staff_manage',
+        'student_info_view', 'student_info_manage', 'student_progress_view'
     ])
 
     # Principal (read-only finance + optional approvals)
     assign('Principal', [
-        'class.view', 'reports.view',
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read', 'finance.masterdata.read', 'finance.payables.approve',
-        'communication.view', 'student.info.view', 'student.progress.view'
+        'class_view', 'reports_view',
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read', 'finance_masterdata_read', 'finance_payables_approve',
+        'communication_view', 'student_info_view', 'student_progress_view'
     ])
     
     # Academic Admin (Curriculum Focus)
     assign('Academic_Admin', [
-        'class.view', 'class.create', 'class.edit', 
-        'assignment.view', 'assignment.create', 
-        'student.info.view', 'student.progress.view',
-        'reports.view'
+        'class_view', 'class_create', 'class_edit', 
+        'assignment_view', 'assignment_create', 
+        'student_info_view', 'student_progress_view',
+        'reports_view'
     ])
 
     # Teacher
     assign('Teacher', [
-        'class.view', 'class.create', 'class.edit', 
-        'assignment.view', 'assignment.create', 'assignment.grade', 
-        'communication.view', 'communication.announce', 'communication.events',
-        'student.info.view', 'student.progress.view',
-        'attendance.manage', # Implicitly handle attendance via class/activity
-        'finance.payroll.self.read'
+        'class_view', 'class_create', 'class_edit', 
+        'assignment_view', 'assignment_create', 'assignment_grade', 
+        'communication_view', 'communication_announce', 'communication_events',
+        'student_info_view', 'student_progress_view',
+        'attendance_manage', # Implicitly handle attendance via class/activity
+        'finance_payroll_self_read'
     ])
 
     # Student
     assign('Student', [
-        'class.view', 'assignment.view', 'student.progress.view', 'communication.view',
-        'finance.fees.self.read'
+        'class_view', 'assignment_view', 'student_progress_view', 'communication_view',
+        'finance_fees_self_read'
     ])
 
     # Parent_Guardian
     assign('Parent_Guardian', [
-        'student.progress.view', 'finance.fees.child.read', 'communication.view'
+        'student_progress_view', 'finance_fees_child_read', 'communication_view'
     ])
 
     # Finance_Officer
     assign('Finance_Officer', [
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read',
-        'finance.masterdata.read', 'finance.masterdata.manage',
-        'finance.manage', 'finance.invoices', 'finance.payroll',
-        'finance.payroll.manage', 'finance.payroll.approve',
-        'finance.gl.manage', 'finance.receivables.manage', 'finance.payables.manage',
-        'finance.inventory.manage', 'finance.assets.manage', 'finance.payables.approve',
-        'finance.posting.manage', 'finance.approvals.manage', 'finance.period.close', 'finance.audit.read'
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read',
+        'finance_masterdata_read', 'finance_masterdata_manage',
+        'finance_manage', 'finance_invoices', 'finance_payroll',
+        'finance_payroll_manage', 'finance_payroll_approve',
+        'finance_gl_manage', 'finance_receivables_manage', 'finance_payables_manage',
+        'finance_inventory_manage', 'finance_assets_manage', 'finance_payables_approve',
+        'finance_posting_manage', 'finance_approvals_manage', 'finance_period_close', 'finance_audit_read'
     ])
 
     # Accountant
     assign('accountant', [
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read',
-        'finance.masterdata.read', 'finance.masterdata.manage',
-        'finance.gl.manage', 'finance.receivables.manage', 'finance.payables.manage',
-        'finance.inventory.manage', 'finance.assets.manage', 'finance.payables.approve',
-        'finance.posting.manage', 'finance.audit.read'
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read',
+        'finance_masterdata_read', 'finance_masterdata_manage',
+        'finance_gl_manage', 'finance_receivables_manage', 'finance_payables_manage',
+        'finance_inventory_manage', 'finance_assets_manage', 'finance_payables_approve',
+        'finance_posting_manage', 'finance_audit_read'
     ])
 
     # Payroll Officer
     assign('payroll_officer', [
-        'finance.view', 'finance.dashboard.read', 'finance.reports.read',
-        'finance.payroll', 'finance.payroll.manage', 'finance.payroll.approve',
-        'finance.payroll.self.read', 'finance.masterdata.read', 'finance.audit.read'
+        'finance_view', 'finance_dashboard_read', 'finance_reports_read',
+        'finance_payroll', 'finance_payroll_manage', 'finance_payroll_approve',
+        'finance_payroll_self_read', 'finance_masterdata_read', 'finance_audit_read'
     ])
 
     # HR_Admin
     assign('HR_Admin', [
-        'staff.view', 'staff.manage', 'staff.assets'
+        'staff_view', 'staff_manage', 'staff_assets'
     ])
 
     conn.commit()
@@ -2973,7 +3031,7 @@ async def get_permissions(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @app.get("/api/admin/permissions/list")
 async def get_permissions_list(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("permission_management", x_user_id=x_user_id)
+    await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
 
     conn = get_db_connection()
     perms = conn.execute("SELECT * FROM permissions ORDER BY id").fetchall()
@@ -2988,7 +3046,8 @@ async def get_permissions_list(x_user_id: str = Header(None, alias="X-User-Id"))
             "display_code": formatted_code,
             "code": p['code'],
             "description": p['description'],
-            "group_name": p['group_name']
+            "group_name": p['group_name'],
+            "status": (p['status'] if 'status' in p.keys() else 'Active') or 'Active'
         })
     conn.close()
     return result
@@ -2996,29 +3055,29 @@ async def get_permissions_list(x_user_id: str = Header(None, alias="X-User-Id"))
 @app.get("/api/admin/permissions/summary")
 async def get_permissions_summary(x_user_id: str = Header(None, alias="X-User-Id")):
     """Returns 3 summary cards for the Permission Setup view."""
-    await verify_permission("permission_management", x_user_id=x_user_id)
+    await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
 
     conn = get_db_connection()
     try:
         # Total permissions
         total = conn.execute("SELECT COUNT(*) as cnt FROM permissions").fetchone()["cnt"]
 
-        # Distinct groups
-        groups = conn.execute("SELECT COUNT(DISTINCT group_name) as cnt FROM permissions").fetchone()["cnt"]
+        # Active permissions
+        try:
+            active = conn.execute(
+                "SELECT COUNT(*) as cnt FROM permissions WHERE LOWER(COALESCE(status, 'active')) = 'active'"
+            ).fetchone()["cnt"]
+        except Exception:
+            # Backward compatibility: older DBs may not yet have permissions.status.
+            active = total
 
-        # Permissions that have a non-empty description
-        with_desc = conn.execute(
-            "SELECT COUNT(*) as cnt FROM permissions WHERE description IS NOT NULL AND TRIM(description) != ''"
-        ).fetchone()["cnt"]
-
-        # Without description (needs attention)
-        without_desc = total - with_desc
+        # Inactive permissions
+        inactive = total - active
 
         return {
             "total_permissions": total,
-            "total_groups": groups,
-            "with_description": with_desc,
-            "without_description": without_desc,
+            "active_permissions": active,
+            "inactive_permissions": inactive,
         }
     finally:
         conn.close()
@@ -3028,7 +3087,7 @@ class UpdatePermissionRequest(BaseModel):
 
 @app.put("/api/admin/permissions/{perm_id}")
 async def update_permission(perm_id: int, req: UpdatePermissionRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("permission_management", x_user_id=x_user_id)
+    await verify_any_permission(["permission_management", "edit_permissions"], x_user_id=x_user_id)
 
     conn = get_db_connection()
     try:
@@ -3498,7 +3557,6 @@ async def root_list_students(x_user_id: str = Header(None, alias="X-User-Id")):
                 s.school_id,
                 s.password,
                 CASE
-                    WHEN s.email IS NOT NULL AND TRIM(s.email) <> '' THEN s.email
                     WHEN s.role = 'Teacher' AND LOWER(s.id) = 'teacher' THEN ?
                     WHEN s.role IN ('Parent', 'Parent_Guardian') THEN (
                         SELECT g.email
@@ -5092,15 +5150,55 @@ async def chat_with_engagement_helper(
 @app.get("/api/students/all")
 async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")):
     conn = get_db_connection()
-    user = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
-    conn.close()
+    try:
+        user = conn.execute("SELECT role, school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        
+        # Super Admin / Root Admin bypass
+        if not user and x_user_id == "rootadmin":
+            user = {"role": "Root_Super_Admin", "school_id": 1, "grade": 0, "is_super_admin": True}
+        
+        if not user:
+            # Re-verify and maybe return 401/403
+            await verify_permission("student_info_view", x_user_id=x_user_id)
+            return []
 
-    if not user:
-        return []
+        x_user_role = user['role']
+        
+        # 1. Authorization check
+        if x_user_role not in ('Parent', 'Parent_Guardian'):
+            await verify_permission("student_info_view", x_user_id=x_user_id)
 
-    school_id = user['school_id'] if user['school_id'] else 1
-    grade     = user['grade'] if user['grade'] is not None else 0
-    is_super_admin = bool(user['is_super_admin'])
+        school_id = user['school_id'] if user['school_id'] else 1
+        grade     = user['grade'] if user['grade'] is not None else 0
+        is_super_admin = bool(user['is_super_admin'])
+    finally:
+        conn.close()
+
+    if x_user_role in ('Parent', 'Parent_Guardian'):
+        def _fetch_parent():
+            conn_p = get_db_connection()
+            # Find children using guardians table
+            children = conn_p.execute("""
+                SELECT s.id, s.name, s.attendance_rate, s.grade 
+                FROM students s
+                JOIN guardians g ON s.id = g.student_id
+                WHERE LOWER(g.email) = LOWER(?) OR LOWER(g.name) = LOWER(?)
+            """, (x_user_id, x_user_id)).fetchall()
+            
+            results = [dict(c) for c in children]
+            
+            # Fallback: check naming convention if results empty
+            if not results:
+                 parent_rec = conn_p.execute("SELECT name FROM students WHERE id = ?", (x_user_id,)).fetchone()
+                 if parent_rec and "parent of" in parent_rec['name'].lower():
+                      s_name = parent_rec['name'].lower().split("parent of")[-1].strip()
+                      child_rec = conn_p.execute("SELECT id, name, attendance_rate, grade FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'", (s_name.lower(),)).fetchone()
+                      if child_rec:
+                           results = [dict(child_rec)]
+            
+            conn_p.close()
+            return results
+        return api_ttl_cache(f'parent_students_{x_user_id}', ttl_seconds=30, fn=_fetch_parent)
 
     cache_key = f'students_all_{school_id}_{grade}_{is_super_admin}'
     def _fetch():
@@ -5123,7 +5221,7 @@ async def list_all_users(
     x_school_id: Optional[int] = Header(None, alias="X-School-Id") # Optional context switch
 ):
     # Updated permission code
-    await verify_permission("user_management", x_user_id=x_user_id)
+    await verify_permission("manage_users", x_user_id=x_user_id)
     
     conn = get_db_connection()
     try:
@@ -5208,11 +5306,12 @@ async def get_student_quiz_results(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
+    conn = get_db_connection()
     # Authorization Check
-    if x_user_role == 'Student' and x_user_id != student_id:
+    if not check_student_access(conn, x_user_id, x_user_role, student_id):
+        conn.close()
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    conn = get_db_connection()
     c = conn.cursor()
     # Join with modules and sections and courses to get titles
     query = """
@@ -5238,29 +5337,212 @@ async def get_student_quiz_results(
         conn.close()
 
 
+def check_student_access(conn, requester_id, requester_role, target_student_id):
+    """
+    Returns True if requester has access to target_student_id data.
+    Handles guardians table, naming conventions, and edge cases.
+    Now re-verifies role from DB to prevent header spoofing.
+    """
+    if not requester_id or not target_student_id:
+        return False
+    
+    # 0. Fetch Verified Role from DB (don't trust the header/parameter)
+    user = conn.execute("SELECT role FROM students WHERE id = ?", (requester_id,)).fetchone()
+    if not user and requester_id == "rootadmin":
+        real_role = "Root_Super_Admin"
+    elif not user:
+        return False
+    else:
+        real_role = user['role']
+    
+    if real_role in ('Admin', 'Teacher', 'Principal', 'Super Admin', 'Root_Super_Admin', 'Academic_Admin', 'HR_Admin'):
+        return True  # Permission-level checks done separately in specific endpoints
+    
+    if real_role == 'Student':
+        return requester_id.lower() == target_student_id.lower()
+    
+    if real_role in ('Parent', 'Parent_Guardian'):
+        # === Safety: If the target is the parent themselves, auto-resolve to child ===
+        parent_self_check = conn.execute(
+            "SELECT role FROM students WHERE LOWER(id) = LOWER(?)",
+            (target_student_id,)
+        ).fetchone()
+        if parent_self_check and parent_self_check['role'] in ('Parent', 'Parent_Guardian'):
+            # target is the parent themselves — resolve to their child first
+            actual_child_id = _get_parent_child_id(conn, requester_id)
+            if not actual_child_id:
+                return False
+            target_student_id = actual_child_id
+
+        # 1. Check guardians link by email
+        is_linked = conn.execute(
+            "SELECT 1 FROM guardians WHERE LOWER(student_id) = LOWER(?) AND LOWER(email) = LOWER(?)",
+            (target_student_id, requester_id)
+        ).fetchone()
+        if is_linked:
+            return True
+        
+        # 2. Check guardians link by name
+        is_linked = conn.execute(
+            "SELECT 1 FROM guardians WHERE LOWER(student_id) = LOWER(?) AND LOWER(name) = LOWER(?)",
+            (target_student_id, requester_id)
+        ).fetchone()
+        if is_linked:
+            return True
+        
+        # 3. Naming convention fallback — e.g. "Parent of Student G1-2"
+        parent_record = conn.execute(
+            "SELECT name FROM students WHERE LOWER(id) = LOWER(?) AND role IN ('Parent', 'Parent_Guardian')",
+            (requester_id,)
+        ).fetchone()
+        if parent_record:
+            p_name = parent_record['name'].lower()
+            student_rec = conn.execute(
+                "SELECT name FROM students WHERE LOWER(id) = LOWER(?)", (target_student_id,)
+            ).fetchone()
+            if student_rec:
+                s_name = student_rec['name'].lower()
+                if s_name in p_name or "parent of" in p_name:
+                    return True
+        
+        # 4. parent_ prefix convention: parent_g1_2 maps to student_g1_2
+        if requester_id.startswith("parent_"):
+            derived_student_id = "student_" + requester_id[len("parent_"):]
+            if derived_student_id.lower() == target_student_id.lower():
+                return True
+    
+    return False
+
+
+def _get_parent_child_id(conn, parent_id):
+    """Helper: find child ID for a parent from guardians or naming convention."""
+    # Try guardians table
+    child = conn.execute(
+        "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
+        (parent_id,)
+    ).fetchone()
+    if child and child['student_id']:
+        return child['student_id']
+    
+    # Try naming convention
+    parent_rec = conn.execute(
+        "SELECT name FROM students WHERE LOWER(id) = LOWER(?) AND role IN ('Parent', 'Parent_Guardian')",
+        (parent_id,)
+    ).fetchone()
+    if parent_rec:
+        p_name = parent_rec['name'].lower()
+        if 'parent of' in p_name:
+            s_name = p_name.split('parent of')[-1].strip()
+            child_rec = conn.execute(
+                "SELECT id FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'",
+                (s_name,)
+            ).fetchone()
+            if child_rec:
+                return child_rec['id']
+    
+    # Try prefix convention 
+    if parent_id.startswith("parent_"):
+        derived = "student_" + parent_id[len("parent_"):]
+        found = conn.execute(
+            "SELECT id FROM students WHERE LOWER(id) = LOWER(?) AND role = 'Student'", (derived,)
+        ).fetchone()
+        if found:
+            return found['id']
+    
+    return None
+
+
+def resolve_student_id(conn, requester_id, requester_role, student_id_param=None):
+    """
+    Resolve the correct student ID for a given requester.
+    If requester is a parent passing their own ID, auto-resolve to child.
+    """
+    if requester_role == "Student":
+        return requester_id
+    
+    elif requester_role in ("Parent", "Parent_Guardian"):
+        if student_id_param and student_id_param.strip():
+            sid = student_id_param.strip()
+            
+            # Check if the param is actually a Student by ID or name
+            res_rec = conn.execute(
+                "SELECT id, role FROM students WHERE LOWER(id) = LOWER(?) OR LOWER(name) = LOWER(?)",
+                (sid.lower(), sid.lower())
+            ).fetchone()
+            
+            if res_rec and res_rec['role'] == 'Student':
+                return res_rec['id']
+            
+            # If it resolved to a Parent record (i.e., parent passed their own ID), resolve child
+            if res_rec and res_rec['role'] in ('Parent', 'Parent_Guardian'):
+                child_id = _get_parent_child_id(conn, res_rec['id'])
+                if child_id:
+                    return child_id
+            
+            # If not found at all, might be a valid student ID passed raw — return as-is
+            return sid
+        else:
+            # No student_id param — find default child
+            child_id = _get_parent_child_id(conn, requester_id)
+            if child_id:
+                return child_id
+    
+    return requester_id
+
+
 @app.get("/api/students/{student_id}/data", response_model=StudentDataResponse)
 async def get_student_data(
     student_id: str,
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    # 1. Fetch Target Student Info
+    # 1. Fetch Target Student Info (Support name or ID, case-insensitive)
     conn = get_db_connection()
-    target_student = conn.execute("SELECT school_id, grade, math_score, science_score, english_language_score FROM students WHERE id = ?", (student_id,)).fetchone()
+    # Try ID first (case-insensitive)
+    target_student = conn.execute(
+        "SELECT id, school_id, grade, math_score, science_score, english_language_score FROM students WHERE LOWER(id) = LOWER(?)", 
+        (student_id,)
+    ).fetchone()
     
+    # Try Name if ID lookup fails
+    if not target_student:
+        target_student = conn.execute(
+            "SELECT id, school_id, grade, math_score, science_score, english_language_score FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'", 
+            (student_id,)
+        ).fetchone()
+
     if not target_student:
         conn.close()
-        raise HTTPException(status_code=404, detail=f"Student ID '{student_id}' not found.")
+        raise HTTPException(status_code=404, detail=f"Student '{student_id}' not found.")
+
+    res_student_id = target_student['id'] # The actual ID in DB
 
     target_school_id = target_student['school_id']
     target_grade = target_student['grade']
     
     # 2. Authorization Check
-    # If Requester is the Student -> Must match ID
-    if x_user_role == 'Student' and x_user_id != student_id:
-        conn.close()
-        raise HTTPException(status_code=403, detail="Unauthorized: You can only view your own data.")
+    access_granted = check_student_access(conn, x_user_id, x_user_role, res_student_id)
     
+    if not access_granted:
+        # If Requester is Teacher/Admin -> Grade level check
+        if x_user_role == 'Teacher' or x_user_role == 'Admin':
+             requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+             if requester:
+                 is_super_admin = bool(requester['is_super_admin'])
+                 requester_grade = requester['grade'] if requester['grade'] is not None else 0
+                 
+                 if not is_super_admin:
+                     # Check Grade Match (Grade 0 means 'All Grades' access)
+                     if requester_grade != 0 and requester_grade != target_grade:
+                         conn.close()
+                         raise HTTPException(status_code=403, detail="Unauthorized: You cannot view students outside your grade.")
+             else:
+                 conn.close()
+                 raise HTTPException(status_code=403, detail="Unauthorized: Requester profile not found.")
+        else:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Unauthorized: Access denied for this student.")
+
     # If Requester is Teacher -> Must check permissions
     if x_user_role == 'Teacher' or x_user_role == 'Admin':
          requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
@@ -5449,7 +5731,7 @@ async def get_teacher_assignments(section_id: Optional[int] = None,
                                   x_user_role: str = Header(None, alias="X-User-Role"),
                                   x_user_id: str = Header(None, alias="X-User-Id"),
                                   x_school_id: Optional[int] = Header(None, alias="X-School-Id")):
-    await verify_permission("assignment.view", x_user_role=x_user_role, x_user_id=x_user_id)
+    await verify_permission("assignment_view", x_user_role=x_user_role, x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         query = """
@@ -5487,8 +5769,16 @@ async def get_teacher_assignments(section_id: Optional[int] = None,
         conn.close()
 
 @app.get("/api/students/{student_id}/groups", response_model=List[GroupResponse])
-async def get_student_groups(student_id: str):
+async def get_student_groups(
+    student_id: str,
+    x_user_role: str = Header(None, alias="X-User-Role"),
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
     conn = get_db_connection()
+    # Authorization Check
+    if not check_student_access(conn, x_user_id, x_user_role, student_id):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Unauthorized")
     query = """
         SELECT g.id, g.name, g.description, g.subject
         FROM groups g
@@ -5500,8 +5790,16 @@ async def get_student_groups(student_id: str):
     return [GroupResponse(id=r['id'], name=r['name'], description=r['description'], subject=r['subject'], member_count=0) for r in groups]
 
 @app.get("/api/students/{student_id}/assignments")
-async def get_student_assignments(student_id: str):
+async def get_student_assignments(
+    student_id: str,
+    x_user_role: str = Header(None, alias="X-User-Role"),
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
     conn = get_db_connection()
+    # Authorization Check
+    if not check_student_access(conn, x_user_id, x_user_role, student_id):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Unauthorized")
     c = conn.cursor()
     
     # Get student grade/section
@@ -7052,7 +7350,7 @@ async def update_school(
             "UPDATE schools SET name = ?, address = ?, contact_email = ? WHERE id = ?",
             (request.name, request.address, request.contact_email, school_id)
         )
-        if cursor.cursor.rowcount == 0:
+        if cursor.rowcount == 0:
              raise HTTPException(status_code=404, detail="School not found.")
 
         conn.commit()
@@ -7087,7 +7385,7 @@ async def delete_school(
         # But to be safe and clear:
         cursor.execute("DELETE FROM schools WHERE id = ?", (school_id,))
         
-        if cursor.cursor.rowcount == 0:
+        if cursor.rowcount == 0:
              raise HTTPException(status_code=404, detail="School not found.")
 
         conn.commit()
@@ -7095,6 +7393,40 @@ async def delete_school(
         conn.close()
     
     return {"message": "School deleted successfully."}
+
+@app.get("/api/admin/schools/{school_id}/stats")
+async def get_school_stats(
+    school_id: int,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    """Return student, teacher, and class counts for a given school."""
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    conn = get_db_connection()
+    try:
+        students = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = ? AND role = 'Student'",
+            (school_id,)
+        ).fetchone()
+        teachers = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = ? AND role IN ('Teacher','Principal','Admin','Tenant_Admin','Academic_Admin')",
+            (school_id,)
+        ).fetchone()
+        classes_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM active_classes WHERE school_id = ?",
+            (school_id,)
+        ).fetchone()
+        return {
+            "school_id": school_id,
+            "students": int(students['cnt'] if students else 0),
+            "teachers": int(teachers['cnt'] if teachers else 0),
+            "classes":  int(classes_row['cnt'] if classes_row else 0),
+        }
+    except Exception:
+        return {"school_id": school_id, "students": 0, "teachers": 0, "classes": 0}
+    finally:
+        conn.close()
+
 
 @app.get("/api/admin/audit-logs", response_model=List[AuditLogResponse])
 async def get_audit_logs(
@@ -7664,7 +7996,7 @@ async def get_compliance_audit_logs(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("compliance.view", x_user_id=x_user_id)
+    await verify_permission("compliance_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Exclude common access events to separate Audit from Access
@@ -7694,7 +8026,7 @@ async def get_compliance_access_logs(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("compliance.view", x_user_id=x_user_id)
+    await verify_permission("compliance_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Include ONLY access events
@@ -7724,7 +8056,7 @@ async def get_retention_policies(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("compliance.view", x_user_id=x_user_id)
+    await verify_permission("compliance_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         settings = conn.execute("SELECT key, value FROM system_settings WHERE key LIKE 'retention_%'").fetchall()
@@ -7747,7 +8079,7 @@ async def update_retention_policies(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("compliance.manage", x_user_id=x_user_id)
+    await verify_permission("compliance_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -7777,7 +8109,7 @@ async def get_sections(school_id: Optional[int] = None):
 
 @app.post("/api/sections", status_code=201)
 async def create_section(req: SectionCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id)
+    await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         ts = datetime.now().isoformat()
@@ -7791,7 +8123,7 @@ async def create_section(req: SectionCreateRequest, x_user_id: str = Header(None
 # 2. Assign Class/Section
 @app.post("/api/students/{student_id}/assign-section")
 async def assign_student_section(student_id: str, section_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id)
+    await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Check if section exists
@@ -7813,7 +8145,7 @@ async def assign_student_section(student_id: str, section_id: int, x_user_id: st
 # 3. Guardian Management
 @app.get("/api/students/{student_id}/guardians", response_model=List[GuardianResponse])
 async def get_guardians(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.view", x_user_id=x_user_id)
+    await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         guardians = conn.execute("SELECT * FROM guardians WHERE student_id = ?", (student_id,)).fetchall()
@@ -7823,7 +8155,7 @@ async def get_guardians(student_id: str, x_user_id: str = Header(None, alias="X-
 
 @app.post("/api/students/{student_id}/guardians", status_code=201)
 async def add_guardian(student_id: str, req: GuardianCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id) # Usually manage is needed to ADD
+    await verify_permission("student_info_manage", x_user_id=x_user_id) # Usually manage is needed to ADD
     conn = get_db_connection()
     try:
         conn.execute(
@@ -7838,7 +8170,7 @@ async def add_guardian(student_id: str, req: GuardianCreateRequest, x_user_id: s
 
 @app.delete("/api/guardians/{id}")
 async def delete_guardian(id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id)
+    await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         conn.execute("DELETE FROM guardians WHERE id = ?", (id,))
@@ -7850,7 +8182,7 @@ async def delete_guardian(id: int, x_user_id: str = Header(None, alias="X-User-I
 # 4. Health Records
 @app.get("/api/students/{student_id}/health", response_model=Optional[HealthRecordResponse])
 async def get_health_record(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.view", x_user_id=x_user_id)
+    await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         record = conn.execute("SELECT * FROM health_records WHERE student_id = ?", (student_id,)).fetchone()
@@ -7862,7 +8194,7 @@ async def get_health_record(student_id: str, x_user_id: str = Header(None, alias
 
 @app.put("/api/students/{student_id}/health")
 async def update_health_record(student_id: str, req: HealthRecordUpdateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id) # Or specific permission
+    await verify_permission("student_info_manage", x_user_id=x_user_id) # Or specific permission
     conn = get_db_connection()
     try:
         ts = datetime.now().isoformat()
@@ -7894,7 +8226,7 @@ async def update_health_record(student_id: str, req: HealthRecordUpdateRequest, 
 # 5. Documents
 @app.get("/api/students/{student_id}/documents", response_model=List[DocumentResponse])
 async def get_documents(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.view", x_user_id=x_user_id)
+    await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         docs = conn.execute("SELECT * FROM student_documents WHERE student_id = ?", (student_id,)).fetchall()
@@ -7909,7 +8241,7 @@ async def upload_document(
     document_type: str = Form(...),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("student.info.manage", x_user_id=x_user_id)
+    await verify_permission("student_info_manage", x_user_id=x_user_id)
     
     secure_url = upload_to_cloudinary(file, folder=f"classbridge/students/{student_id}")
     if not secure_url:
@@ -7932,7 +8264,7 @@ async def upload_document(
 
 @app.delete("/api/documents/{doc_id}")
 async def delete_document(doc_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("student.info.manage", x_user_id=x_user_id)
+    await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         doc = conn.execute("SELECT file_path FROM student_documents WHERE id = ?", (doc_id,)).fetchone()
@@ -8110,6 +8442,7 @@ class PermissionDetailResponse(BaseModel):
     description: str
     group_name: str
     display_code: str
+    status: str = "Active"
 
 class PermissionUpdateRequest(BaseModel):
     description: str
@@ -8119,7 +8452,7 @@ async def get_permissions_list(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("permission_management", x_user_id=x_user_id)
+    await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
     
     conn = get_db_connection()
     try:
@@ -8130,7 +8463,8 @@ async def get_permissions_list(
                 code=p['code'],
                 description=p['description'],
                 group_name=p['group_name'] or "General",
-                display_code=f"P-{p['id']:04d}"
+                display_code=f"P-{p['id']:04d}",
+                status=((p['status'] if 'status' in p.keys() else "Active") or "Active")
             ) for p in perms
         ]
     finally:
@@ -8143,8 +8477,8 @@ async def update_permission(
     x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("permission_management", x_user_id=x_user_id)
-    
+    await verify_any_permission(["permission_management", "edit_permissions"], x_user_id=x_user_id)
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -8153,6 +8487,14 @@ async def update_permission(
             raise HTTPException(status_code=404, detail="Permission not found")
         conn.commit()
         return {"message": "Permission updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -8162,7 +8504,7 @@ async def update_permission(
 
 @app.get("/api/staff/departments", response_model=List[DepartmentResponse])
 async def get_departments(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("staff.view", x_user_id=x_user_id)
+    await verify_permission("staff_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         deps = conn.execute("SELECT * FROM departments ORDER BY name").fetchall()
@@ -8175,7 +8517,7 @@ async def create_department(
     request: DepartmentCreateRequest,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("staff.manage", x_user_id=x_user_id)
+    await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -8190,7 +8532,7 @@ async def create_department(
 
 @app.get("/api/staff/profiles", response_model=List[StaffResponse])
 async def get_staff_profiles(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("staff.view", x_user_id=x_user_id)
+    await verify_permission("staff_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # Get all users who are NOT Students or Parents
@@ -8217,7 +8559,7 @@ async def update_staff_profile(
     request: StaffProfileUpdateRequest,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("staff.manage", x_user_id=x_user_id)
+    await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -8242,7 +8584,7 @@ async def get_staff_attendance(
     date: Optional[str] = None,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("staff.view", x_user_id=x_user_id)
+    await verify_permission("staff_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         # If date provided, filter. Else get recent.
@@ -8268,7 +8610,7 @@ async def mark_staff_attendance(
     request: StaffAttendanceRequest,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("staff.manage", x_user_id=x_user_id)
+    await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -8287,7 +8629,7 @@ async def get_staff_performance(
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
     # Self view allowed? Let's restrict to manager for now
-    await verify_permission("staff.manage", x_user_id=x_user_id)
+    await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         rows = conn.execute("SELECT * FROM staff_performance WHERE user_id = ? ORDER BY review_date DESC", (user_id,)).fetchall()
@@ -8300,7 +8642,7 @@ async def create_performance_review(
     request: StaffPerformanceRequest,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("staff.manage", x_user_id=x_user_id)
+    await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -9230,8 +9572,13 @@ def _normalize_attendance_date(date_value: str) -> str:
     return raw
 
 def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional[int], guardians) -> List[str]:
+    """
+    Finds parent/guardian IDs to notify for a student.
+    Uses explicit guardians table, naming conventions, and prefix logic.
+    """
     parent_ids = set()
 
+    # 1. Check explicit guardian links
     for g in guardians:
         guardian_email = (g["email"] or "").strip()
         guardian_name = (g["name"] or "").strip()
@@ -9239,13 +9586,12 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
         if guardian_email:
             rows = cursor.execute(
                 """
-                SELECT id
-                FROM students
+                SELECT id FROM students
                 WHERE role IN ('Parent', 'Parent_Guardian')
-                  AND LOWER(id) = LOWER(?)
+                  AND (LOWER(id) = LOWER(?) OR LOWER(email) = LOWER(?))
                   AND (? IS NULL OR school_id = ?)
                 """,
-                (guardian_email, school_id, school_id)
+                (guardian_email, guardian_email, school_id, school_id)
             ).fetchall()
             for r in rows:
                 parent_ids.add(r["id"])
@@ -9253,26 +9599,55 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
         if guardian_name:
             rows = cursor.execute(
                 """
-                SELECT id
-                FROM students
+                SELECT id FROM students
                 WHERE role IN ('Parent', 'Parent_Guardian')
-                  AND (
-                      LOWER(id) = LOWER(?)
-                      OR LOWER(name) = LOWER(?)
-                  )
+                  AND LOWER(name) = LOWER(?)
                   AND (? IS NULL OR school_id = ?)
                 """,
-                (guardian_name, guardian_name, school_id, school_id)
+                (guardian_name, school_id, school_id)
             ).fetchall()
             for r in rows:
                 parent_ids.add(r["id"])
 
-    # Backward-compatible fallback used in parent login flow: guardians.email == parent user_id
+    # 2. Naming convention fallback (e.g. "Parent of Student X")
+    try:
+        student_row = cursor.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+        if student_row:
+            s_name = student_row["name"].lower()
+            # Match "Parent of [Student Name]" - use bit more flexible match
+            rows = cursor.execute(
+                """
+                SELECT id FROM students
+                WHERE role IN ('Parent', 'Parent_Guardian')
+                  AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ?)
+                  AND (? IS NULL OR school_id = ?)
+                """,
+                (f"%parent of {s_name}%", f"%guardian of {s_name}%", school_id, school_id)
+            ).fetchall()
+            for r in rows:
+                parent_ids.add(r["id"])
+    except Exception as e:
+        logger.warning(f"Naming convention parent lookup failed: {e}")
+
+    # 3. Prefix convention fallback (student_g1_1 -> parent_g1_1)
+    if student_id.startswith("student_"):
+        derived_p = "parent_" + student_id[len("student_"):]
+        p_row = cursor.execute(
+            """
+            SELECT id FROM students WHERE id = ? AND role IN ('Parent', 'Parent_Guardian')
+            AND (? IS NULL OR school_id = ?)
+            """,
+            (derived_p, school_id, school_id)
+        ).fetchone()
+        if p_row:
+            parent_ids.add(p_row["id"])
+
+    # 4. Backward-compatible link check
     rows = cursor.execute(
         """
         SELECT DISTINCT s.id
         FROM students s
-        JOIN guardians g ON LOWER(g.email) = LOWER(s.id)
+        JOIN guardians g ON LOWER(g.email) = LOWER(s.id) OR LOWER(g.name) = LOWER(s.name)
         WHERE g.student_id = ?
           AND s.role IN ('Parent', 'Parent_Guardian')
           AND (? IS NULL OR s.school_id = ?)
@@ -9282,7 +9657,7 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
     for r in rows:
         parent_ids.add(r["id"])
 
-    return sorted(parent_ids)
+    return sorted(list(parent_ids))
 
 @app.post("/api/attendance/bulk")
 async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Header(None, alias="X-User-Id")):
@@ -9464,31 +9839,15 @@ async def get_my_attendance(
         if requester["role"] == "Student":
             target_student_id = x_user_id
         elif requester["role"] in ("Parent", "Parent_Guardian"):
-            if student_id and student_id.strip():
-                target_student_id = student_id.strip()
-            else:
-                child = c.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (x_user_id,),
-                ).fetchone()
-                if not child or not child["student_id"]:
-                    raise HTTPException(status_code=404, detail="No linked child found for parent.")
-                target_student_id = child["student_id"]
+            # Use centralized resolver — handles parent passing own ID, naming convention, guardians table
+            target_student_id = resolve_student_id(conn, x_user_id, requester["role"], student_id)
 
-            linked = c.execute(
-                """
-                SELECT 1
-                FROM guardians
-                WHERE LOWER(email) = LOWER(?)
-                  AND LOWER(student_id) = LOWER(?)
-                LIMIT 1
-                """,
-                (x_user_id, target_student_id),
-            ).fetchone()
-            if not linked:
+            if not check_student_access(conn, x_user_id, requester["role"], target_student_id):
                 raise HTTPException(status_code=403, detail="Access denied for this student.")
+
         else:
             raise HTTPException(status_code=403, detail="Only students/parents can access this endpoint.")
+
 
         student = c.execute(
             "SELECT id, role, attendance_rate FROM students WHERE id = ? AND role = 'Student'",
@@ -9695,35 +10054,10 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
         ).fetchone()
         if not requester:
             raise HTTPException(status_code=404, detail="User not found.")
-        target_student_id = x_user_id
-        if requester["role"] == "Student":
-            target_student_id = x_user_id
-        elif requester["role"] in ("Parent", "Parent_Guardian"):
-            if student_id and student_id.strip():
-                target_student_id = student_id.strip()
-            else:
-                child = c.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (x_user_id,),
-                ).fetchone()
-                if not child or not child["student_id"]:
-                    raise HTTPException(status_code=404, detail="No linked child found for parent.")
-                target_student_id = child["student_id"]
-
-            linked = c.execute(
-                """
-                SELECT 1
-                FROM guardians
-                WHERE LOWER(email) = LOWER(?)
-                  AND LOWER(student_id) = LOWER(?)
-                LIMIT 1
-                """,
-                (x_user_id, target_student_id),
-            ).fetchone()
-            if not linked:
-                raise HTTPException(status_code=403, detail="Access denied for this student.")
-        else:
-            raise HTTPException(status_code=403, detail="Only students/parents can access this endpoint.")
+        target_student_id = resolve_student_id(conn, x_user_id, requester["role"], student_id)
+        
+        if not check_student_access(conn, x_user_id, requester["role"], target_student_id):
+            raise HTTPException(status_code=403, detail="Access denied for this student.")
 
         student = c.execute(
             "SELECT id, role, grade, section_id FROM students WHERE id = ? AND role = 'Student'",
@@ -9998,35 +10332,11 @@ async def get_my_timetable_pdfs(student_id: Optional[str] = None, x_user_id: str
         if not requester:
             raise HTTPException(status_code=404, detail="User not found.")
 
-        target_student_id = x_user_id
-        if requester["role"] == "Student":
-            target_student_id = x_user_id
-        elif requester["role"] in ("Parent", "Parent_Guardian"):
-            if student_id and student_id.strip():
-                target_student_id = student_id.strip()
-            else:
-                child = c.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (x_user_id,),
-                ).fetchone()
-                if not child or not child["student_id"]:
-                    raise HTTPException(status_code=404, detail="No linked child found for parent.")
-                target_student_id = child["student_id"]
-
-            linked = c.execute(
-                """
-                SELECT 1
-                FROM guardians
-                WHERE LOWER(email) = LOWER(?)
-                  AND LOWER(student_id) = LOWER(?)
-                LIMIT 1
-                """,
-                (x_user_id, target_student_id),
-            ).fetchone()
-            if not linked:
-                raise HTTPException(status_code=403, detail="Access denied for this student.")
-        else:
-            raise HTTPException(status_code=403, detail="Only students/parents can access this endpoint.")
+        target_student_id = resolve_student_id(conn, x_user_id, requester["role"], student_id)
+        
+        if not check_student_access(conn, x_user_id, requester["role"], target_student_id):
+            # Only students/parents can access this endpoint.
+            raise HTTPException(status_code=403, detail="Access denied for this student.")
 
         student = c.execute(
             """
@@ -10225,7 +10535,7 @@ async def grade_submission(sub_id: int,
                            feedback: str = Body(..., embed=True),
                            x_user_role: str = Header(None, alias="X-User-Role"),
                            x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("assignment.grade", x_user_role=x_user_role, x_user_id=x_user_id)
+    await verify_permission("assignment_grade", x_user_role=x_user_role, x_user_id=x_user_id)
     conn = get_db_connection()
     c = conn.cursor()
     try:
@@ -10243,7 +10553,7 @@ async def reassign_submission(sub_id: int,
                               feedback: str = Body("", embed=True),
                               x_user_role: str = Header(None, alias="X-User-Role"),
                               x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("assignment.grade", x_user_role=x_user_role, x_user_id=x_user_id)
+    await verify_permission("assignment_grade", x_user_role=x_user_role, x_user_id=x_user_id)
     conn = get_db_connection()
     c = conn.cursor()
     try:
@@ -10269,7 +10579,7 @@ async def create_assignment(
     x_user_id: str = Header(None, alias="X-User-Id"),
     x_school_id: Optional[int] = Header(None, alias="X-School-Id")
 ):
-    await verify_permission("assignment.create", x_user_role=x_user_role, x_user_id=x_user_id)
+    await verify_permission("assignment_create", x_user_role=x_user_role, x_user_id=x_user_id)
 
     # --- Handle file upload ---
     file_url = None
@@ -10358,7 +10668,7 @@ async def submit_assignment(assignment_id: int,
 async def get_assignment_submissions(assignment_id: int,
                                      x_user_role: str = Header(None, alias="X-User-Role"),
                                      x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("assignment.view", x_user_role=x_user_role, x_user_id=x_user_id)
+    await verify_permission("assignment_view", x_user_role=x_user_role, x_user_id=x_user_id)
     conn = get_db_connection()
     try:
         subs = conn.execute("""
@@ -10969,29 +11279,44 @@ async def update_leave_status(leave_id: int, update: LeaveStatusUpdate, x_user_r
 async def get_notifications(x_user_id: str = Header(..., alias="X-User-Id")):
     conn = get_db_connection()
     try:
+        user_id = (x_user_id or "").strip()
         cursor = conn.cursor()
-        msgs = cursor.execute("""
+        # Case-insensitive lookup with name-based access for DictCursor compatibility
+        query = """
             SELECT id, sender_id, subject, content, timestamp, is_read 
             FROM messages 
-            WHERE receiver_id = ? 
+            WHERE LOWER(receiver_id) = LOWER(?) 
               AND LOWER(COALESCE(subject, '')) NOT LIKE '%report card%'
               AND LOWER(COALESCE(content, '')) NOT LIKE '%report card%'
             ORDER BY timestamp DESC
-        """, (x_user_id,)).fetchall()
+        """
+        msgs = cursor.execute(query, (user_id,)).fetchall()
         
         result = []
         for row in msgs:
-            result.append({
-                "id": row[0],
-                "sender_id": row[1],
-                "subject": row[2],
-                "content": row[3],
-                "timestamp": row[4],
-                "is_read": bool(row[5])
-            })
+            # Use name-based access to avoid index errors with DictCursor
+            try:
+                result.append({
+                    "id": row["id"],
+                    "sender_id": row["sender_id"],
+                    "subject": row["subject"],
+                    "content": row["content"],
+                    "timestamp": row["timestamp"],
+                    "is_read": bool(row["is_read"])
+                })
+            except (TypeError, KeyError, IndexError):
+                # Fallback to index if name access fails (standard cursor)
+                result.append({
+                    "id": row[0],
+                    "sender_id": row[1],
+                    "subject": row[2],
+                    "content": row[3],
+                    "timestamp": row[4],
+                    "is_read": bool(row[5])
+                })
         return result
     except Exception as e:
-        print(f"Error fetching notifications: {e}")
+        logger.error(f"Error fetching notifications: {e}")
         return []
     finally:
         conn.close()
@@ -11074,45 +11399,9 @@ async def get_my_progress_card(x_user_id: str = Header(None, alias="X-User-Id"))
         if role == "Student":
             target_student_id = user["id"]
         elif role in ("Parent", "Parent_Guardian"):
-            user_email_row = conn.execute("SELECT email, name FROM students WHERE id = ?", (x_user_id,)).fetchone()
-            user_email = user_email_row["email"] if user_email_row and user_email_row["email"] else ""
-            user_name = user_email_row["name"] if user_email_row and user_email_row["name"] else ""
-            
-            child = conn.execute(
-                "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                (x_user_id,)
-            ).fetchone()
-            
-            if not child and user_email:
-                child = conn.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (user_email,)
-                ).fetchone()
-
-            if not child and x_user_id in PARENT_OTP_EMAIL_OVERRIDES:
-                child = conn.execute(
-                    "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
-                    (PARENT_OTP_EMAIL_OVERRIDES[x_user_id],)
-                ).fetchone()
-                
-            if not child and user_name:
-                like_name = f"%{user_name}%"
-                child = conn.execute(
-                    "SELECT student_id FROM guardians WHERE name LIKE ? ORDER BY id DESC LIMIT 1",
-                    (like_name,)
-                ).fetchone()
-                
-            if not child:
-                if x_user_id.startswith("parent_"):
-                    fallback_id = x_user_id.replace("parent_", "student_")
-                    child = conn.execute("SELECT id as student_id FROM students WHERE role='Student' AND id=?", (fallback_id,)).fetchone()
-                    
-            if not child:
-                child = conn.execute("SELECT student_id FROM guardians ORDER BY id DESC LIMIT 1").fetchone()
-
-            if not child:
+            target_student_id = _get_parent_child_id(conn, x_user_id)
+            if not target_student_id:
                 raise HTTPException(status_code=404, detail="No linked student found for parent.")
-            target_student_id = child["student_id"]
         else:
             raise HTTPException(status_code=403, detail="Only student/parent can use this endpoint.")
     finally:
@@ -11486,9 +11775,13 @@ async def submit_pdf_exam(
         conn.close()
 
 @app.get("/api/exams/student/list")
-async def get_student_exams(x_user_id: str = Header(None, alias="X-User-Id")):
+async def get_student_exams(x_user_id: str = Header(None, alias="X-User-Id"), x_user_role: str = Header(None, alias="X-User-Role")):
     conn = get_db_connection()
     try:
+        target_student_id = resolve_student_id(conn, x_user_id, x_user_role)
+        if not check_student_access(conn, x_user_id, x_user_role, target_student_id):
+             raise HTTPException(status_code=403, detail="Access denied for this student.")
+             
         # Ideally filter by group enrollments. For now, fetch all active exams.
         # Check submitted status
         school_id = 1
@@ -11505,7 +11798,7 @@ async def get_student_exams(x_user_id: str = Header(None, alias="X-User-Id")):
             LEFT JOIN quiz_attempts qa ON q.id = qa.quiz_id AND qa.student_id = ?
             WHERE q.exam_type = 'pdf'
             ORDER BY q.created_at DESC
-        """, (x_user_id,)).fetchall()
+        """, (target_student_id,)).fetchall()
         
         return [dict(row) for row in exams]
     finally:

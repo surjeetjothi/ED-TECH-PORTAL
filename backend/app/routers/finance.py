@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 @router.get("/api/finance/module")
 async def get_finance_module_access(x_user_id: str = Header(None, alias="X-User-Id")):
     granted_by = await verify_any_permission([
-        "finance.view",
-        "finance.dashboard.read",
-        "finance.reports.read",
-        "finance.payroll.self.read",
-        "finance.fees.self.read",
-        "finance.fees.child.read"
+        "finance_view",
+        "finance_dashboard_read",
+        "finance_reports_read",
+        "finance_payroll_self_read",
+        "finance_fees_self_read",
+        "finance_fees_child_read"
     ], x_user_id)
     return {
         "module": "finance",
@@ -40,7 +40,7 @@ async def get_finance_module_access(x_user_id: str = Header(None, alias="X-User-
 
 @router.get("/api/finance/dashboard")
 async def get_finance_dashboard(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.dashboard.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_dashboard_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -63,7 +63,7 @@ async def get_finance_dashboard(x_user_id: str = Header(None, alias="X-User-Id")
 
 @router.get("/api/finance/reports/summary")
 async def get_finance_reports_summary(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -86,7 +86,7 @@ async def get_finance_reports_summary(x_user_id: str = Header(None, alias="X-Use
 
 @router.get("/api/finance/payroll/self")
 async def get_self_payroll(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.self.read", "finance.payroll"], x_user_id)
+    await verify_any_permission(["finance_payroll_self_read", "finance_payroll"], x_user_id)
     conn = get_db_connection()
     try:
         row = conn.execute(
@@ -106,7 +106,7 @@ async def get_self_payroll(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.get("/api/finance/fees/self")
 async def get_self_fees(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.fees.self.read", "finance.invoices"], x_user_id)
+    await verify_any_permission(["finance_fees_self_read", "finance_invoices"], x_user_id)
     conn = get_db_connection()
     try:
         rows = conn.execute(
@@ -124,7 +124,7 @@ async def get_self_fees(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.get("/api/finance/fees/child")
 async def get_child_fees(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.fees.child.read", "finance.invoices"], x_user_id)
+    await verify_any_permission(["finance_fees_child_read", "finance_invoices"], x_user_id)
     conn = get_db_connection()
     try:
         child_rows = conn.execute(
@@ -260,7 +260,7 @@ def _gl_fetch_lines(conn, journal_id: int) -> List[Dict[str, Any]]:
 @router.post("/api/finance/gl/journals")
 @router.post("/finance/gl/journals")
 async def create_gl_journal(request: GLJournalCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_gl_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -312,7 +312,7 @@ async def create_gl_journal(request: GLJournalCreateRequest, x_user_id: str = He
 @router.post("/api/finance/gl/journals/{journal_id}/post")
 @router.post("/finance/gl/journals/{journal_id}/post")
 async def post_gl_journal(journal_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_gl_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -359,7 +359,7 @@ async def post_gl_journal(journal_id: int, x_user_id: str = Header(None, alias="
 @router.post("/api/finance/gl/journals/{journal_id}/reverse")
 @router.post("/finance/gl/journals/{journal_id}/reverse")
 async def reverse_gl_journal(journal_id: int, request: Optional[GLJournalReverseRequest] = Body(default=None), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.gl.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_gl_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -461,7 +461,7 @@ async def get_gl_trial_balance(
     date_to: Optional[str] = None,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
+    await verify_any_permission(["finance_reports_read", "finance_view", "finance_gl_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -521,7 +521,7 @@ async def get_gl_profit_and_loss(
     date_to: Optional[str] = None,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
+    await verify_any_permission(["finance_reports_read", "finance_view", "finance_gl_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -576,7 +576,7 @@ async def get_gl_balance_sheet(
     date_to: Optional[str] = None,
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.gl.manage"], x_user_id)
+    await verify_any_permission(["finance_reports_read", "finance_view", "finance_gl_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -746,12 +746,12 @@ def _group_aging(records: List[Dict[str, Any]], amount_key: str, date_key: str) 
 
 @router.get("/api/finance/domain")
 async def get_finance_parent_domain(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.view", "finance.dashboard.read", "finance.reports.read"], x_user_id)
+    await verify_any_permission(["finance_view", "finance_dashboard_read", "finance_reports_read"], x_user_id)
     return {"domain": "finance", "submodules": ["payroll", "general-ledger", "receivables", "payables", "inventory", "assets"]}
 
 @router.get("/api/finance/posting-rules")
 async def list_posting_rules(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.posting.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_posting_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -772,7 +772,7 @@ async def list_posting_rules(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/posting-rules")
 async def upsert_posting_rule(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.posting.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_posting_manage", "finance_manage"], x_user_id)
     required = ["module", "transaction_type", "debit_account_id", "credit_account_id"]
     if any(payload.get(k) in (None, "") for k in required):
         raise HTTPException(status_code=400, detail="module, transaction_type, debit_account_id and credit_account_id are required.")
@@ -805,7 +805,7 @@ async def upsert_posting_rule(payload: Dict[str, Any] = Body(...), x_user_id: st
 
 @router.post("/api/finance/periods/{period_id}/close")
 async def close_period(period_id: int, payload: Dict[str, Any] = Body(default={}), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.period.close", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_period_close", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -821,7 +821,7 @@ async def close_period(period_id: int, payload: Dict[str, Any] = Body(default={}
 
 @router.get("/api/finance/audit-logs")
 async def get_finance_audit_logs(limit: int = 100, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.audit.read", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_audit_read", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -832,7 +832,7 @@ async def get_finance_audit_logs(limit: int = 100, x_user_id: str = Header(None,
 
 @router.get("/api/finance/reconciliation/check")
 async def run_finance_reconciliation(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.reports.read", "finance.view", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_reports_read", "finance_view", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -903,7 +903,7 @@ async def run_finance_reconciliation(x_user_id: str = Header(None, alias="X-User
 # --- Receivables ---
 @router.get("/api/finance/receivables/customers")
 async def list_customers(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices", "finance.fees.child.read"], x_user_id)
+    await verify_any_permission(["finance_receivables_manage", "finance_invoices", "finance_fees_child_read"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -913,7 +913,7 @@ async def list_customers(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/receivables/customers")
 async def create_customer(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
+    await verify_any_permission(["finance_receivables_manage", "finance_invoices"], x_user_id)
     if not payload.get("name"):
         raise HTTPException(status_code=400, detail="name is required.")
     conn = get_db_connection()
@@ -935,7 +935,7 @@ async def create_customer(payload: Dict[str, Any] = Body(...), x_user_id: str = 
 
 @router.post("/api/finance/receivables/invoices")
 async def create_ar_invoice(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
+    await verify_any_permission(["finance_receivables_manage", "finance_invoices"], x_user_id)
     lines = payload.get("lines") or []
     if not payload.get("customer_id") or not payload.get("invoice_date") or not payload.get("due_date") or not lines:
         raise HTTPException(status_code=400, detail="customer_id, invoice_date, due_date, and lines are required.")
@@ -984,7 +984,7 @@ async def create_ar_invoice(payload: Dict[str, Any] = Body(...), x_user_id: str 
 
 @router.post("/api/finance/receivables/receipts")
 async def create_ar_receipt(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.invoices"], x_user_id)
+    await verify_any_permission(["finance_receivables_manage", "finance_invoices"], x_user_id)
     if not payload.get("customer_id") or not payload.get("receipt_date") or float(payload.get("amount", 0)) <= 0:
         raise HTTPException(status_code=400, detail="customer_id, receipt_date and positive amount are required.")
     conn = get_db_connection()
@@ -1019,7 +1019,7 @@ async def create_ar_receipt(payload: Dict[str, Any] = Body(...), x_user_id: str 
 
 @router.get("/api/finance/receivables/reports/aging")
 async def get_ar_aging(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.receivables.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_receivables_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1039,7 +1039,7 @@ async def get_ar_aging(x_user_id: str = Header(None, alias="X-User-Id")):
 # --- Payables ---
 @router.get("/api/finance/payables/vendors")
 async def list_vendors(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_payables_approve"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1049,7 +1049,7 @@ async def list_vendors(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/payables/vendors")
 async def create_vendor(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_payables_approve"], x_user_id)
     if not payload.get("name"):
         raise HTTPException(status_code=400, detail="name is required.")
     conn = get_db_connection()
@@ -1070,7 +1070,7 @@ async def create_vendor(payload: Dict[str, Any] = Body(...), x_user_id: str = He
 
 @router.post("/api/finance/payables/bills")
 async def create_ap_bill(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_payables_approve"], x_user_id)
     lines = payload.get("lines") or []
     if not payload.get("vendor_id") or not payload.get("bill_date") or not payload.get("due_date") or not lines:
         raise HTTPException(status_code=400, detail="vendor_id, bill_date, due_date and lines are required.")
@@ -1105,7 +1105,7 @@ async def create_ap_bill(payload: Dict[str, Any] = Body(...), x_user_id: str = H
 
 @router.post("/api/finance/payables/payments")
 async def create_ap_payment(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_payables_approve"], x_user_id)
     if not payload.get("vendor_id") or not payload.get("payment_date") or float(payload.get("amount", 0)) <= 0:
         raise HTTPException(status_code=400, detail="vendor_id, payment_date and positive amount are required.")
     conn = get_db_connection()
@@ -1131,7 +1131,7 @@ async def create_ap_payment(payload: Dict[str, Any] = Body(...), x_user_id: str 
 
 @router.get("/api/finance/payables/reports/aging")
 async def get_ap_aging(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1147,7 +1147,7 @@ async def get_ap_aging(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.get("/api/finance/payables/alerts/due")
 async def get_ap_due_alerts(days: int = 7, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payables.manage", "finance.payables.approve"], x_user_id)
+    await verify_any_permission(["finance_payables_manage", "finance_payables_approve"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1168,7 +1168,7 @@ async def get_ap_due_alerts(days: int = 7, x_user_id: str = Header(None, alias="
 # --- Inventory ---
 @router.post("/api/finance/inventory/items")
 async def create_inventory_item(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_inventory_manage", "finance_manage"], x_user_id)
     if not payload.get("item_name"):
         raise HTTPException(status_code=400, detail="item_name is required.")
     conn = get_db_connection()
@@ -1189,7 +1189,7 @@ async def create_inventory_item(payload: Dict[str, Any] = Body(...), x_user_id: 
 
 @router.post("/api/finance/inventory/warehouses")
 async def create_warehouse(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_inventory_manage", "finance_manage"], x_user_id)
     if not payload.get("name"):
         raise HTTPException(status_code=400, detail="name is required.")
     conn = get_db_connection()
@@ -1207,7 +1207,7 @@ async def create_warehouse(payload: Dict[str, Any] = Body(...), x_user_id: str =
 
 @router.post("/api/finance/inventory/stock-moves")
 async def create_stock_move(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_inventory_manage", "finance_manage"], x_user_id)
     required = ["item_id", "warehouse_id", "move_type", "quantity", "move_date"]
     if any(payload.get(k) in (None, "") for k in required):
         raise HTTPException(status_code=400, detail="item_id, warehouse_id, move_type, quantity, move_date are required.")
@@ -1259,7 +1259,7 @@ async def create_stock_move(payload: Dict[str, Any] = Body(...), x_user_id: str 
 
 @router.get("/api/finance/inventory/reports/valuation")
 async def get_inventory_valuation(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.inventory.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_inventory_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1271,7 +1271,7 @@ async def get_inventory_valuation(x_user_id: str = Header(None, alias="X-User-Id
 # --- Assets ---
 @router.post("/api/finance/assets/categories")
 async def create_asset_category(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_manage"], x_user_id)
     if not payload.get("name"):
         raise HTTPException(status_code=400, detail="name is required.")
     conn = get_db_connection()
@@ -1289,7 +1289,7 @@ async def create_asset_category(payload: Dict[str, Any] = Body(...), x_user_id: 
 
 @router.post("/api/finance/assets/fixed-assets")
 async def create_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_manage"], x_user_id)
     required = ["asset_name", "category_id", "acquisition_date", "capitalization_date", "cost"]
     if any(payload.get(k) in (None, "") for k in required):
         raise HTTPException(status_code=400, detail="asset_name, category_id, acquisition_date, capitalization_date and cost are required.")
@@ -1317,7 +1317,7 @@ async def create_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: str
 
 @router.post("/api/finance/assets/depreciation/run")
 async def run_asset_depreciation(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_manage"], x_user_id)
     if not payload.get("asset_id") or not payload.get("period_label") or not payload.get("period_start") or not payload.get("period_end"):
         raise HTTPException(status_code=400, detail="asset_id, period_label, period_start and period_end are required.")
     conn = get_db_connection()
@@ -1347,7 +1347,7 @@ async def run_asset_depreciation(payload: Dict[str, Any] = Body(...), x_user_id:
 
 @router.post("/api/finance/assets/dispose")
 async def dispose_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_manage"], x_user_id)
     if not payload.get("asset_id") or not payload.get("disposal_date"):
         raise HTTPException(status_code=400, detail="asset_id and disposal_date are required.")
     conn = get_db_connection()
@@ -1372,7 +1372,7 @@ async def dispose_fixed_asset(payload: Dict[str, Any] = Body(...), x_user_id: st
 
 @router.get("/api/finance/assets/reports/register")
 async def get_asset_register(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1383,7 +1383,7 @@ async def get_asset_register(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.get("/api/finance/assets/reports/depreciation")
 async def get_asset_depreciation_report(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.assets.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_assets_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1405,7 +1405,7 @@ async def get_asset_depreciation_report(x_user_id: str = Header(None, alias="X-U
 # --- Payroll ---
 @router.post("/api/finance/payroll/employees")
 async def create_payroll_employee(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_payroll_manage", "finance_payroll", "finance_manage"], x_user_id)
     if not payload.get("name"):
         raise HTTPException(status_code=400, detail="name is required.")
     conn = get_db_connection()
@@ -1423,7 +1423,7 @@ async def create_payroll_employee(payload: Dict[str, Any] = Body(...), x_user_id
 
 @router.post("/api/finance/payroll/salary-structures")
 async def create_salary_structure(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_payroll_manage", "finance_payroll", "finance_manage"], x_user_id)
     if not payload.get("employee_id") or not payload.get("effective_from"):
         raise HTTPException(status_code=400, detail="employee_id and effective_from are required.")
     conn = get_db_connection()
@@ -1440,7 +1440,7 @@ async def create_salary_structure(payload: Dict[str, Any] = Body(...), x_user_id
 
 @router.post("/api/finance/payroll/runs/generate")
 async def generate_payroll_run(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_payroll_manage", "finance_payroll", "finance_manage"], x_user_id)
     required = ["period_label", "period_start", "period_end"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="period_label, period_start, period_end are required.")
@@ -1467,7 +1467,7 @@ async def generate_payroll_run(payload: Dict[str, Any] = Body(...), x_user_id: s
 
 @router.post("/api/finance/payroll/runs/{run_id}/approve")
 async def approve_payroll_run(run_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.approve", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_payroll_approve", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1483,7 +1483,7 @@ async def approve_payroll_run(run_id: int, x_user_id: str = Header(None, alias="
 
 @router.post("/api/finance/payroll/runs/{run_id}/post")
 async def post_payroll_run(run_id: int, payload: Dict[str, Any] = Body(default={}), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.approve", "finance.payroll.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_payroll_approve", "finance_payroll_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1522,7 +1522,7 @@ async def post_payroll_run(run_id: int, payload: Dict[str, Any] = Body(default={
 
 @router.get("/api/finance/payroll/reports/summary")
 async def payroll_summary(period_label: Optional[str] = None, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.reports.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_payroll_manage", "finance_reports_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1536,7 +1536,7 @@ async def payroll_summary(period_label: Optional[str] = None, x_user_id: str = H
 
 @router.get("/api/finance/payroll/payslip/{employee_id}")
 async def payroll_payslip(employee_id: int, run_id: Optional[int] = None, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.payroll.manage", "finance.payroll.self.read", "finance.view"], x_user_id)
+    await verify_any_permission(["finance_payroll_manage", "finance_payroll_self_read", "finance_view"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1552,7 +1552,7 @@ async def payroll_payslip(employee_id: int, run_id: Optional[int] = None, x_user
 
 @router.post("/api/finance/approvals/request")
 async def create_finance_approval_request(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.approvals.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_approvals_manage", "finance_manage"], x_user_id)
     required = ["module", "entity_type", "entity_id"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="module, entity_type and entity_id are required.")
@@ -1577,7 +1577,7 @@ async def create_finance_approval_request(payload: Dict[str, Any] = Body(...), x
 
 @router.post("/api/finance/approvals/{request_id}/decision")
 async def decide_finance_approval(request_id: int, payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.approvals.manage", "finance.payables.approve", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_approvals_manage", "finance_payables_approve", "finance_manage"], x_user_id)
     action = str(payload.get("action", "")).strip().lower()
     if action not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="action must be approve or reject.")
@@ -1600,7 +1600,7 @@ async def decide_finance_approval(request_id: int, payload: Dict[str, Any] = Bod
 
 @router.get("/api/finance/master-data")
 async def get_finance_master_data_overview(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1619,7 +1619,7 @@ async def get_finance_master_data_overview(x_user_id: str = Header(None, alias="
 
 @router.get("/api/finance/master-data/chart-of-accounts")
 async def list_chart_of_accounts(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1633,7 +1633,7 @@ async def list_chart_of_accounts(x_user_id: str = Header(None, alias="X-User-Id"
 
 @router.post("/api/finance/master-data/chart-of-accounts")
 async def create_chart_of_account(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["account_code", "account_name", "account_type"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="account_code, account_name, and account_type are required.")
@@ -1671,7 +1671,7 @@ async def create_chart_of_account(payload: Dict[str, Any] = Body(...), x_user_id
 
 @router.get("/api/finance/master-data/fiscal-years")
 async def list_fiscal_years(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1682,7 +1682,7 @@ async def list_fiscal_years(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/master-data/fiscal-years")
 async def create_fiscal_year(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["year_name", "start_date", "end_date"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="year_name, start_date, and end_date are required.")
@@ -1717,7 +1717,7 @@ async def create_fiscal_year(payload: Dict[str, Any] = Body(...), x_user_id: str
 
 @router.get("/api/finance/master-data/accounting-periods")
 async def list_accounting_periods(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1728,7 +1728,7 @@ async def list_accounting_periods(x_user_id: str = Header(None, alias="X-User-Id
 
 @router.post("/api/finance/master-data/accounting-periods")
 async def create_accounting_period(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["fiscal_year_id", "period_name", "start_date", "end_date"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="fiscal_year_id, period_name, start_date, and end_date are required.")
@@ -1764,7 +1764,7 @@ async def create_accounting_period(payload: Dict[str, Any] = Body(...), x_user_i
 
 @router.get("/api/finance/master-data/tax-codes")
 async def list_tax_codes(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1775,7 +1775,7 @@ async def list_tax_codes(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/master-data/tax-codes")
 async def create_tax_code(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["code", "name"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="code and name are required.")
@@ -1811,7 +1811,7 @@ async def create_tax_code(payload: Dict[str, Any] = Body(...), x_user_id: str = 
 
 @router.get("/api/finance/master-data/cost-centers")
 async def list_cost_centers(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1822,7 +1822,7 @@ async def list_cost_centers(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/master-data/cost-centers")
 async def create_cost_center(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["center_code", "center_name"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="center_code and center_name are required.")
@@ -1858,7 +1858,7 @@ async def create_cost_center(payload: Dict[str, Any] = Body(...), x_user_id: str
 
 @router.get("/api/finance/master-data/parties")
 async def list_finance_parties(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1869,7 +1869,7 @@ async def list_finance_parties(x_user_id: str = Header(None, alias="X-User-Id"))
 
 @router.post("/api/finance/master-data/parties")
 async def create_finance_party(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["party_type", "name"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="party_type and name are required.")
@@ -1915,7 +1915,7 @@ async def create_finance_party(payload: Dict[str, Any] = Body(...), x_user_id: s
 
 @router.get("/api/finance/master-data/currencies")
 async def list_currencies(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1926,7 +1926,7 @@ async def list_currencies(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/master-data/currencies")
 async def create_currency(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["currency_code", "currency_name"]
     if any(not payload.get(k) for k in required):
         raise HTTPException(status_code=400, detail="currency_code and currency_name are required.")
@@ -1966,7 +1966,7 @@ async def create_currency(payload: Dict[str, Any] = Body(...), x_user_id: str = 
 
 @router.get("/api/finance/master-data/exchange-rates")
 async def list_exchange_rates(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.read", "finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_read", "finance_masterdata_manage", "finance_manage"], x_user_id)
     conn = get_db_connection()
     try:
         school_id = _resolve_school_id(conn, x_user_id)
@@ -1977,7 +1977,7 @@ async def list_exchange_rates(x_user_id: str = Header(None, alias="X-User-Id")):
 
 @router.post("/api/finance/master-data/exchange-rates")
 async def create_exchange_rate(payload: Dict[str, Any] = Body(...), x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_any_permission(["finance.masterdata.manage", "finance.manage"], x_user_id)
+    await verify_any_permission(["finance_masterdata_manage", "finance_manage"], x_user_id)
     required = ["from_currency", "to_currency", "rate"]
     if any(payload.get(k) in (None, "") for k in required):
         raise HTTPException(status_code=400, detail="from_currency, to_currency, and rate are required.")

@@ -1,7 +1,10 @@
 import json
 import time
 import logging
-import redis
+try:
+    import redis
+except Exception:
+    redis = None
 from app.core.config import REDIS_URL
 
 logger = logging.getLogger(__name__)
@@ -11,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Initialize Redis client. If REDIS_URL is not set, we'll fall back to a dummy cache for local dev without Redis.
-if REDIS_URL:
+if REDIS_URL and redis:
     try:
         redis_client = redis.from_url(
             REDIS_URL, 
@@ -28,7 +31,7 @@ if REDIS_URL:
         redis_client = None
         _local_fallback_cache = {}
 else:
-    logger.info("REDIS_URL not set. Falling back to simple in-memory cache (Not recommended for Production).")
+    logger.info("Redis unavailable or REDIS_URL not set. Falling back to simple in-memory cache (Not recommended for Production).")
     redis_client = None
     _local_fallback_cache = {}
 
