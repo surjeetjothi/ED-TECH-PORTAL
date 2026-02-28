@@ -4368,21 +4368,32 @@ async def get_teacher_overview(
             import pandas as pd
             for _, row in students_df.iterrows():
                 student_avg_activity = avg_scores_map.get(row['id'], 0.0)
-                initial_score = (row['math_score'] + row['science_score'] + row['english_language_score']) / 3
+                
+                # Robust score calculation to prevent 500 errors from NULL/None values
+                m_score = row.get('math_score', 0.0)
+                s_score = row.get('science_score', 0.0)
+                e_score = row.get('english_language_score', 0.0)
+                
+                # Coalesce None to 0.0 for math operations
+                m_score = float(m_score) if pd.notna(m_score) else 0.0
+                s_score = float(s_score) if pd.notna(s_score) else 0.0
+                e_score = float(e_score) if pd.notna(e_score) else 0.0
+                
+                initial_score = (m_score + s_score + e_score) / 3
                 
                 roster_list.append({
                     "ID": row['id'],
                     "Name": row['name'],
                     "Grade": row['grade'],
-                    "Attendance %": round(row['attendance_rate'] or 0.0, 1),
-                    "Avg Activity Score": round(student_avg_activity, 1), 
-                    "Initial Score": round(initial_score, 1), 
-                    "Subject": row['preferred_subject'] or 'General',
-                    "Home Language": row['home_language'] or 'English',
+                    "Attendance %": round(row.get('attendance_rate') or 0.0 if pd.notna(row.get('attendance_rate')) else 0.0, 1),
+                    "Avg Activity Score": round(student_avg_activity or 0.0, 1), 
+                    "Initial Score": round(initial_score or 0.0, 1), 
+                    "Subject": row.get('preferred_subject') or 'General',
+                    "Home Language": row.get('home_language') or 'English',
                     "Section ID": row.get('section_id') if pd.notna(row.get('section_id')) else None,
                     "Section Name": row.get('section_name') if pd.notna(row.get('section_name')) else None
                 })
-                class_avg_score_total += student_avg_activity
+                class_avg_score_total += student_avg_activity or 0.0
             
             class_avg_score = class_avg_score_total / total_students if total_students > 0 else 0.0
         else:
