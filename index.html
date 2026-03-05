@@ -5813,7 +5813,7 @@
                     </h5>
                 </div>
                 <div class="card-body p-0">
-                    <div id="audit-logs-container" class="table-responsive">
+                    <div id="admin-audit-logs-container" class="table-responsive">
                         <div class="p-5 text-center text-muted">
                             <div class="spinner-border text-primary mb-3" role="status"></div>
                             <p>Loading security records...</p>
@@ -8866,10 +8866,12 @@
 
                     <!-- Audit Logs Tab -->
                     <div class="tab-pane fade" id="pills-audit" role="tabpanel">
-                        <div class="card border-0 shadow-sm rounded-4">
-                            <div class="card-body p-4 text-center text-muted py-5">
-                                <span class="material-icons fs-1 mb-2">history</span>
-                                <p>Audit logs for user actions will appear here.</p>
+                        <div id="audit-logs-container">
+                            <div class="card border-0 shadow-sm rounded-4">
+                                <div class="card-body p-4 text-center text-muted py-5">
+                                    <div class="spinner-border text-primary mb-3" role="status"></div>
+                                    <p>Audit logs for user actions will appear here.</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -9197,7 +9199,7 @@
         </div>
 
         <!-- EDIT USER VIEW (5-Section Form) -->
-        <div id="edit-user-view" class="view" style="padding-top: 30px; display:none;">
+        <div id="edit-user-view" class="view" style="padding-top: 30px;">
             <div class="container-fluid px-4 px-md-5">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <div class="d-flex align-items-center gap-3">

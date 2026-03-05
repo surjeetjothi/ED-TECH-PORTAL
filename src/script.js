@@ -11176,6 +11176,68 @@ function clearUserSearch() {
 }
 
 
+async function viewUser(id) {
+    const user = (window._allUsers || []).find(u => String(u.id) === String(id));
+    if (!user) {
+        showToast('User not found in cache.', 'warning');
+        return;
+    }
+
+    const modalId = 'view-user-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    const modalHtml = `
+    <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content overflow-hidden border-0 shadow-lg" style="border-radius: 20px;">
+                <div class="modal-header border-0 p-4 text-white position-relative" 
+                     style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); flex-direction: column; align-items: flex-start;">
+                    <div>
+                        <h4 class="fw-bold mb-1">${user.first_name || ''} ${user.last_name || user.name || ''}</h4>
+                        <p class="mb-0 small opacity-75 fw-medium">${user.role || '-'}</p>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-4" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <tbody>
+                                ${renderViewRow('User ID', user.id)}
+                                ${renderViewRow('Username', user.username || user.id)}
+                                ${renderViewRow('First Name', user.first_name || '-')}
+                                ${renderViewRow('Last Name', user.last_name || '-')}
+                                ${renderViewRow('Email', user.email || '-')}
+                                ${renderViewRow('Institution ID', '#' + (user.institution_id || '-'))}
+                                ${renderViewRow('Institution Name', user.institution_name || '-')}
+                                ${renderViewRow('Institution Type', user.institution_type || '-')}
+                                ${renderViewRow('Grade', user.grade || '0')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4">
+                    <button type="button" class="btn btn-primary w-100 py-2 fw-bold" 
+                            style="background-color: #6366f1; border: none; border-radius: 12px;" 
+                            data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    function renderViewRow(label, value) {
+        return `
+        <tr>
+            <td class="ps-4 py-3 text-muted fw-bold small text-uppercase" style="width: 40%; vertical-align: middle; border-bottom: 1px solid #f1f5f9; font-size: 0.75rem; letter-spacing: 0.5px;">${label}</td>
+            <td class="pe-4 py-3 text-dark fw-medium" style="border-bottom: 1px solid #f1f5f9;">${value}</td>
+        </tr>`;
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const m = new bootstrap.Modal(document.getElementById(modalId));
+    m.show();
+}
+
 function editUser(id) {
     return __awaiter(this, void 0, void 0, function* () {
         try {

@@ -999,6 +999,19 @@ def initialize_db():
     )
     """)
 
+    # --- Audit Logs Migration (Shadow Table) ---
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS auth_logs (
+        id {pk_def},
+        user_id TEXT,
+        event_type TEXT,
+        timestamp TEXT,
+        details TEXT,
+        logout_time TEXT,
+        duration_minutes INTEGER
+    )
+    """)
+
     cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS institution_profiles (
         school_id INTEGER PRIMARY KEY,
@@ -5243,6 +5256,30 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
 
 # --- USER MANAGEMENT (ADMIN) ---
 
+@app.get("/api/admin/user-management-stats")
+async def get_user_management_stats(
+    x_user_role: str = Header(None, alias="X-User-Role"),
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    await verify_permission("manage_users", x_user_id=x_user_id)
+    
+    conn = get_db_connection()
+    try:
+        res_schools = conn.execute("SELECT COUNT(*) FROM schools").fetchone()
+        total_tenants = list(res_schools)[0] if res_schools else 0
+        
+        res_users = conn.execute("SELECT COUNT(*) FROM students").fetchone()
+        total_users = list(res_users)[0] if res_users else 0
+        
+        return {
+            "total_tenants": total_tenants,
+            "total_users": total_users,
+            "growth_percentage": 12.5
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/api/admin/users", response_model=List[UserResponse])
 async def list_all_users(
     x_user_role: str = Header(None, alias="X-User-Role"),
@@ -5261,7 +5298,20 @@ async def list_all_users(
         req_school_id = requester['school_id']
         is_super_admin = bool(requester['is_super_admin'])
         
-        query = "SELECT id, name, role, grade, preferred_subject, school_id FROM students"
+        query = """
+            SELECT 
+                s.id, 
+                s.name, 
+                s.role, 
+                s.grade, 
+                s.preferred_subject, 
+                s.school_id,
+                sch.name as institution_name,
+                ip.institution_type
+            FROM students s
+            LEFT JOIN schools sch ON s.school_id = sch.id
+            LEFT JOIN institution_profiles ip ON sch.id = ip.school_id
+        """
         params = []
         conds = []
 
@@ -5269,18 +5319,18 @@ async def list_all_users(
         if is_super_admin:
             # Super Admin can see all, OR filter by specific school if context is set
             if x_school_id:
-                conds.append("school_id = ?")
+                conds.append("s.school_id = ?")
                 params.append(x_school_id)
             # else: see all
         else:
             # Regular Admins (Tenant, Academic) MUST be restricted to their school
-            conds.append("school_id = ?")
+            conds.append("s.school_id = ?")
             params.append(req_school_id)
 
         if conds:
             query += " WHERE " + " AND ".join(conds)
         
-        query += " ORDER BY role, name"
+        query += " ORDER BY s.role, s.name"
         
         rows = conn.execute(query, tuple(params)).fetchall()
         return [UserResponse(
@@ -5288,7 +5338,12 @@ async def list_all_users(
             name=r['name'], 
             role=r['role'], 
             grade=r['grade'], 
-            preferred_subject=r['preferred_subject']
+            preferred_subject=r['preferred_subject'],
+            username=r['id'],
+            email=r['id'] if '@' in str(r['id']) else '-',
+            institution_id=r['school_id'],
+            institution_name=r['institution_name'] or '-',
+            institution_type=r['institution_type'] or '-'
         ) for r in rows]
     finally:
         conn.close()
