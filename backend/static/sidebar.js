@@ -725,7 +725,7 @@ function loadParentMessages() {
         const container = document.querySelector('#parent-communication-view .list-group');
         if (!container) return;
 
-        container.innerHTML = '<div class="text-center p-4"><div class="spinner-border text-primary"></div></div>';
+        container.innerHTML = CB.ui.spinner('Loading messages...');
 
         try {
             const res = yield fetchAPI('/communication/messages');

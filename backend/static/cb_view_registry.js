@@ -212,7 +212,27 @@ const VIEW_LOADERS = {
     'root-admin-view': { roles: TEACHER_ROLES, superAdminOnly: true, loader: () => { } },  // Super Admin ONLY
 
     // ── Teacher: Attendance ──────────────────────────────────────────────────
-    'attendance-take-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'attendance-take-view': {
+        roles: TEACHER_ROLES,
+        alwaysReload: true,
+        loader: () => {
+            const run = () => {
+                // Set default date to today if not already set
+                const dateEl = document.getElementById('att-view-date');
+                if (dateEl && !dateEl.value) {
+                    dateEl.valueAsDate = new Date();
+                }
+                if (typeof loadAttendanceViewList === 'function') {
+                    loadAttendanceViewList();
+                } else {
+                    // Script still loading (app_loader.js is async). Wait and retry.
+                    console.log("[CB Registry] Waiting for teacher_attendance.js modules...");
+                    setTimeout(run, 500);
+                }
+            };
+            run();
+        }
+    },
     'attendance-report-view': { roles: TEACHER_ROLES, loader: () => { } },
     'attendance-leave-approval-view': { roles: TEACHER_ROLES, loader: () => { if (typeof loadTeacherLeaveApprovals === 'function') loadTeacherLeaveApprovals(); } },
     'teacher-leave-apply-view': { roles: TEACHER_ROLES, loader: () => { } },

@@ -2422,7 +2422,7 @@ function fetchAPI(endpoint_1) {
             }
             // Fallback chain for local/dev host mismatches (0.0.0.0 vs 127.0.0.1).
             const fallbackBases = [
-                `${window.location.origin}/api`,
+                ...(window.location.origin !== 'null' ? [`${window.location.origin}/api`] : []),
                 'http://127.0.0.1:8000/api',
                 'http://localhost:8000/api'
             ];
@@ -6639,6 +6639,15 @@ function getSidebarConfig(role) {
         });
     }
     if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
+        items.push({
+            label: 'User Management',
+            icon: 'people',
+            view: 'user-management-view',
+            onClick: () => {
+                if (typeof openUserManagement === 'function') openUserManagement();
+                else switchView('user-management-view');
+            }
+        });
         items.push({ label: 'sidebar_staff_faculty', icon: 'people_alt', view: 'staff-view', onClick: () => handleTeacherViewToggle('staff-view') });
     }
     items.push({ label: 'sidebar_system_settings', icon: 'settings', view: 'settings-view', onClick: () => handleTeacherViewToggle('settings-view') });
@@ -6875,6 +6884,19 @@ function renderTeacherControls() {
     const inviteSection = document.getElementById('invite-section');
     if (inviteSection)
         inviteSection.classList.remove('d-none');
+
+    // Toggle Admin Quick Actions
+    const userMgmtBtn = document.getElementById('dashboard-user-mgmt-btn');
+    if (userMgmtBtn) {
+        if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
+            userMgmtBtn.classList.remove('d-none');
+            userMgmtBtn.classList.add('d-flex');
+        } else {
+            userMgmtBtn.classList.remove('d-flex');
+            userMgmtBtn.classList.add('d-none');
+        }
+    }
+
     const config = getSidebarConfig(appState.role || 'Teacher');
     renderSidebarFromConfig(config);
 }
@@ -10987,122 +11009,753 @@ function openUserManagement() {
         tab.show();
     }
     loadUserList();
+    loadUserManagementStats();
+}
+function loadUserManagementStats() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const res = yield fetchAPI('/admin/user-management-stats');
+            if (res.ok) {
+                const stats = yield res.json();
+                const totalTenantsEl = document.getElementById('stat-total-tenants');
+                const totalUsersEl = document.getElementById('stat-total-users');
+                const growthPercentEl = document.getElementById('stat-growth-percent');
+
+                if (totalTenantsEl) totalTenantsEl.textContent = stats.total_tenants.toLocaleString();
+                if (totalUsersEl) totalUsersEl.textContent = stats.total_users.toLocaleString();
+                if (growthPercentEl) growthPercentEl.textContent = stats.growth_percentage + '%';
+            }
+        } catch (e) {
+            console.error("Failed to load user management stats:", e);
+        }
+    });
 }
 function loadUserList() {
     return __awaiter(this, void 0, void 0, function* () {
         const tbody = document.getElementById('users-table-body');
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+        const countEl = document.getElementById('user-result-count');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+        if (countEl) countEl.textContent = 'Loading…';
+
+        // Reset search fields on fresh load
+        const searchEl = document.getElementById('user-search-input');
+        const roleEl = document.getElementById('user-role-filter');
+        if (searchEl) searchEl.value = '';
+        if (roleEl) roleEl.value = '';
+        const clearBtn = document.getElementById('user-search-clear');
+        if (clearBtn) clearBtn.style.display = 'none';
+
         try {
             const response = yield fetchAPI('/admin/users');
             if (response.ok) {
-                const users = yield response.json();
-
-                CB.ui.paginate({
-                    data: users,
-                    container: 'users-table-body',
-                    paginationContainer: 'users-pagination',
-                    pageSize: 10,
-                    renderRow: (u) => {
-                        return `
-                        <tr>
-                            <td class="ps-4 fw-bold">${u.name}</td>
-                            <td><span class="badge rounded-pill bg-light text-dark border">${u.role}</span></td>
-                            <td>${u.id}</td>
-                            <td>${u.role === 'Student' ? 'Grade ' + u.grade : (u.preferred_subject || '-')}</td>
-                            <!-- <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="alert('Edit feature coming soon')"><span class="material-icons" style="font-size:16px">edit</span></button>
-                            </td> -->
-                        </tr>
-                        `;
-                    }
-                });
+                window._allUsers = yield response.json();
+                filterUserList(); // render first page
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-5">Failed to load users.</td></tr>';
+                if (countEl) countEl.textContent = '0 users';
             }
-            else {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load users.</td></tr>';
-            }
-        }
-        catch (e) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Network error.</td></tr>';
+        } catch (e) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-5">Network error.</td></tr>';
+            if (countEl) countEl.textContent = 'Error';
         }
     });
 }
+
+// ── Real-time Search & Filter (AC 2, AC 3, AC 4) ──────────────────────────────
+function filterUserList() {
+    const dataset = window._allUsers || [];
+    const tbody = document.getElementById('users-table-body');
+    const countEl = document.getElementById('user-result-count');
+    const clearBtn = document.getElementById('user-search-clear');
+
+    const query = (document.getElementById('user-search-input') || {}).value || '';
+    const roleFilter = (document.getElementById('user-role-filter') || {}).value || '';
+    const q = query.trim().toLowerCase();
+
+    // Show/hide clear button
+    if (clearBtn) clearBtn.style.display = q ? 'inline-flex' : 'none';
+
+    // ── Filter ───────────────────────────────────────────────────────────────
+    const filtered = dataset.filter(u => {
+        const matchesSearch = !q || [
+            u.name, u.first_name, u.last_name,
+            u.email, u.username, u.id
+        ].some(v => v && String(v).toLowerCase().includes(q));
+
+        const matchesRole = !roleFilter || u.role === roleFilter;
+        return matchesSearch && matchesRole;
+    });
+
+    // ── Result count badge ───────────────────────────────────────────────────
+    if (countEl) {
+        const total = dataset.length;
+        if (q || roleFilter) {
+            countEl.textContent = `${filtered.length} of ${total} users`;
+            countEl.className = filtered.length === 0
+                ? 'badge bg-warning-subtle text-warning fw-semibold px-3 py-2 rounded-pill'
+                : 'badge bg-primary-subtle text-primary fw-semibold px-3 py-2 rounded-pill';
+        } else {
+            countEl.textContent = `${total} users`;
+            countEl.className = 'badge bg-primary-subtle text-primary fw-semibold px-3 py-2 rounded-pill';
+        }
+    }
+
+    // ── AC 3 – "No users found" empty state ──────────────────────────────────
+    if (filtered.length === 0) {
+        if (tbody) tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center py-5">
+                    <div class="py-4">
+                        <span class="material-icons text-muted mb-2" style="font-size:48px;">search_off</span>
+                        <p class="fw-semibold text-muted mb-1 mt-2">No users found</p>
+                        <small class="text-muted">Try a different name, email, or role filter</small>
+                    </div>
+                </td>
+            </tr>`;
+        const pg = document.getElementById('users-pagination');
+        if (pg) pg.innerHTML = '';
+        return;
+    }
+
+    // ── AC 1 & AC 4 – Render table rows with pagination ───────────────────────
+    function _buildRow(u) {
+        const safeId = String(u.id || '').replace(/'/g, "\\'");
+        const safeName = String(u.name || '').replace(/'/g, "\\'");
+        return `
+        <tr>
+            <td class="ps-4">
+                <div class="d-flex align-items-center">
+                    <div class="avatar-sm me-3 bg-light rounded-circle d-flex align-items-center justify-content-center">
+                        <span class="material-icons text-primary fs-5">person</span>
+                    </div>
+                    <div>
+                        <div class="fw-bold text-dark">${u.name || '-'}</div>
+                        <small class="text-muted">${u.first_name || ''} ${u.last_name || ''}</small>
+                    </div>
+                </div>
+            </td>
+            <td><span class="badge rounded-pill bg-light text-primary border border-primary-subtle px-3">${u.role || '-'}</span></td>
+            <td class="text-muted small font-monospace">${u.id || '-'}</td>
+            <td class="fw-medium">${u.username || '-'}</td>
+            <td class="text-muted small">${u.email || '-'}</td>
+            <td><span class="badge bg-secondary-subtle text-secondary rounded-pill px-2">#${u.institution_id || '-'}</span></td>
+            <td class="small text-truncate" style="max-width:150px;">${u.institution_name || '-'}</td>
+            <td><span class="badge bg-info-subtle text-info rounded-pill px-2">${u.institution_type || '-'}</span></td>
+            <td class="text-end pe-4">
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary border-0" onclick="viewUser('${safeId}')" title="View">
+                        <span class="material-icons fs-5">visibility</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning border-0" onclick="editUser('${safeId}')" title="Edit">
+                        <span class="material-icons fs-5">edit</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteUser('${safeId}', '${safeName}')" title="Delete">
+                        <span class="material-icons fs-5">delete</span>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }
+
+    CB.ui.paginate({
+        data: filtered,
+        container: 'users-table-body',
+        paginationContainer: 'users-pagination',
+        pageSize: 10,
+        renderRow: _buildRow
+    });
+}
+
+// Clear the search input and re-render full list
+function clearUserSearch() {
+    const searchEl = document.getElementById('user-search-input');
+    const clearBtn = document.getElementById('user-search-clear');
+    if (searchEl) { searchEl.value = ''; searchEl.focus(); }
+    if (clearBtn) clearBtn.style.display = 'none';
+    filterUserList();
+}
+
+
+function editUser(id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // Navigate to the edit view immediately
+            switchView('edit-user-view');
+            euGoStep(1);
+            document.getElementById('eu-user-id').value = id;
+            document.getElementById('eu-subtitle').textContent = 'Loading...';
+
+            // Load extended profile
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(id)}/extended`);
+            if (!res.ok) { showToast('Failed to load user data.', 'danger'); return; }
+            const u = yield res.json();
+
+            // Section 1 - Primary Details
+            document.getElementById('eu-username').value = u.id || id;
+            document.getElementById('eu-firstname').value = u.first_name || '';
+            document.getElementById('eu-lastname').value = u.last_name || '';
+            document.getElementById('eu-email').value = u.email || '';
+            document.getElementById('eu-password').value = '';
+
+            // Load role chips with user's current assigned_roles pre-selected
+            const preSelected = (u.assigned_roles && u.assigned_roles.length > 0)
+                ? u.assigned_roles
+                : (u.role ? [u.role] : []);
+            yield _loadRoleChips('eu', preSelected);
+
+            // Section 2 - Contact
+            document.getElementById('eu-primary-phone').value = u.primary_phone || '';
+            document.getElementById('eu-mobile').value = u.mobile_phone || '';
+            document.getElementById('eu-secondary-email').value = u.secondary_email || '';
+            document.getElementById('eu-address').value = u.address || '';
+
+            // Section 4 - Organizational
+            document.getElementById('eu-employee-id').value = u.employee_id || '';
+            document.getElementById('eu-job-title').value = u.job_title || '';
+            document.getElementById('eu-department').value = u.department || '';
+            document.getElementById('eu-manager').value = u.manager || '';
+            document.getElementById('eu-office-location').value = u.office_location || '';
+
+            // Section 5 - Settings
+            const setSelectVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && val) { for (let o of el.options) { if (o.value === val) { o.selected = true; break; } } }
+            };
+            setSelectVal('eu-language', u.preferred_language);
+            setSelectVal('eu-timezone', u.timezone);
+            setSelectVal('eu-date-format', u.date_format);
+
+            document.getElementById('eu-subtitle').textContent = `Editing: ${u.name || id}`;
+
+            // Section 3 - Load guardians
+            yield euLoadGuardians(id);
+        } catch (e) {
+            showToast('Network error loading user.', 'danger');
+        }
+    });
+}
+
+function euLoadGuardians(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const container = document.getElementById('eu-guardian-list');
+        if (!container) return;
+        container.innerHTML = `<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm text-warning"></div><span class="ms-2 small">Loading guardians…</span></div>`;
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians`);
+            if (!res.ok) { container.innerHTML = '<p class="text-muted small">Could not load guardians.</p>'; return; }
+            const guardians = yield res.json();
+            container.innerHTML = '';
+            if (guardians.length === 0) {
+                container.innerHTML = `<div class="text-center text-muted py-4"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians. Click "Add Guardian" to begin.</p></div>`;
+            } else {
+                guardians.forEach(g => {
+                    const row = _buildGuardianRow('eu-guardian-list', null, g);
+                    container.appendChild(row);
+                });
+            }
+        } catch (e) {
+            container.innerHTML = '<p class="text-danger small">Error loading guardians.</p>';
+        }
+    });
+}
+
+function handleUpdateUser(e) {
+    return __awaiter(this, void 0, void 0, function* () {
+        e.preventDefault();
+        const userId = document.getElementById('eu-user-id').value;
+        if (!userId) return;
+
+        const errEl = document.getElementById('eu-form-error');
+        const btn = document.getElementById('eu-submit-btn');
+        errEl.classList.add('d-none');
+
+        // Handle new guardians (rows without data-guardian-id)
+        const newGuardianRows = document.querySelectorAll('#eu-guardian-list .guardian-row[data-guardian-id="new"]');
+        for (const row of newGuardianRows) {
+            const fn = row.querySelector('.g-firstname').value.trim();
+            const ln = row.querySelector('.g-lastname').value.trim();
+            const em = row.querySelector('.g-email').value.trim();
+            const ph = row.querySelector('.g-phone').value.trim();
+            const mo = row.querySelector('.g-mobile').value.trim();
+            if (!fn || !ln || !em) { errEl.textContent = 'All guardian name and email fields are required.'; errEl.classList.remove('d-none'); return; }
+        }
+
+        const selectedRoles = _getSelectedRoles('eu');
+        const primaryRole = selectedRoles[0] || document.getElementById('eu-role').value || null;
+        const payload = {
+            first_name: document.getElementById('eu-firstname').value.trim() || null,
+            last_name: document.getElementById('eu-lastname').value.trim() || null,
+            email: document.getElementById('eu-email').value.trim() || null,
+            role: primaryRole,
+            roles: selectedRoles.length > 0 ? selectedRoles : null,
+            primary_phone: document.getElementById('eu-primary-phone').value.trim() || null,
+            mobile_phone: document.getElementById('eu-mobile').value.trim() || null,
+            secondary_email: document.getElementById('eu-secondary-email').value.trim() || null,
+            address: document.getElementById('eu-address').value.trim() || null,
+            employee_id: document.getElementById('eu-employee-id').value.trim() || null,
+            job_title: document.getElementById('eu-job-title').value.trim() || null,
+            department: document.getElementById('eu-department').value.trim() || null,
+            manager: document.getElementById('eu-manager').value.trim() || null,
+            office_location: document.getElementById('eu-office-location').value.trim() || null,
+            preferred_language: document.getElementById('eu-language').value || null,
+            timezone: document.getElementById('eu-timezone').value || null,
+            date_format: document.getElementById('eu-date-format').value || null,
+        };
+        const pass = document.getElementById('eu-password').value;
+        if (pass && pass.trim()) payload.password = pass;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/extended`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const err = yield res.json().catch(() => ({}));
+                errEl.textContent = err.detail || 'Failed to save changes.';
+                errEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons align-middle me-1">save</span>Save Changes';
+                return;
+            }
+
+            // Save new guardians
+            for (const row of newGuardianRows) {
+                const fn = row.querySelector('.g-firstname').value.trim();
+                const ln = row.querySelector('.g-lastname').value.trim();
+                const em = row.querySelector('.g-email').value.trim();
+                const ph = row.querySelector('.g-phone').value.trim();
+                const mo = row.querySelector('.g-mobile').value.trim();
+                yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians`, {
+                    method: 'POST',
+                    body: JSON.stringify({ first_name: fn, last_name: ln, email: em, primary_phone: ph, mobile_phone: mo })
+                });
+            }
+
+            showToast('User updated successfully!', 'success');
+            switchView('user-management-view');
+            loadUserList();
+        } catch (ex) {
+            errEl.textContent = 'Network error: ' + ex.message;
+            errEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons align-middle me-1">save</span>Save Changes';
+        }
+    });
+}
+
+function saveEditUser(id) {
+    // Legacy stub – redirects to new edit view
+    editUser(id);
+}
+
+function deleteUser(id, name) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (!confirm(`Are you sure you want to permanently delete user:\n\n"${name}" (${id})\n\nThis cannot be undone.`)) return;
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (res.ok) {
+                if (typeof showToast === 'function') showToast(`User "${name}" deleted successfully.`, 'success');
+                else alert(`User "${name}" deleted.`);
+                loadUserList();
+                loadUserManagementStats();
+            } else {
+                const err = yield res.json().catch(() => ({}));
+                alert('Error: ' + (err.detail || 'Could not delete user.'));
+            }
+        } catch (e) {
+            alert('Network error: ' + e.message);
+        }
+    });
+}
+
+// ── Role Chip Helpers (AC1 + AC2) ──
+
+/**
+ * Fetches roles from /api/admin/roles and renders clickable chips in #{prefix}-role-picker.
+ * @param {string} prefix  'cu' (create) or 'eu' (edit)
+ * @param {string[]} preSelected  Array of role names to pre-select
+ */
+function _loadRoleChips(prefix, preSelected) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const picker = document.getElementById(`${prefix}-role-picker`);
+        if (!picker) return;
+        picker.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading roles…</span>';
+        try {
+            const res = yield fetchAPI('/admin/roles');
+            if (!res.ok) throw new Error('Failed');
+            const roles = yield res.json();
+            picker.innerHTML = '';
+            // Filter out Root_Super_Admin for non-root users
+            const filtered = roles.filter(r => r.name !== 'Root_Super_Admin');
+            filtered.forEach(role => {
+                const chip = document.createElement('div');
+                chip.className = 'role-chip';
+                chip.setAttribute('data-role-name', role.name);
+                chip.setAttribute('data-role-id', role.id);
+                chip.innerHTML = `<span class="role-chip-dot"></span>${role.name.replace(/_/g, ' ')}`;
+                // Pre-select if in preSelected list
+                if (preSelected && preSelected.includes(role.name)) {
+                    chip.classList.add('selected');
+                }
+                chip.addEventListener('click', () => _toggleRoleChip(chip, prefix, role.name, role.permissions));
+                picker.appendChild(chip);
+            });
+            // Auto-select first chip if nothing pre-selected
+            const anySelected = picker.querySelector('.role-chip.selected');
+            if (!anySelected && filtered.length > 0) {
+                const first = picker.querySelector('.role-chip');
+                if (first) first.classList.add('selected');
+            }
+            // Show permission preview for the first selected chip
+            const firstSelected = picker.querySelector('.role-chip.selected');
+            if (firstSelected) {
+                const roleName = firstSelected.getAttribute('data-role-name');
+                const matchedRole = filtered.find(r => r.name === roleName);
+                if (matchedRole) _showRolePerms(prefix, matchedRole.permissions);
+            }
+            _syncHiddenRoleInput(prefix);
+        } catch (e) {
+            picker.innerHTML = '<span class="text-danger small">Failed to load roles. Please refresh.</span>';
+        }
+    });
+}
+
+/** Toggle a role chip selected state and update the permission preview. */
+function _toggleRoleChip(chip, prefix, roleName, perms) {
+    chip.classList.toggle('selected');
+    _syncHiddenRoleInput(prefix);
+    // Always preview the permissions for the clicked role
+    _showRolePerms(prefix, perms);
+}
+
+/** Render the permission preview panel for the given permissions array. */
+function _showRolePerms(prefix, perms) {
+    const panel = document.getElementById(`${prefix}-role-perms-panel`);
+    if (!panel) return;
+    panel.style.display = 'block';
+    if (!perms || perms.length === 0) {
+        panel.innerHTML = '<div class="perms-empty">No permissions assigned to this role.</div>';
+        return;
+    }
+    // Group by category (use code prefix before first underscore)
+    const groups = {};
+    perms.forEach(p => {
+        const grp = (p.description || p.code).split(' ')[0] || 'General';
+        // Use a friendlier grouping from code prefix
+        const pfx = (p.code || '').split('_')[0] || 'other';
+        if (!groups[pfx]) groups[pfx] = [];
+        groups[pfx].push(p.description || p.code);
+    });
+    let html = '';
+    Object.entries(groups).forEach(([grp, items]) => {
+        const label = grp.charAt(0).toUpperCase() + grp.slice(1);
+        html += `<div class="role-perms-group"><div class="role-perms-group-label">${label}</div>`;
+        items.forEach(desc => { html += `<span class="perm-badge">${desc}</span>`; });
+        html += '</div>';
+    });
+    panel.innerHTML = html;
+}
+
+/** Sync the hidden #{prefix}-role input with the first selected chip name (for legacy compat). */
+function _syncHiddenRoleInput(prefix) {
+    const picker = document.getElementById(`${prefix}-role-picker`);
+    const hiddenInput = document.getElementById(`${prefix}-role`);
+    if (!picker || !hiddenInput) return;
+    const selected = Array.from(picker.querySelectorAll('.role-chip.selected'))
+        .map(c => c.getAttribute('data-role-name'));
+    hiddenInput.value = selected[0] || '';
+}
+
+/** Return array of selected role names for the given prefix. */
+function _getSelectedRoles(prefix) {
+    const picker = document.getElementById(`${prefix}-role-picker`);
+    if (!picker) return [];
+    return Array.from(picker.querySelectorAll('.role-chip.selected'))
+        .map(c => c.getAttribute('data-role-name'));
+}
+
 // --- USER MANAGEMENT (VIEW BASED) ---
 function openAddUserModal() {
-    switchView('add-user-view');
-    document.getElementById('add-user-form').reset();
-    document.getElementById('new-user-role').value = "Student";
-    toggleUserFields();
+    switchView('add-user-view-v2');
+    cuGoStep(1);
+    const form = document.getElementById('add-user-form');
+    if (form) form.reset();
+    // Clear guardian list
+    const gList = document.getElementById('cu-guardian-list');
+    if (gList) gList.innerHTML = `<div class="text-center text-muted py-4" id="cu-no-guardian-msg"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added yet. Click "Add Guardian" to begin.</p></div>`;
+    const errEl = document.getElementById('cu-form-error');
+    if (errEl) errEl.classList.add('d-none');
+    // Load role chips (no pre-selection → first chip auto-selected)
+    _loadRoleChips('cu', []);
 }
+
 function toggleUserFields() {
-    const role = document.getElementById('new-user-role').value;
-    const studentFields = document.getElementById('student-fields');
-    const teacherFields = document.getElementById('teacher-fields');
-    if (role === 'Student') {
-        studentFields.style.display = 'block';
-        teacherFields.style.display = 'none';
-    }
-    else if (role === 'Teacher') {
-        studentFields.style.display = 'none';
-        teacherFields.style.display = 'block';
-    }
-    else {
-        studentFields.style.display = 'none';
-        teacherFields.style.display = 'none';
-    }
+    const role = document.getElementById('new-user-role');
+    if (!role) return;
+    const r = role.value;
+    const sf = document.getElementById('student-fields');
+    const tf = document.getElementById('teacher-fields');
+    if (sf) sf.style.display = r === 'Student' ? 'block' : 'none';
+    if (tf) tf.style.display = r === 'Teacher' ? 'block' : 'none';
 }
+
+// ── Stepper: Create User ──
+function cuGoStep(step) {
+    document.querySelectorAll('.cu-section').forEach(el => el.style.display = 'none');
+    const target = document.getElementById(`cu-section-${step}`);
+    if (target) target.style.display = 'block';
+    document.querySelectorAll('#cu-step-indicator .cu-step').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === step);
+        el.classList.toggle('completed', s < step);
+    });
+    if (step === 5) cuBuildReviewSummary();
+}
+function cuNextStep(current) {
+    if (current === 1) {
+        const username = document.getElementById('cu-username').value.trim();
+        const email = document.getElementById('cu-email').value.trim();
+        const fn = document.getElementById('cu-firstname').value.trim();
+        const ln = document.getElementById('cu-lastname').value.trim();
+        const pass = document.getElementById('cu-password').value;
+        if (!username || !email || !fn || !ln || !pass) { showToast('Please fill in all required primary detail fields.', 'warning'); return; }
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) { showToast('Please enter a valid email address.', 'warning'); return; }
+    }
+    cuGoStep(current + 1);
+}
+function cuBuildReviewSummary() {
+    const el = document.getElementById('cu-review-summary');
+    if (!el) return;
+    const v = id => (document.getElementById(id) || {}).value || '—';
+    el.innerHTML = `
+        <div class="row g-3">
+            <div class="col-md-6"><strong>Username:</strong> ${v('cu-username')}</div>
+            <div class="col-md-6"><strong>Email:</strong> ${v('cu-email')}</div>
+            <div class="col-md-6"><strong>Name:</strong> ${v('cu-firstname')} ${v('cu-lastname')}</div>
+            <div class="col-md-6"><strong>Role:</strong> ${v('cu-role')}</div>
+            <div class="col-md-6"><strong>Primary Phone:</strong> ${v('cu-primary-phone')}</div>
+            <div class="col-md-6"><strong>Mobile:</strong> ${v('cu-mobile')}</div>
+            <div class="col-md-6"><strong>Job Title:</strong> ${v('cu-job-title')}</div>
+            <div class="col-md-6"><strong>Department:</strong> ${v('cu-department')}</div>
+            <div class="col-md-4"><strong>Language:</strong> ${v('cu-language')}</div>
+            <div class="col-md-4"><strong>Timezone:</strong> ${v('cu-timezone')}</div>
+            <div class="col-md-4"><strong>Date Format:</strong> ${v('cu-date-format')}</div>
+        </div>`;
+}
+
+// ── Stepper: Edit User ──
+function euGoStep(step) {
+    document.querySelectorAll('.eu-section').forEach(el => el.style.display = 'none');
+    const target = document.getElementById(`eu-section-${step}`);
+    if (target) target.style.display = 'block';
+    document.querySelectorAll('#eu-step-indicator .cu-step').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === step);
+        el.classList.toggle('completed', s < step);
+    });
+}
+function euNextStep(current) {
+    euGoStep(current + 1);
+}
+
+// ── Guardian Row Helpers ──
+function _buildGuardianRow(listId, onDeleteNew, existingGuardian) {
+    const row = document.createElement('div');
+    row.className = 'guardian-row card border-0 bg-light rounded-3 p-3 mb-2';
+    const isExisting = !!existingGuardian;
+    row.dataset.guardianId = isExisting ? existingGuardian.id : 'new';
+    row.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-semibold text-secondary small">
+                <span class="material-icons align-middle" style="font-size:16px;">person</span>
+                ${isExisting ? `Guardian (Saved)` : 'New Guardian'}
+            </span>
+            <button type="button" class="btn btn-link text-danger btn-sm p-0 remove-guardian-btn"
+                onclick="removeGuardianRow(this, '${listId}', ${isExisting ? existingGuardian.id : 'null'}, '${isExisting ? (existingGuardian.user_id || '') : ''}')">
+                <span class="material-icons" style="font-size:18px;">remove_circle</span>
+            </button>
+        </div>
+        <div class="row g-2">
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm bg-white g-firstname" placeholder="First Name *"
+                    value="${isExisting ? (existingGuardian.first_name || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm bg-white g-lastname" placeholder="Last Name *"
+                    value="${isExisting ? (existingGuardian.last_name || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-4">
+                <input type="email" class="form-control form-control-sm bg-white g-email" placeholder="Email *"
+                    value="${isExisting ? (existingGuardian.email || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-6">
+                <input type="tel" class="form-control form-control-sm bg-white g-phone" placeholder="Primary Phone"
+                    value="${isExisting ? (existingGuardian.primary_phone || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-6">
+                <input type="tel" class="form-control form-control-sm bg-white g-mobile" placeholder="Mobile"
+                    value="${isExisting ? (existingGuardian.mobile_phone || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+        </div>`;
+    return row;
+}
+
+function addGuardianRow(listId) {
+    const container = document.getElementById(listId);
+    if (!container) return;
+    // Remove empty state message if present
+    const emptyMsg = container.querySelector('.text-center.text-muted');
+    if (emptyMsg) emptyMsg.remove();
+    const row = _buildGuardianRow(listId, null, null);
+    container.appendChild(row);
+}
+
+function removeGuardianRow(btn, listId, guardianId, userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const row = btn.closest('.guardian-row');
+        if (!row) return;
+        if (guardianId && guardianId !== 'null' && userId) {
+            // It's a saved guardian — delete from backend
+            if (!confirm('Remove this guardian permanently?')) return;
+            try {
+                const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians/${guardianId}`, { method: 'DELETE' });
+                if (!res.ok) { showToast('Failed to remove guardian.', 'danger'); return; }
+                showToast('Guardian removed.', 'success');
+            } catch (e) {
+                showToast('Network error removing guardian.', 'danger');
+                return;
+            }
+        }
+        row.remove();
+        // Show empty state if no rows left
+        const container = document.getElementById(listId);
+        if (container && container.querySelectorAll('.guardian-row').length === 0) {
+            const emptyId = listId === 'cu-guardian-list' ? 'cu-no-guardian-msg' : '';
+            container.innerHTML = `<div class="text-center text-muted py-4"${emptyId ? ` id="${emptyId}"` : ''}><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added.</p></div>`;
+        }
+    });
+}
+
 function handleCreateUser(e) {
     return __awaiter(this, void 0, void 0, function* () {
         e.preventDefault();
-        const role = document.getElementById('new-user-role').value;
-        // Validate Password
-        const password = document.getElementById('new-user-password').value;
-        if (password.length < 8) {
-            alert("Password must be at least 8 characters long.");
+        const errEl = document.getElementById('cu-form-error');
+        errEl.classList.add('d-none');
+
+        const username = document.getElementById('cu-username').value.trim();
+        const email = document.getElementById('cu-email').value.trim();
+        const firstName = document.getElementById('cu-firstname').value.trim();
+        const lastName = document.getElementById('cu-lastname').value.trim();
+        const password = document.getElementById('cu-password').value;
+
+        if (!username || !email || !firstName || !lastName || !password) {
+            errEl.textContent = 'Please fill in all required Primary Detail fields.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
             return;
         }
-        const data = {
-            name: document.getElementById('new-user-name').value,
-            id: document.getElementById('new-user-id').value,
-            role: role,
-            password: password,
-            grade: role === 'Student' ? parseInt(document.getElementById('new-user-grade').value) : 0,
-            preferred_subject: role === 'Teacher' ? document.getElementById('new-user-subject').value : "All"
-        };
-        const btn = e.submitter;
-        const originalText = btn.innerHTML;
-        try {
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
-            const response = yield fetchAPI('/admin/users', {
-                method: 'POST',
-                body: JSON.stringify(data)
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+            errEl.textContent = 'Please enter a valid email address.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
+            return;
+        }
+
+        // Collect guardian rows
+        const guardianRows = document.querySelectorAll('#cu-guardian-list .guardian-row');
+        const guardians = [];
+        for (const row of guardianRows) {
+            const fn = row.querySelector('.g-firstname').value.trim();
+            const ln = row.querySelector('.g-lastname').value.trim();
+            const em = row.querySelector('.g-email').value.trim();
+            if (!fn || !ln || !em) {
+                errEl.textContent = 'All guardian name and email fields are required.';
+                errEl.classList.remove('d-none');
+                cuGoStep(3);
+                return;
+            }
+            guardians.push({
+                first_name: fn, last_name: ln, email: em,
+                primary_phone: row.querySelector('.g-phone').value.trim(),
+                mobile_phone: row.querySelector('.g-mobile').value.trim()
             });
-            if (response.ok) {
-                if (typeof showToast === 'function')
-                    showToast("User created successfully!", "success");
-                else
-                    alert("User created successfully!");
-                switchView('user-management-view');
-                loadUserList();
-            }
-            else {
-                const err = yield response.json();
-                alert("Error: " + (err.detail || "Failed to create user"));
-            }
         }
-        catch (e) {
-            alert("Network Error: " + e.message);
+
+        // Role validation & collection
+        const selectedRoles = _getSelectedRoles('cu');
+        if (selectedRoles.length === 0) {
+            const errBox = document.getElementById('cu-role-error');
+            if (errBox) errBox.style.display = 'block';
+            errEl.textContent = 'Please select at least one role.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
+            return;
+        } else {
+            const errBox = document.getElementById('cu-role-error');
+            if (errBox) errBox.style.display = 'none';
         }
-        finally {
-            const btn = e.submitter;
-            if (btn) {
+        const role = selectedRoles[0]; // primary role
+
+        const payload = {
+            username, email, first_name: firstName, last_name: lastName,
+            password, role,
+            roles: selectedRoles,
+            primary_phone: document.getElementById('cu-primary-phone').value.trim(),
+            mobile_phone: document.getElementById('cu-mobile').value.trim(),
+            secondary_email: document.getElementById('cu-secondary-email').value.trim(),
+            address: document.getElementById('cu-address').value.trim(),
+            employee_id: document.getElementById('cu-employee-id').value.trim(),
+            job_title: document.getElementById('cu-job-title').value.trim(),
+            department: document.getElementById('cu-department').value.trim(),
+            manager: document.getElementById('cu-manager').value.trim(),
+            office_location: document.getElementById('cu-office-location').value.trim(),
+            preferred_language: document.getElementById('cu-language').value,
+            timezone: document.getElementById('cu-timezone').value,
+            date_format: document.getElementById('cu-date-format').value,
+        };
+
+        const btn = document.getElementById('cu-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+
+        try {
+            const res = yield fetchAPI('/admin/users/extended', { method: 'POST', body: JSON.stringify(payload) });
+            if (!res.ok) {
+                const err = yield res.json().catch(() => ({}));
+                errEl.textContent = err.detail || 'Failed to create user.';
+                errEl.classList.remove('d-none');
                 btn.disabled = false;
-                if (typeof originalText !== 'undefined')
-                    btn.innerHTML = originalText;
+                btn.innerHTML = '<span class="material-icons align-middle me-1">person_add</span>Create User';
+                return;
             }
+            const result = yield res.json();
+            const newUserId = result.user_id || username;
+
+            // Post guardians
+            for (const g of guardians) {
+                yield fetchAPI(`/admin/users/${encodeURIComponent(newUserId)}/guardians`, {
+                    method: 'POST', body: JSON.stringify(g)
+                });
+            }
+
+            showToast('User created successfully!', 'success');
+            switchView('user-management-view');
+            loadUserList();
+            loadUserManagementStats();
+        } catch (ex) {
+            errEl.textContent = 'Network error: ' + ex.message;
+            errEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons align-middle me-1">person_add</span>Create User';
         }
     });
 }
+
+
+
 function showAuditLogs() {
     return __awaiter(this, void 0, void 0, function* () {
         // switchView('admin-view'); // REMOVED: We use tabs now
@@ -20094,10 +20747,24 @@ window.handleUpdateSchool = handleUpdateSchool;
 window.handleDeleteSchool = handleDeleteSchool;
 window.openUserManagement = openUserManagement;
 window.loadUserList = loadUserList;
+window.loadUserManagementStats = loadUserManagementStats;
+window.filterUserList = filterUserList;
+window.clearUserSearch = clearUserSearch;
 window.openAddUserModal = openAddUserModal;
 window.toggleUserFields = toggleUserFields;
 window.handleCreateUser = handleCreateUser;
+window.handleUpdateUser = handleUpdateUser;
 window.showAuditLogs = showAuditLogs;
+window.viewUser = viewUser;
+window.editUser = editUser;
+window.deleteUser = deleteUser;
+window.saveEditUser = saveEditUser;
+window.cuGoStep = cuGoStep;
+window.cuNextStep = cuNextStep;
+window.euGoStep = euGoStep;
+window.euNextStep = euNextStep;
+window.addGuardianRow = addGuardianRow;
+window.removeGuardianRow = removeGuardianRow;
 window.initBackgroundPaths = initBackgroundPaths;
 window.initAllAnimations = initAllAnimations;
 window.initGlowingEffect = initGlowingEffect;

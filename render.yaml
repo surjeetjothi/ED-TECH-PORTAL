@@ -47,3 +47,11 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: DISABLE_2FA
+        value: "true"   # Disable 2FA by default; set to false when ready to enable
+      - key: ENABLE_2FA
+        value: "false"
+      - key: VERIFICATION_LINK_BASE
+        sync: false   # Set to your Render URL e.g. https://classbridge-api.onrender.com
+      - key: ALLOWED_ORIGINS
+        sync: false   # e.g. https://classbridge-api.onrender.com
