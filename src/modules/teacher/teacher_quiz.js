@@ -40,7 +40,7 @@ function handleGenerateQuiz(e) {
             alert("Please enter a topic first.");
             return;
         }
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+        CB.ui.btnLoading(btn, 'Generating...');
         btn.disabled = true;
         const resultContainer = document.getElementById('quiz-result-container');
         resultContainer.classList.add('d-none');
@@ -341,7 +341,7 @@ function sendAccessCardEmail() {
             return;
         }
         const originalText = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
+        CB.ui.btnLoading(btn, 'Sending...');
         btn.disabled = true;
         try {
             const response = yield fetchAPI(`/students/${studentId}/email-code`, { method: 'POST' });
@@ -869,7 +869,7 @@ async function loadTeacherQuizzes() {
     const list = document.getElementById('teacher-quiz-list');
     if (!list) return;
 
-    list.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div><p class="text-muted mt-2">Loading Quizzes...</p></div>';
+    list.innerHTML = CB.ui.spinner('Loading Quizzes...', 'lg');
 
     try {
         const res = await fetchAPI('/teacher/quizzes');
@@ -995,12 +995,7 @@ function viewQuizResults(quizId, title) {
 
     document.getElementById('tqr-title').textContent = title || 'Untitled Quiz';
     const contentDiv = document.getElementById('tqr-content');
-    contentDiv.innerHTML = `
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary"></div>
-            <p class="text-muted mt-3 mb-0">Fetching grades...</p>
-        </div>
-    `;
+    contentDiv.innerHTML = CB.ui.spinner('Fetching grades...');
     openView(modalEl.id);
 
     fetchAPI(`/quizzes/${quizId}/results`)

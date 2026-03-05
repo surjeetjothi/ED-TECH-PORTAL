@@ -6,7 +6,7 @@ async function takeQuiz(quizId) {
     let quiz = null;
     const btn = document.querySelector(`button[onclick="takeQuiz('${quizId}')"]`);
     const originalText = btn ? btn.innerHTML : '';
-    if (btn) { btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; btn.disabled = true; }
+    if (btn) { CB.ui.btnLoading(btn, ''); btn.disabled = true; }
 
     try {
         const res = await fetchAPI(`/quizzes/${quizId}`);
@@ -111,7 +111,7 @@ async function submitQuizAnswers() {
     const originalText = btn ? btn.innerHTML : 'Submit Quiz';
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Submitting...';
+        CB.ui.btnLoading(btn, 'Submitting...');
     }
 
     try {
@@ -178,7 +178,7 @@ async function loadStudentExams() {
     const container = document.getElementById('student-exams-list-container');
     if (!container) return;
 
-    container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div><p class="text-muted mt-2">Loading Exams...</p></div>';
+    container.innerHTML = CB.ui.spinner('Loading Exams...');
 
     try {
         const [scheduleRes, pdfRes] = await Promise.all([
@@ -732,7 +732,7 @@ async function handleCreatePDFExam() {
     // Show Loading
     const btn = document.querySelector('#create-pdf-exam-form button[type="submit"]');
     const originalText = btn.innerHTML;
-    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Publishing...`;
+    CB.ui.btnLoading(btn, 'Publishing...');
     btn.disabled = true;
 
     try {

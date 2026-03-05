@@ -2021,6 +2021,15 @@ function t(key, params = {}) {
     }
     return text;
 }
+// Language metadata used to update the navbar button and lazy-load flags
+const _langMetaLocal = {
+    en: { flag: 'us', label: 'English' },
+    es: { flag: 'es', label: 'Español' },
+    ar: { flag: 'sa', label: 'العربية' },
+    hi: { flag: 'in', label: 'हिन्दी' },
+    ja: { flag: 'jp', label: '日本語' }
+};
+
 function changeLanguage(lang) {
     currentLanguage = lang;
     localStorage.setItem('appLanguage', lang);
@@ -2061,6 +2070,21 @@ function updateTranslations() {
             locale = 'en-US';
         calDate.textContent = now.toLocaleDateString(locale, opts);
     }
+
+    // Update the navbar language button (flag + text)
+    if (typeof _langMetaLocal !== 'undefined') {
+        const meta = _langMetaLocal[currentLanguage] || _langMetaLocal['en'];
+        const langFlagImg = document.getElementById('current-lang-flag');
+        const langBtnText = document.getElementById('current-lang-text');
+        if (langFlagImg) {
+            langFlagImg.src = `https://flagcdn.com/w40/${meta.flag}.png`;
+            langFlagImg.alt = meta.label;
+        }
+        if (langBtnText) {
+            langBtnText.textContent = meta.label;
+        }
+    }
+
     syncSettingsLanguageControl();
 }
 
@@ -2398,7 +2422,7 @@ function fetchAPI(endpoint_1) {
             }
             // Fallback chain for local/dev host mismatches (0.0.0.0 vs 127.0.0.1).
             const fallbackBases = [
-                `${window.location.origin}/api`,
+                ...(window.location.origin !== 'null' ? [`${window.location.origin}/api`] : []),
                 'http://127.0.0.1:8000/api',
                 'http://localhost:8000/api'
             ];
@@ -2637,6 +2661,7 @@ function renderRolesList(roles) {
 
     const canEdit = hasPermission('edit_roles') || appState.isSuperAdmin || (appState.permissions || []).includes('*');
     const canDelete = hasPermission('delete_roles') || appState.isSuperAdmin || (appState.permissions || []).includes('*');
+    const canMutateSystemRoles = appState.isSuperAdmin || appState.role === 'Root_Super_Admin' || (appState.permissions || []).includes('*');
 
     // Also render the Create button if admin has add_roles
     const createBtnContainer = document.getElementById('role-create-action');
@@ -2654,58 +2679,128 @@ function renderRolesList(roles) {
         }
     }
 
-    tableBody.innerHTML = '';
-    roles.forEach(role => {
-        const isSystem = role.is_system;
-        const statusColour = role.status === 'Active'
-            ? { bg: '#dcfce7', text: '#15803d' }
-            : { bg: '#f1f5f9', text: '#64748b' };
+    let paginationContainer = document.getElementById('roles-pagination');
+    if (!paginationContainer) {
+        paginationContainer = document.createElement('div');
+        paginationContainer.id = 'roles-pagination';
+        paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+        tableBody.parentNode.parentNode.insertBefore(paginationContainer, tableBody.parentNode.nextSibling); // after the table
+    }
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="ps-4">
-                <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
-                    style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
-                    ${role.code || '—'}
-                </span>
-            </td>
-            <td>
-                <div class="fw-semibold" style="color:#1e1b4b;">${role.name}</div>
-                ${isSystem ? '<span class="badge ms-1" style="background:#fef3c7;color:#b45309;font-size:0.65rem;font-weight:600;">System</span>' : ''}
-            </td>
-            <td>
-                <span class="badge rounded-pill px-3 py-1"
-                    style="background:${statusColour.bg};color:${statusColour.text};font-size:0.72rem;font-weight:600;">
-                    ${role.status || 'Active'}
-                </span>
-            </td>
-            <td class="small text-secondary" style="max-width:300px;">
-                ${role.description || '<em class="text-muted fst-italic" style="opacity:.5;">No description</em>'}
-            </td>
-            <td class="text-end pe-4">
-                <div class="d-flex align-items-center justify-content-end gap-1">
-                    ${canEdit ? `
-                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
-                        style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isSystem ? 'opacity:0.45;cursor:not-allowed;' : ''}"
-                        title="${isSystem ? 'System roles cannot be modified' : 'Edit role'}"
-                        ${isSystem ? 'disabled' : `onmouseover="this.style.background='rgba(79,70,229,0.18)'" onmouseout="this.style.background='rgba(79,70,229,0.09)'" onclick="openRoleModal(${role.id})"`}>
-                        <span class="material-icons" style="font-size:14px;">edit</span>
-                        Edit
-                    </button>` : ''}
-                    ${canDelete ? `
-                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
-                        style="background:rgba(220,38,38,0.07);color:#dc2626;border:1px solid rgba(220,38,38,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isSystem ? 'opacity:0.45;cursor:not-allowed;' : ''}"
-                        title="${isSystem ? 'System roles cannot be deleted' : 'Delete role'}"
-                        ${isSystem ? 'disabled' : `onmouseover="this.style.background='rgba(220,38,38,0.16)'" onmouseout="this.style.background='rgba(220,38,38,0.07)'" onclick="deleteRole(${role.id}, '${(role.name || '').replace(/'/g, "\\'")}')"`}>
-                        <span class="material-icons" style="font-size:14px;">delete</span>
-                        Delete
-                    </button>` : ''}
-                    ${(!canEdit && !canDelete) ? `
-                    <span class="text-muted small fst-italic" style="font-size:0.72rem;opacity:0.5;">—</span>` : ''}
-                </div>
-            </td>
-        `;
-        tableBody.appendChild(tr);
+    tableBody.innerHTML = '';
+    const canPaginate = !!(window.CB && CB.ui && typeof CB.ui.paginate === 'function');
+    if (!canPaginate) {
+        // Fallback render path if shared UI helpers load late.
+        roles.forEach((role) => {
+            const isSystem = role.is_system;
+            const isLockedSystemRole = !!isSystem && !canMutateSystemRoles;
+            const statusColour = role.status === 'Active'
+                ? { bg: '#dcfce7', text: '#15803d' }
+                : { bg: '#f1f5f9', text: '#64748b' };
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="ps-4">
+                    <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
+                        style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
+                        ${role.code || '—'}
+                    </span>
+                </td>
+                <td>
+                    <div class="fw-semibold" style="color:#1e1b4b;">${role.name}</div>
+                    ${isSystem ? '<span class="badge ms-1" style="background:#fef3c7;color:#b45309;font-size:0.65rem;font-weight:600;">System</span>' : ''}
+                </td>
+                <td>
+                    <span class="badge rounded-pill px-3 py-1"
+                        style="background:${statusColour.bg};color:${statusColour.text};font-size:0.72rem;font-weight:600;">
+                        ${role.status || 'Active'}
+                    </span>
+                </td>
+                <td class="small text-secondary" style="max-width:300px;">
+                    ${role.description || '<em class="text-muted fst-italic" style="opacity:.5;">No description</em>'}
+                </td>
+                <td class="text-end pe-4">
+                    <div class="d-flex align-items-center justify-content-end gap-1">
+                        ${canEdit ? `
+                        <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                            style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isLockedSystemRole ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                            title="${isLockedSystemRole ? 'System roles cannot be modified' : 'Edit role'}"
+                            ${isLockedSystemRole ? 'disabled' : `onmouseover="this.style.background='rgba(79,70,229,0.18)'" onmouseout="this.style.background='rgba(79,70,229,0.09)'" onclick="openRoleModal(${role.id})"`}>
+                            <span class="material-icons" style="font-size:14px;">edit</span>
+                            Edit
+                        </button>` : ''}
+                        ${canDelete ? `
+                        <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                            style="background:rgba(220,38,38,0.07);color:#dc2626;border:1px solid rgba(220,38,38,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isLockedSystemRole ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                            title="${isLockedSystemRole ? 'System roles cannot be deleted' : 'Delete role'}"
+                            ${isLockedSystemRole ? 'disabled' : `onmouseover="this.style.background='rgba(220,38,38,0.16)'" onmouseout="this.style.background='rgba(220,38,38,0.07)'" onclick="deleteRole(${role.id}, '${(role.name || '').replace(/'/g, "\\'")}')"`}>
+                            <span class="material-icons" style="font-size:14px;">delete</span>
+                            Delete
+                        </button>` : ''}
+                    </div>
+                </td>
+            `;
+            tableBody.appendChild(tr);
+        });
+        return;
+    }
+    CB.ui.paginate({
+        data: roles,
+        container: tableBody,
+        paginationContainer: paginationContainer,
+        pageSize: 10,
+        renderRow: (role) => {
+            const isSystem = role.is_system;
+            const isLockedSystemRole = !!isSystem && !canMutateSystemRoles;
+            const statusColour = role.status === 'Active'
+                ? { bg: '#dcfce7', text: '#15803d' }
+                : { bg: '#f1f5f9', text: '#64748b' };
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="ps-4">
+                    <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
+                        style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
+                        ${role.code || '—'}
+                    </span>
+                </td>
+                <td>
+                    <div class="fw-semibold" style="color:#1e1b4b;">${role.name}</div>
+                    ${isSystem ? '<span class="badge ms-1" style="background:#fef3c7;color:#b45309;font-size:0.65rem;font-weight:600;">System</span>' : ''}
+                </td>
+                <td>
+                    <span class="badge rounded-pill px-3 py-1"
+                        style="background:${statusColour.bg};color:${statusColour.text};font-size:0.72rem;font-weight:600;">
+                        ${role.status || 'Active'}
+                    </span>
+                </td>
+                <td class="small text-secondary" style="max-width:300px;">
+                    ${role.description || '<em class="text-muted fst-italic" style="opacity:.5;">No description</em>'}
+                </td>
+                <td class="text-end pe-4">
+                    <div class="d-flex align-items-center justify-content-end gap-1">
+                        ${canEdit ? `
+                        <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                            style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isLockedSystemRole ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                            title="${isLockedSystemRole ? 'System roles cannot be modified' : 'Edit role'}"
+                            ${isLockedSystemRole ? 'disabled' : `onmouseover="this.style.background='rgba(79,70,229,0.18)'" onmouseout="this.style.background='rgba(79,70,229,0.09)'" onclick="openRoleModal(${role.id})"`}>
+                            <span class="material-icons" style="font-size:14px;">edit</span>
+                            Edit
+                        </button>` : ''}
+                        ${canDelete ? `
+                        <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-2 py-1"
+                            style="background:rgba(220,38,38,0.07);color:#dc2626;border:1px solid rgba(220,38,38,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;${isLockedSystemRole ? 'opacity:0.45;cursor:not-allowed;' : ''}"
+                            title="${isLockedSystemRole ? 'System roles cannot be deleted' : 'Delete role'}"
+                            ${isLockedSystemRole ? 'disabled' : `onmouseover="this.style.background='rgba(220,38,38,0.16)'" onmouseout="this.style.background='rgba(220,38,38,0.07)'" onclick="deleteRole(${role.id}, '${(role.name || '').replace(/'/g, "\\'")}')"`}>
+                            <span class="material-icons" style="font-size:14px;">delete</span>
+                            Delete
+                        </button>` : ''}
+                        ${(!canEdit && !canDelete) ? `
+                        <span class="text-muted small fst-italic" style="font-size:0.72rem;opacity:0.5;">—</span>` : ''}
+                    </div>
+                </td>
+            `;
+            return tr;
+        }
     });
 }
 
@@ -2721,6 +2816,19 @@ function loadRoleDetails(roleId) {
             console.error('loadRoleDetails error:', e);
         }
     });
+}
+
+function _normalizeRolePermissionCodes(permissions) {
+    if (!Array.isArray(permissions)) return [];
+    return permissions
+        .map((p) => {
+            if (typeof p === 'string')
+                return p;
+            if (p && typeof p.code === 'string')
+                return p.code;
+            return '';
+        })
+        .filter(Boolean);
 }
 
 function openRoleModal(roleId = null) {
@@ -2764,7 +2872,12 @@ function openRoleModal(roleId = null) {
                     if (codeEl) codeEl.textContent = data.code || `R-${String(roleId).padStart(3, '0')}`;
                     const statusRadio = document.querySelector(`input[name="roleStatus"][value="${data.status}"]`);
                     if (statusRadio) statusRadio.checked = true;
-                    yield loadPermissionsForModal(data.permissions.map(p => p.code));
+                    const selectedCodes = _normalizeRolePermissionCodes(data.permissions);
+                    yield loadPermissionsForModal(selectedCodes);
+                }
+                else {
+                    const err = yield res.json().catch(() => ({}));
+                    console.error('openRoleModal failed:', err);
                 }
             } catch (e) {
                 console.error('openRoleModal fetch error:', e);
@@ -2779,6 +2892,8 @@ function openRoleModal(roleId = null) {
 }
 
 // Stores all permissions data for searching
+
+
 let _allRolePermissions = {};
 
 function loadPermissionsForModal() {
@@ -2789,11 +2904,14 @@ function loadPermissionsForModal() {
         // Reset selected tags area
         _updateSelectedPermsTags(selectedCodes);
 
+        container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div><br><span class="text-muted small">Loading permissions...</span></div>';
+
         try {
             const response = yield fetchAPI('/admin/permissions');
-            const groupedPerms = yield response.json();
-            _allRolePermissions = groupedPerms;   // cache for search filtering
+            if (!response.ok) throw new Error("Failed to load perms");
 
+            const groupedPerms = yield response.json();
+            _allRolePermissions = groupedPerms;
             _renderPermissionsCheckboxes(groupedPerms, selectedCodes);
         } catch (e) {
             console.error('loadPermissionsForModal error:', e);
@@ -2806,7 +2924,6 @@ function _renderPermissionsCheckboxes(groupedPerms, selectedCodes) {
     const container = document.getElementById('role-perms-container');
     if (!container) return;
 
-    // Get current selected from tags (may have changed since initial load)
     const currentSelected = _getSelectedPermCodes();
     const checkedSet = new Set(currentSelected.length ? currentSelected : (selectedCodes || []));
 
@@ -2825,34 +2942,30 @@ function _renderPermissionsCheckboxes(groupedPerms, selectedCodes) {
                 <div class="flex-grow-1" style="height:1px;background:#e0e7ff;"></div>
             </div>`;
 
-        const row = document.createElement('div');
-        row.className = 'row g-2';
+        const listDiv = document.createElement('div');
+        listDiv.className = 'd-flex flex-column gap-2';
 
         perms.forEach(p => {
             const isChecked = checkedSet.has(p.code);
-            const col = document.createElement('div');
-            col.className = 'col-md-6 perm-item';
-            col.dataset.code = p.code;
-            col.dataset.desc = (p.description || '').toLowerCase();
-            col.innerHTML = `
-                <div class="form-check d-flex align-items-start gap-2 p-2 rounded-2 perm-check-row"
-                    style="cursor:pointer;transition:background .15s;"
-                    onmouseover="this.style.background='#f5f3ff'"
-                    onmouseout="this.style.background='transparent'">
-                    <input class="form-check-input perm-check mt-1 flex-shrink-0"
-                        type="checkbox" value="${p.code}" id="rperm-${p.id}"
-                        ${isChecked ? 'checked' : ''}
-                        style="cursor:pointer;width:15px;height:15px;"
-                        onchange="_onPermCheckChange(this, '${p.description ? p.description.replace(/'/g, "\\'") : p.code}')">
-                    <label class="form-check-label" for="rperm-${p.id}" style="cursor:pointer;line-height:1.3;user-select:none;">
-                        <span class="d-block fw-semibold" style="color:#1e1b4b;font-size:0.78rem;">${p.description || p.code}</span>
-                        <span class="font-monospace" style="font-size:0.65rem;color:#8b5cf6;">${p.code}</span>
-                    </label>
-                </div>`;
-            row.appendChild(col);
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'perm-item p-2 rounded-2 d-flex justify-content-between align-items-center border';
+            itemDiv.dataset.code = p.code;
+            itemDiv.dataset.desc = (p.description || '').toLowerCase();
+            if (isChecked) itemDiv.style.opacity = '0.5';
+
+            itemDiv.innerHTML = `
+                <div>
+                    <span class="d-block fw-semibold" style="color:#1e1b4b;font-size:0.78rem;">${p.description || p.code}</span>
+                    <span class="font-monospace" style="font-size:0.65rem;color:#8b5cf6;">${p.code}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2 rounded-pill" 
+                    ${isChecked ? 'disabled' : ''}
+                    onclick="_moveToSelected('${p.code}', '${p.description ? p.description.replace(/'/g, "\\'") : p.code}')">Add</button>
+            `;
+            listDiv.appendChild(itemDiv);
         });
 
-        groupDiv.appendChild(row);
+        groupDiv.appendChild(listDiv);
         container.appendChild(groupDiv);
     }
 
@@ -2861,50 +2974,61 @@ function _renderPermissionsCheckboxes(groupedPerms, selectedCodes) {
     }
 }
 
-function _onPermCheckChange(checkbox, label) {
-    const code = checkbox.value;
-    const isChecked = checkbox.checked;
+function _moveToSelected(code, label) {
+    const isAlreadySelected = _getSelectedPermCodes().includes(code);
+    if (isAlreadySelected) return;
+
     const selectedList = document.getElementById('selected-perms-list');
     const hint = document.getElementById('no-perms-hint');
-    const countEl = document.getElementById('selected-perms-count');
 
-    if (isChecked) {
-        // Add tag
-        if (hint) hint.style.display = 'none';
-        const tag = document.createElement('span');
-        tag.className = 'd-inline-flex align-items-center gap-1 rounded-pill px-2 py-1 perm-tag';
-        tag.dataset.code = code;
-        tag.style.cssText = 'background:#e0e7ff;color:#4338ca;font-size:0.72rem;font-weight:600;border:1px solid #c7d2fe;cursor:default;';
-        tag.innerHTML = `
-            <span class="font-monospace" style="font-size:0.68rem;">${code}</span>
-            <button type="button" onclick="_removePermTag('${code}')" aria-label="Remove"
-                style="background:none;border:none;padding:0;line-height:1;color:#6366f1;cursor:pointer;"
-                title="Remove">&times;</button>`;
-        if (selectedList) selectedList.appendChild(tag);
-    } else {
-        // Remove tag
-        _removePermTag(code);
+    if (hint) hint.style.display = 'none';
+
+    const item = document.createElement('div');
+    item.className = 'p-2 rounded-2 d-flex justify-content-between align-items-center bg-white border perm-tag';
+    item.dataset.code = code;
+    item.dataset.label = label;
+    item.innerHTML = `
+        <div>
+            <span class="d-block fw-semibold" style="color:#1e1b4b;font-size:0.78rem;">${label}</span>
+            <span class="font-monospace" style="font-size:0.65rem;color:#8b5cf6;">${code}</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="_removePermTag('${code}')">
+            <span class="material-icons" style="font-size:16px;">close</span>
+        </button>
+    `;
+
+    if (selectedList) selectedList.appendChild(item);
+
+    // Disable in available
+    const availableBtn = document.querySelector(`.perm-item[data-code="${code}"] button`);
+    if (availableBtn) {
+        availableBtn.disabled = true;
+        availableBtn.closest('.perm-item').style.opacity = '0.5';
     }
 
-    // Update count
     _updatePermCount();
 }
 
 function _removePermTag(code) {
-    // Remove tag from selected list
     const tag = document.querySelector(`.perm-tag[data-code="${code}"]`);
     if (tag) tag.remove();
 
-    // Uncheck checkbox in picker
-    const cb = document.querySelector(`.perm-check[value="${code}"]`);
-    if (cb) cb.checked = false;
+    // Re-enable in available list
+    const availableBtn = document.querySelector(`.perm-item[data-code="${code}"] button`);
+    if (availableBtn) {
+        availableBtn.disabled = false;
+        availableBtn.closest('.perm-item').style.opacity = '1';
+    }
 
-    // Show hint if no tags left
     const tags = document.querySelectorAll('.perm-tag');
     const hint = document.getElementById('no-perms-hint');
     if (hint) hint.style.display = tags.length === 0 ? '' : 'none';
 
     _updatePermCount();
+}
+
+function clearAllPermissions() {
+    _getSelectedPermCodes().forEach(code => _removePermTag(code));
 }
 
 function _updatePermCount() {
@@ -2922,24 +3046,38 @@ function _updateSelectedPermsTags(selectedCodes) {
     const hint = document.getElementById('no-perms-hint');
     if (!selectedList) return;
 
-    // Clear all existing tags
     document.querySelectorAll('.perm-tag').forEach(t => t.remove());
 
     if (!selectedCodes || selectedCodes.length === 0) {
         if (hint) hint.style.display = '';
     } else {
         if (hint) hint.style.display = 'none';
+
         selectedCodes.forEach(code => {
-            const tag = document.createElement('span');
-            tag.className = 'd-inline-flex align-items-center gap-1 rounded-pill px-2 py-1 perm-tag';
-            tag.dataset.code = code;
-            tag.style.cssText = 'background:#e0e7ff;color:#4338ca;font-size:0.72rem;font-weight:600;border:1px solid #c7d2fe;cursor:default;';
-            tag.innerHTML = `
-                <span class="font-monospace" style="font-size:0.68rem;">${code}</span>
-                <button type="button" onclick="_removePermTag('${code}')" aria-label="Remove"
-                    style="background:none;border:none;padding:0;line-height:1;color:#6366f1;cursor:pointer;"
-                    title="Remove">&times;</button>`;
-            selectedList.appendChild(tag);
+            // we might not have the description handy here immediately, so we'll just use the code as label fallback
+            let label = code;
+
+            // fetch from _allRolePermissions if populated
+            if (_allRolePermissions) {
+                for (const group of Object.values(_allRolePermissions)) {
+                    const p = group.find(x => x.code === code);
+                    if (p) { label = p.description || code; break; }
+                }
+            }
+
+            const item = document.createElement('div');
+            item.className = 'p-2 rounded-2 d-flex justify-content-between align-items-center bg-white border perm-tag';
+            item.dataset.code = code;
+            item.innerHTML = `
+                <div>
+                    <span class="d-block fw-semibold" style="color:#1e1b4b;font-size:0.78rem;">${label}</span>
+                    <span class="font-monospace" style="font-size:0.65rem;color:#8b5cf6;">${code}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger border-0" onclick="_removePermTag('${code}')">
+                    <span class="material-icons" style="font-size:16px;">close</span>
+                </button>
+            `;
+            selectedList.appendChild(item);
         });
     }
     _updatePermCount();
@@ -2948,7 +3086,6 @@ function _updateSelectedPermsTags(selectedCodes) {
 function filterRolePermissions(query) {
     const q = (query || '').toLowerCase().trim();
     if (!q) {
-        // Show all groups
         document.querySelectorAll('.perm-group-block').forEach(g => g.style.display = '');
         document.querySelectorAll('.perm-item').forEach(i => i.style.display = '');
         return;
@@ -2975,8 +3112,14 @@ function handleSaveRole() {
         const status = statusEl ? statusEl.value : 'Active';
         if (!name) { alert('Role Title is required.'); return; }
 
-        // Collect permissions from the tag list (PRD: selected shown as list)
-        const selectedPerms = _getSelectedPermCodes();
+        // Collect permissions from either tag UI or checkbox fallback.
+        const selectedFromTags = typeof _getSelectedPermCodes === 'function'
+            ? _getSelectedPermCodes()
+            : [];
+        const selectedFromChecks = Array.from(document.querySelectorAll('.perm-check:checked'))
+            .map((el) => el.value)
+            .filter(Boolean);
+        const selectedPerms = Array.from(new Set([...(selectedFromTags || []), ...selectedFromChecks]));
         const endpoint = roleId ? `/admin/roles/${roleId}` : '/admin/roles';
         const method = roleId ? 'PUT' : 'POST';
 
@@ -3130,55 +3273,46 @@ function loadPermissionsSetup() {
     });
 }
 function renderPermissionsSetupTable(perms) {
-    const tableBody = document.getElementById('permissions-setup-body');
-    if (!tableBody) return;
-    if (!perms || perms.length === 0) {
-        tableBody.innerHTML = `
-            <tr>
-                <td colspan="4" class="text-center py-5">
-                    <span class="material-icons text-muted" style="font-size:3rem;opacity:0.4;">vpn_key</span>
-                    <p class="text-muted mt-2 mb-0">No permissions found.</p>
+    CB.ui.paginate({
+        data: perms,
+        container: 'permissions-setup-body',
+        paginationContainer: 'permissions-pagination',
+        pageSize: 10,
+        renderRow: (p) => {
+            const canEdit = hasPermission('edit_permissions');
+            const safeCode = (p.code || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const safeDesc = (p.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="ps-4">
+                    <span class="badge bg-light text-dark border font-monospace fw-bold px-2 py-1"
+                        style="letter-spacing:0.5px;font-size:0.72rem;">
+                        ${p.display_code || 'P-????'}
+                    </span>
                 </td>
-            </tr>`;
-        return;
-    }
-    // Edit icon visibility is limited to edit-permitted users.
-    const canEdit = hasPermission('edit_permissions');
-
-    tableBody.innerHTML = '';
-    perms.forEach(p => {
-        const safeCode = (p.code || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        const safeDesc = (p.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="ps-4">
-                <span class="badge bg-light text-dark border font-monospace fw-bold px-2 py-1"
-                    style="letter-spacing:0.5px;font-size:0.72rem;">
-                    ${p.display_code || 'P-????'}
-                </span>
-            </td>
-            <td class="small font-monospace fw-semibold" style="color:#3730a3;word-break:break-all;">
-                ${p.code || '-'}
-            </td>
-            <td class="small text-secondary" style="max-width:340px;">
-                ${p.description || '<em class="text-muted fst-italic" style="opacity:.6;">No description set</em>'}
-            </td>
-            <td class="text-center">
-                ${canEdit ? `
-                <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-3 py-1"
-                        style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;"
-                        title="Edit description"
-                        onmouseover="this.style.background='rgba(79,70,229,0.18)';this.style.transform='translateY(-1px)'"
-                        onmouseout="this.style.background='rgba(79,70,229,0.09)';this.style.transform=''"
-                        onclick="openPermissionEditModal(${p.id}, '${safeCode}', '${safeDesc}')">
-                    <span class="material-icons" style="font-size:14px;">edit</span>
-                    Edit
-                </button>` : `
-                <span class="material-icons" style="font-size:16px;opacity:0.3;color:#9ca3af;" title="View only">lock</span>`}
-            </td>
-        `;
-        tableBody.appendChild(tr);
+                <td class="small font-monospace fw-semibold" style="color:#3730a3;word-break:break-all;">
+                    ${p.code || '-'}
+                </td>
+                <td class="small text-secondary" style="max-width:340px;">
+                    ${p.description || '<em class="text-muted fst-italic" style="opacity:.6;">No description set</em>'}
+                </td>
+                <td class="text-center">
+                    ${canEdit ? `
+                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-3 py-1"
+                            style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;"
+                            title="Edit description"
+                            onmouseover="this.style.background='rgba(79,70,229,0.18)';this.style.transform='translateY(-1px)'"
+                            onmouseout="this.style.background='rgba(79,70,229,0.09)';this.style.transform=''"
+                            onclick="openPermissionEditModal(${p.id}, '${safeCode}', '${safeDesc}')">
+                        <span class="material-icons" style="font-size:14px;">edit</span>
+                        Edit
+                    </button>` : `
+                    <span class="material-icons" style="font-size:16px;opacity:0.3;color:#9ca3af;" title="View only">lock</span>`}
+                </td>
+            `;
+            return tr;
+        }
     });
 }
 /**
@@ -4349,6 +4483,12 @@ function ensureRootAdminView() {
             #root-admin-view .ra-action { display: flex; gap: 0.45rem; align-items: center; width: 100%; min-width: 0; }
             #root-admin-view .ra-action .form-control { min-height: 38px; border-radius: 10px; flex: 1 1 auto; min-width: 0; }
             #root-admin-view .ra-action .btn { min-height: 38px; border-radius: 10px; font-weight: 700; white-space: nowrap; flex: 0 0 auto; min-width: 112px; }
+            #root-admin-view .ra-pagination-wrap { display: flex; justify-content: center; align-items: center; margin-top: 1rem; margin-bottom: 0.2rem; width: 100%; }
+            #root-admin-view .ra-pagination-wrap .pagination { justify-content: center !important; gap: 0.25rem; }
+            #root-admin-view .ra-pagination-wrap .page-link { border-radius: 10px; border: 1px solid #d7e2f3; color: #274690; font-weight: 600; min-width: 40px; text-align: center; }
+            #root-admin-view .ra-pagination-wrap .page-item.active .page-link { background: linear-gradient(135deg, #3257d5, #1f46c7); border-color: #1f46c7; color: #fff; box-shadow: 0 4px 10px rgba(50,87,213,0.28); }
+            #root-admin-view .ra-pagination-wrap .page-item.disabled .page-link { color: #9ca3af; background-color: #f3f4f6; border-color: #e5e7eb; }
+            #root-admin-view .ra-pagination-wrap .page-link:hover { background: #eef3ff; color: #1f46c7; }
             @media (max-width: 1200px) {
                 #root-admin-view .root-admin-table { min-width: 1040px; }
                 #root-admin-view .ra-action .btn { min-width: 96px; }
@@ -4400,6 +4540,7 @@ function ensureRootAdminView() {
                             <tbody id="ra-students-body"></tbody>
                         </table>
                     </div>
+                    <div id="ra-students-pagination" class="ra-pagination-wrap"></div>
                 </div>
             </div>
             <div class="card root-admin-card">
@@ -4439,11 +4580,12 @@ function setRootAdminAlert(message, type = 'info') {
 function loadRootAdminPanel() {
     return __awaiter(this, void 0, void 0, function* () {
         ensureRootAdminView();
+        document.querySelectorAll('#root-admin-view .cb-auto-pagination').forEach(el => el.remove());
         const sRes = yield fetchAPI('/root-admin/students');
         const students = sRes.ok ? yield sRes.json() : [];
         const studentsBody = document.getElementById('ra-students-body');
-        if (studentsBody) {
-            studentsBody.innerHTML = students.map((s) => `
+        const studentsPagination = document.getElementById('ra-students-pagination');
+        const renderStudentRow = (s) => `
                 <tr>
                     <td class="ra-name-cell">${s.name || ''}</td>
                     <td class="ra-email-cell" title="${s.display_email || s.id || ''}">${s.display_email || s.id || ''}</td>
@@ -4451,12 +4593,31 @@ function loadRootAdminPanel() {
                     <td><div class="ra-action"><input id="ra-email-${s.id}" class="form-control form-control-sm" placeholder="New email" value="${s.display_email || s.id || ''}"><button type="button" class="btn btn-outline-primary btn-sm" onclick="rootUpdateStudentEmail('${s.id}')">Update</button></div></td>
                     <td><div class="ra-action"><input id="ra-pass-${s.id}" type="text" class="form-control form-control-sm" placeholder="New password" value="${s.password || ''}"><button type="button" class="btn btn-outline-danger btn-sm" onclick="rootUpdateStudentPassword('${s.id}')">Update</button></div></td>
                 </tr>
-            `).join('');
+            `;
+        if (studentsBody) {
+            studentsBody.dataset.cbAutoPagination = 'off';
+            if (studentsPagination)
+                studentsPagination.innerHTML = '';
+            if (window.CB && CB.ui && typeof CB.ui.paginate === 'function' && studentsPagination) {
+                CB.ui.paginate({
+                    data: students,
+                    container: studentsBody,
+                    paginationContainer: studentsPagination,
+                    pageSize: 7,
+                    renderRow: (s) => renderStudentRow(s),
+                    onEmpty: (container) => {
+                        container.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">No personas found.</td></tr>`;
+                    }
+                });
+            } else {
+                studentsBody.innerHTML = students.map((s) => renderStudentRow(s)).join('');
+            }
         }
         const scRes = yield fetchAPI('/root-admin/schools');
         const schools = scRes.ok ? yield scRes.json() : [];
         const schoolsBody = document.getElementById('ra-schools-body');
         if (schoolsBody) {
+            schoolsBody.dataset.cbAutoPagination = 'off';
             schoolsBody.innerHTML = schools.map((s) => `<tr><td>${s.id}</td><td>${s.name}</td><td>${s.contact_email || ''}</td><td>${s.is_active ? 'Yes' : 'No'}</td></tr>`).join('');
         }
         bindRootAdminForms();
@@ -6327,16 +6488,17 @@ function getSidebarConfig(role) {
         ];
     }
     // Default to Admin/Principal structure (Existing fallback)
+    const hideLegacySuperAdminSections = appState.isSuperAdmin || ['Root_Super_Admin', 'Super_Admin', 'Super Admin'].includes(appState.role || '');
     const items = [
         { label: 'sidebar_dashboard', icon: 'dashboard', view: 'teacher-view', onClick: () => handleTeacherViewToggle('teacher-view') },
-        {
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'Classes', icon: 'class', id: 'cat-classes',
             children: [
                 { label: 'Create Class', view: 'create-class-view', route: '/teacher/classes/create', permission: () => hasPermission('class_create') },
                 { label: 'Manage Classes', view: 'teacher-class-management-view', route: '/teacher/classes/manage', permission: () => hasPermission('class_view'), onClick: () => handleTeacherViewToggle('teacher-class-management-view') },
             ]
-        },
-        {
+        }] : []),
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'sidebar_students', icon: 'school', id: 'cat-students',
             children: [
                 {
@@ -6353,7 +6515,7 @@ function getSidebarConfig(role) {
                 },
                 { label: 'sidebar_student_list', view: 'student-info-view', route: '/teacher/students/list', onClick: () => handleTeacherViewToggle('student-info-view') }
             ]
-        },
+        }] : []),
         {
             label: 'sidebar_reports', icon: 'bar_chart', id: 'cat-reports',
             children: [
@@ -6361,14 +6523,14 @@ function getSidebarConfig(role) {
                 { label: 'sidebar_performance_report', view: 'performance-report-view', route: '/teacher/reports/performance' }
             ]
         },
-        {
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'sidebar_approve_leave', icon: 'fact_check', id: 'cat-approvals',
             view: 'attendance-leave-approval-view', route: '/admin/approvals',
             onClick: () => {
                 switchView('attendance-leave-approval-view');
                 if (typeof loadTeacherLeaveApprovals === 'function') loadTeacherLeaveApprovals();
             }
-        }
+        }] : [])
     ];
     const isFinanceAdmin = ['Finance_Officer', 'Root_Super_Admin', 'finance_admin', 'accountant', 'payroll_officer'].includes(appState.role);
     const isFinancePrincipal = appState.role === 'Principal';
@@ -6477,6 +6639,15 @@ function getSidebarConfig(role) {
         });
     }
     if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
+        items.push({
+            label: 'User Management',
+            icon: 'people',
+            view: 'user-management-view',
+            onClick: () => {
+                if (typeof openUserManagement === 'function') openUserManagement();
+                else switchView('user-management-view');
+            }
+        });
         items.push({ label: 'sidebar_staff_faculty', icon: 'people_alt', view: 'staff-view', onClick: () => handleTeacherViewToggle('staff-view') });
     }
     items.push({ label: 'sidebar_system_settings', icon: 'settings', view: 'settings-view', onClick: () => handleTeacherViewToggle('settings-view') });
@@ -6713,6 +6884,19 @@ function renderTeacherControls() {
     const inviteSection = document.getElementById('invite-section');
     if (inviteSection)
         inviteSection.classList.remove('d-none');
+
+    // Toggle Admin Quick Actions
+    const userMgmtBtn = document.getElementById('dashboard-user-mgmt-btn');
+    if (userMgmtBtn) {
+        if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
+            userMgmtBtn.classList.remove('d-none');
+            userMgmtBtn.classList.add('d-flex');
+        } else {
+            userMgmtBtn.classList.remove('d-flex');
+            userMgmtBtn.classList.add('d-none');
+        }
+    }
+
     const config = getSidebarConfig(appState.role || 'Teacher');
     renderSidebarFromConfig(config);
 }
@@ -7885,20 +8069,37 @@ function loadStudentQuizResults(studentId) {
                     container.innerHTML = '<p class="text-muted small">No quiz results found.</p>';
                     return;
                 }
-                container.innerHTML = results.map((r, i) => `
-                <div class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-bold">${r.module_title || 'Untitled Quiz'}</div>
-                        <div class="small text-muted">
-                            <span class="badge bg-light text-dark border me-1">${r.course_title || 'Course'}</span>
-                        </div>
-                    </div>
-                     <div class="text-end">
-                        <span class="d-block fw-bold ${r.score >= 50 ? 'text-success' : 'text-danger'}">${Math.round(r.score)}%</span>
-                        <span class="badge bg-secondary-subtle text-secondary border">${r.status}</span>
-                    </div>
-                </div>
-            `).join('');
+                let paginationContainer = document.getElementById('student-quiz-results-pagination');
+                if (!paginationContainer) {
+                    paginationContainer = document.createElement('div');
+                    paginationContainer.id = 'student-quiz-results-pagination';
+                    paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                    container.parentNode.insertBefore(paginationContainer, container.nextSibling);
+                }
+                container.innerHTML = '';
+                CB.ui.paginate({
+                    data: results,
+                    container: container,
+                    paginationContainer: paginationContainer,
+                    pageSize: 10,
+                    renderRow: (r) => {
+                        const div = document.createElement('div');
+                        div.className = 'list-group-item d-flex justify-content-between align-items-center';
+                        div.innerHTML = `
+                            <div>
+                                <div class="fw-bold">${r.module_title || 'Untitled Quiz'}</div>
+                                <div class="small text-muted">
+                                    <span class="badge bg-light text-dark border me-1">${r.course_title || 'Course'}</span>
+                                </div>
+                            </div>
+                             <div class="text-end">
+                                <span class="d-block fw-bold ${r.score >= 50 ? 'text-success' : 'text-danger'}">${Math.round(r.score)}%</span>
+                                <span class="badge bg-secondary-subtle text-secondary border">${r.status}</span>
+                            </div>
+                        `;
+                        return div;
+                    }
+                });
             }
             else {
                 container.innerHTML = '<p class="text-danger small">Failed to load results.</p>';
@@ -8097,22 +8298,30 @@ function renderLiveClasses(classes) {
         elements.liveClassesList.innerHTML = '<p class="text-muted small">No live classes scheduled.</p>';
         return;
     }
-    let html = '<div class="list-group">';
-    classes.forEach(cls => {
-        const dateObj = new Date(cls.date);
-        const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        html += `
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="mb-1 text-primary-custom fw-bold"><span class="material-icons align-middle fs-6 me-1">videocam</span> ${cls.topic}</h6>
-                        <small class="text-muted">${dateStr}</small>
-                    </div>
-                    <a href="${cls.meet_link}" target="_blank" class="btn btn-sm btn-outline-danger">Join</a>
+
+    elements.liveClassesList.innerHTML = '<div class="list-group" id="live-classes-items-container"></div>';
+
+    CB.ui.paginate({
+        data: classes,
+        container: 'live-classes-items-container',
+        paginationContainer: 'live-classes-pagination',
+        pageSize: 5,
+        renderRow: (cls) => {
+            const dateObj = new Date(cls.date);
+            const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const div = document.createElement('div');
+            div.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center hover-up transition-hover border-light';
+            div.innerHTML = `
+                <div>
+                    <h6 class="mb-1 text-primary-custom fw-bold"><span class="material-icons align-middle fs-6 me-1">videocam</span> ${cls.topic}</h6>
+                    <small class="text-muted">${dateStr}</small>
                 </div>
+                <a href="${cls.meet_link}" target="_blank" class="btn btn-sm btn-outline-danger shadow-sm rounded-pill px-3 fw-medium">Join</a>
             `;
+            return div;
+        }
     });
-    html += '</div>';
-    elements.liveClassesList.innerHTML = html;
 }
 function checkClassStatus() {
     if (appState.role === 'Teacher') {
@@ -8227,8 +8436,25 @@ function renderGroupsList(groups) {
         container.innerHTML = '<div class="col-12"><div class="alert alert-secondary">No courses created yet. Click "Create Course" to start.</div></div>';
         return;
     }
-    container.innerHTML = groups.map(g => `
-            <div class="col-md-4">
+
+    // Ensure pagination container exists (it might be commented out in HTML but this prepares it)
+    let pgContainer = document.getElementById('groups-pagination');
+    if (!pgContainer && container.parentElement) {
+        pgContainer = document.createElement('div');
+        pgContainer.id = 'groups-pagination';
+        pgContainer.className = 'mt-4 d-flex justify-content-center w-100';
+        container.parentElement.appendChild(pgContainer);
+    }
+
+    CB.ui.paginate({
+        data: groups,
+        container: 'groups-list',
+        paginationContainer: 'groups-pagination',
+        pageSize: 9, // Multiple of 3 looks good for grid
+        renderRow: (g) => {
+            const div = document.createElement('div');
+            div.className = 'col-md-4 mb-4';
+            div.innerHTML = `
                 <div class="card h-100 shadow-sm border-0 group-card hover-up">
                     <div class="card-body text-center cursor-pointer" onclick="openCourseDetail('${g.id}')">
                         <div class="mb-3">
@@ -8250,8 +8476,10 @@ function renderGroupsList(groups) {
                         </div>
                     </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+            return div;
+        }
+    });
 }
 document.getElementById('create-group-form').addEventListener('submit', (e) => __awaiter(this, void 0, void 0, function* () {
     e.preventDefault();
@@ -8301,17 +8529,32 @@ function openManageMembers(groupId, groupName) {
             const data = yield res.json();
             const currentMemberIds = data.members;
             // Render all students with checks
-            listContainer.innerHTML = appState.allStudents.map(s => {
-                const isChecked = currentMemberIds.includes(s.id) ? 'checked' : '';
-                return `
-                    <div class="form-check border-bottom py-2">
+            let paginationContainer = document.getElementById('group-members-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'group-members-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                listContainer.parentNode.insertBefore(paginationContainer, listContainer.nextSibling);
+            }
+            listContainer.innerHTML = '';
+            CB.ui.paginate({
+                data: appState.allStudents,
+                container: listContainer,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (s) => {
+                    const isChecked = currentMemberIds.includes(s.id) ? 'checked' : '';
+                    const div = document.createElement('div');
+                    div.className = 'form-check border-bottom py-2';
+                    div.innerHTML = `
                         <input class="form-check-input" type="checkbox" value="${s.id}" id="gm-${s.id}" ${isChecked}>
                         <label class="form-check-label" for="gm-${s.id}">
                             ${s.name} <small class="text-muted">(${s.id})</small>
                         </label>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                    return div;
+                }
+            });
             // Load Materials implicitly (or trigger lazy load)
             loadGroupMaterials(groupId);
         }
@@ -8414,17 +8657,34 @@ function loadGroupMaterials(groupId) {
                 container.innerHTML = '<div class="p-3 text-muted small text-center">No materials posted yet.</div>';
                 return;
             }
-            container.innerHTML = data.map(m => `
-                <div class="list-group-item">
-                    <div class="d-flex w-100 justify-content-between">
-                        <h6 class="mb-1 fw-bold text-primary-custom">
-                           <span class="badge ${m.type === 'Quiz' ? 'bg-danger' : 'bg-success'} me-1">${m.type}</span> ${m.title}
-                        </h6>
-                        <small class="text-muted">${m.date}</small>
-                    </div>
-                    <p class="mb-1 text-muted small text-break">${m.content}</p>
-                </div>
-            `).join('');
+            let paginationContainer = document.getElementById('group-materials-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'group-materials-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                container.parentNode.insertBefore(paginationContainer, container.nextSibling);
+            }
+            container.innerHTML = '';
+            CB.ui.paginate({
+                data: data,
+                container: container,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (m) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item';
+                    div.innerHTML = `
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1 fw-bold text-primary-custom">
+                               <span class="badge ${m.type === 'Quiz' ? 'bg-danger' : 'bg-success'} me-1">${m.type}</span> ${m.title}
+                            </h6>
+                            <small class="text-muted">${m.date}</small>
+                        </div>
+                        <p class="mb-1 text-muted small text-break">${m.content}</p>
+                    `;
+                    return div;
+                }
+            });
         }
         catch (e) {
             container.innerHTML = 'Error loading materials';
@@ -8446,17 +8706,34 @@ function loadStudentGroups() {
                     container.innerHTML = '<p class="text-muted small">You are not enrolled in any courses yet.</p>';
                     return;
                 }
-                container.innerHTML = groups.map(g => `
-                    <div class="col-md-4 col-sm-6">
-                        <div class="card h-100 border-0 shadow-sm student-group-card" onclick="openCourseDetail('${g.id}')">
-                            <div class="card-body">
-                                <span class="badge bg-secondary mb-2">${g.subject || 'General'}</span>
-                                <h5 class="card-title fw-bold text-primary-custom">${g.name}</h5>
-                                <p class="card-text text-muted small text-truncate">${g.description || 'No description'}</p>
+                let paginationContainer = document.getElementById('student-groups-pagination');
+                if (!paginationContainer) {
+                    paginationContainer = document.createElement('div');
+                    paginationContainer.id = 'student-groups-pagination';
+                    paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+                    container.parentNode.insertBefore(paginationContainer, container.nextSibling);
+                }
+                container.innerHTML = '';
+                CB.ui.paginate({
+                    data: groups,
+                    container: container,
+                    paginationContainer: paginationContainer,
+                    pageSize: 6,
+                    renderRow: (g) => {
+                        const div = document.createElement('div');
+                        div.className = 'col-md-4 col-sm-6 mb-4';
+                        div.innerHTML = `
+                            <div class="card h-100 border-0 shadow-sm student-group-card" onclick="openCourseDetail('${g.id}')">
+                                <div class="card-body">
+                                    <span class="badge bg-secondary mb-2">${g.subject || 'General'}</span>
+                                    <h5 class="card-title fw-bold text-primary-custom">${g.name}</h5>
+                                    <p class="card-text text-muted small text-truncate">${g.description || 'No description'}</p>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                `).join('');
+                        `;
+                        return div;
+                    }
+                });
             }
         }
         catch (e) {
@@ -8478,13 +8755,27 @@ function openStudentGroup(groupId, name, desc) {
                 container.innerHTML = '<div class="alert alert-light text-center">No materials posted yet by your teacher.</div>';
                 return;
             }
-            container.innerHTML = data.map(m => {
-                let actionBtn = '';
-                if (m.type === 'Quiz' || m.type === 'Video' || m.content.startsWith('http')) {
-                    actionBtn = `<a href="${m.content}" target="_blank" class="btn btn-sm btn-outline-primary mt-2">Open Link 🔗</a>`;
-                }
-                return `
-                    <div class="list-group-item py-3">
+            let paginationContainer = document.getElementById('student-materials-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'student-materials-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                container.parentNode.insertBefore(paginationContainer, container.nextSibling);
+            }
+            container.innerHTML = '';
+            CB.ui.paginate({
+                data: data,
+                container: container,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (m) => {
+                    let actionBtn = '';
+                    if (m.type === 'Quiz' || m.type === 'Video' || m.content.startsWith('http')) {
+                        actionBtn = `<a href="${m.content}" target="_blank" class="btn btn-sm btn-outline-primary mt-2">Open Link 🔗</a>`;
+                    }
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item py-3';
+                    div.innerHTML = `
                         <div class="d-flex justify-content-between">
                             <h6 class="mb-1 fw-bold">
                                <span class="badge ${m.type === 'Quiz' ? 'bg-danger' : 'bg-success'} me-2">${m.type}</span>${m.title}
@@ -8493,9 +8784,10 @@ function openStudentGroup(groupId, name, desc) {
                         </div>
                         <p class="mb-1 text-secondary mt-1">${m.content}</p>
                         ${actionBtn}
-                    </div>
-                 `;
-            }).join('');
+                    `;
+                    return div;
+                }
+            });
         }
         catch (e) {
             container.innerHTML = 'Error loading content.';
@@ -9506,20 +9798,30 @@ async function loadTeacherQuizzes() {
                 return;
             }
 
-            list.innerHTML = quizzes.map(q => `
-                <div class="list-group-item d-flex justify-content-between align-items-center p-3">
-                    <div>
-                        <h6 class="mb-1 fw-bold text-dark">${q.title}</h6>
-                        <small class="text-muted">
-                            <span class="badge bg-light text-dark border me-2">${q.target_type === 'grade' ? 'Grade ' + q.target_id : (q.target_type === 'group' ? 'Course ID: ' + q.group_id : 'Student: ' + q.target_id)}</span>
-                            Questions: ${q.question_count} &bull; Created: ${new Date(q.created_at).toLocaleDateString()}
-                        </small>
-                    </div>
-                    <button class="btn btn-sm btn-primary-custom" onclick="viewQuizResults('${q.id}', '${q.title}')">
-                        View Results
-                    </button>
-                </div>
-            `).join('');
+            list.innerHTML = '';
+            CB.ui.paginate({
+                data: quizzes,
+                container: 'teacher-quiz-list',
+                paginationContainer: 'teacher-quiz-pagination',
+                pageSize: 10,
+                renderRow: (q) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item d-flex justify-content-between align-items-center p-3 hover-up border-light';
+                    div.innerHTML = `
+                        <div>
+                            <h6 class="mb-1 fw-bold text-dark">${q.title}</h6>
+                            <small class="text-muted">
+                                <span class="badge bg-light text-dark border me-2">${q.target_type === 'grade' ? 'Grade ' + q.target_id : (q.target_type === 'group' ? 'Course ID: ' + q.group_id : 'Student: ' + q.target_id)}</span>
+                                Questions: ${q.question_count} &bull; Created: ${new Date(q.created_at).toLocaleDateString()}
+                            </small>
+                        </div>
+                        <button class="btn btn-sm btn-primary-custom" onclick="viewQuizResults('${q.id}', '${q.title}')">
+                            View Results
+                        </button>
+                    `;
+                    return div;
+                }
+            });
         } else {
             list.innerHTML = '<div class="text-center py-5 text-danger">Failed to load quizzes.</div>';
         }
@@ -9964,8 +10266,16 @@ function loadAssignmentReviewQueue() {
                 list.innerHTML = `<div class="list-group-item p-4 text-center text-muted">${t('asg_review_empty')}</div>`;
                 return;
             }
-            list.innerHTML = subs.map(s => `
-                <div class="list-group-item p-3">
+            list.innerHTML = '';
+            CB.ui.paginate({
+                data: subs,
+                container: 'assignment-review-list',
+                paginationContainer: 'assignment-review-pagination',
+                pageSize: 10,
+                renderRow: (s) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item p-3';
+                    div.innerHTML = `
                     <div class="d-flex justify-content-between mb-2">
                         <div>
                             <div class="fw-bold">${s.assignment_title || 'Assignment'}</div>
@@ -9980,8 +10290,10 @@ function loadAssignmentReviewQueue() {
                     <button class="btn btn-outline-success" onclick="saveGrade(${s.id})">${t('btn_save')}</button>
                     <button class="btn btn-outline-warning" onclick="reassignSubmission(${s.id})">${t('btn_reassign')}</button>
                 </div>
-            </div>
-        `).join('');
+                    `;
+                    return div;
+                }
+            });
         }
         catch (e) {
             console.error(e);
@@ -10043,8 +10355,16 @@ function loadMarksForSelectedAssignment() {
                 list.innerHTML = `<div class="list-group-item p-4 text-center text-muted">${t('asg_review_empty')}</div>`;
                 return;
             }
-            list.innerHTML = subs.map(s => `
-                <div class="list-group-item p-3">
+            list.innerHTML = '';
+            CB.ui.paginate({
+                data: subs,
+                container: 'assignment-marks-list',
+                paginationContainer: 'assignment-marks-pagination',
+                pageSize: 10,
+                renderRow: (s) => {
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item p-3';
+                    div.innerHTML = `
                     <div class="d-flex justify-content-between mb-2">
                         <strong>${s.student_name || ''} (${s.student_id || ''})</strong>
                         <small class="text-muted">${s.submitted_at ? new Date(s.submitted_at).toLocaleString() : ''}</small>
@@ -10056,8 +10376,10 @@ function loadMarksForSelectedAssignment() {
                         <button class="btn btn-outline-success" onclick="saveGrade(${s.id})">${t('btn_save')}</button>
                         <button class="btn btn-outline-warning" onclick="reassignSubmission(${s.id})">${t('btn_reassign')}</button>
                     </div>
-                </div>
-            `).join('');
+                    `;
+                    return div;
+                }
+            });
         }
         catch (e) {
             console.error(e);
@@ -10086,34 +10408,50 @@ function loadCourseAssignments(groupId) {
                     list.innerHTML = '<p class="text-muted text-center py-4">No assignments yet.</p>';
                     return;
                 }
-                list.innerHTML = assignments.map(a => {
-                    let actionBtn = '';
-                    if (appState.role === 'Student') {
-                        actionBtn = `<button class="btn btn-sm btn-outline-success" onclick="openSubmitModal(${a.id}, '${a.title}')">Submit</button>`;
-                    }
-                    else if (appState.role === 'Teacher' || appState.role === 'Admin') {
-                        actionBtn = `<button class="btn btn-sm btn-outline-dark" onclick="viewSubmissions(${a.id})">View Submissions</button>`;
-                    }
-                    const icon = a.type === 'Project' ? 'engineering' : 'assignment';
-                    const badge = a.type === 'Project' ? 'bg-warning text-dark' : 'bg-primary-custom';
-                    return `
-                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="bg-light p-2 rounded-circle">
-                                <span class="material-icons text-muted">${icon}</span>
+                let paginationContainer = document.getElementById('assignments-list-pagination');
+                if (!paginationContainer) {
+                    paginationContainer = document.createElement('div');
+                    paginationContainer.id = 'assignments-list-pagination';
+                    paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+                    list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+                }
+                list.innerHTML = '';
+                CB.ui.paginate({
+                    data: assignments,
+                    container: list,
+                    paginationContainer: paginationContainer,
+                    pageSize: 10,
+                    renderRow: (a) => {
+                        let actionBtn = '';
+                        if (appState.role === 'Student') {
+                            actionBtn = `<button class="btn btn-sm btn-outline-success" onclick="openSubmitModal(${a.id}, '${a.title}')">Submit</button>`;
+                        }
+                        else if (appState.role === 'Teacher' || appState.role === 'Admin') {
+                            actionBtn = `<button class="btn btn-sm btn-outline-dark" onclick="viewSubmissions(${a.id})">View Submissions</button>`;
+                        }
+                        const icon = a.type === 'Project' ? 'engineering' : 'assignment';
+                        const badge = a.type === 'Project' ? 'bg-warning text-dark' : 'bg-primary-custom';
+
+                        const div = document.createElement('div');
+                        div.className = 'list-group-item p-3 d-flex justify-content-between align-items-center';
+                        div.innerHTML = `
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="bg-light p-2 rounded-circle">
+                                    <span class="material-icons text-muted">${icon}</span>
+                                </div>
+                                <div>
+                                    <h6 class="mb-1 fw-bold">${a.title} <span class="badge ${badge} small ms-2">${a.type}</span></h6>
+                                    <p class="mb-1 text-muted small">${a.description || 'No description'}</p>
+                                    <small class="text-secondary">Due: ${new Date(a.due_date).toLocaleDateString()} | Max Points: ${a.points}</small>
+                                </div>
                             </div>
                             <div>
-                                <h6 class="mb-1 fw-bold">${a.title} <span class="badge ${badge} small ms-2">${a.type}</span></h6>
-                                <p class="mb-1 text-muted small">${a.description || 'No description'}</p>
-                                <small class="text-secondary">Due: ${new Date(a.due_date).toLocaleDateString()} | Max Points: ${a.points}</small>
+                                ${actionBtn}
                             </div>
-                        </div>
-                        <div>
-                            ${actionBtn}
-                        </div>
-                    </div>
-                `;
-                }).join('');
+                        `;
+                        return div;
+                    }
+                });
             }
         }
         catch (e) {
@@ -10394,26 +10732,43 @@ function viewSubmissions(id) {
                     list.innerHTML = `<p class="text-center p-4 text-muted">${t('asg_review_empty')}</p>`;
                     return;
                 }
-                list.innerHTML = subs.map(s => `
-                <div class="list-group-item p-3">
-                    <div class="d-flex justify-content-between mb-2">
-                        <strong>${s.student_name} (${s.student_id})</strong>
-                        <small class="text-muted">${new Date(s.submitted_at).toLocaleString()}</small>
-                    </div>
-                    <div class="bg-light p-2 rounded mb-2 font-monospace small" style="white-space: pre-wrap;">${s.content_text || s.content || ''}</div>
-                    <div class="d-flex justify-content-between align-items-center mb-2 small text-muted">
-                        <span>${t('label_status')}: <strong>${s.status || t('status_submitted')}</strong></span>
-                        ${s.feedback ? `<span>${t('label_feedback')}: ${s.feedback}</span>` : ''}
-                    </div>
-                    
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text">${t('label_grade')}</span>
-                        <input type="number" class="form-control" id="grade-${s.id}" value="${s.grade || ''}" placeholder="0-100">
-                        <button class="btn btn-outline-success" onclick="saveGrade(${s.id})">${t('btn_save')}</button>
-                        <button class="btn btn-outline-warning" onclick="reassignSubmission(${s.id})">${t('btn_reassign')}</button>
-                    </div>
-                </div>
-            `).join('');
+                let paginationContainer = document.getElementById('submissions-list-pagination');
+                if (!paginationContainer) {
+                    paginationContainer = document.createElement('div');
+                    paginationContainer.id = 'submissions-list-pagination';
+                    paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                    list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+                }
+                list.innerHTML = '';
+                CB.ui.paginate({
+                    data: subs,
+                    container: list,
+                    paginationContainer: paginationContainer,
+                    pageSize: 10,
+                    renderRow: (s) => {
+                        const div = document.createElement('div');
+                        div.className = 'list-group-item p-3';
+                        div.innerHTML = `
+                            <div class="d-flex justify-content-between mb-2">
+                                <strong>${s.student_name} (${s.student_id})</strong>
+                                <small class="text-muted">${new Date(s.submitted_at).toLocaleString()}</small>
+                            </div>
+                            <div class="bg-light p-2 rounded mb-2 font-monospace small" style="white-space: pre-wrap;">${s.content_text || s.content || ''}</div>
+                            <div class="d-flex justify-content-between align-items-center mb-2 small text-muted">
+                                <span>${t('label_status')}: <strong>${s.status || t('status_submitted')}</strong></span>
+                                ${s.feedback ? `<span>${t('label_feedback')}: ${s.feedback}</span>` : ''}
+                            </div>
+                            
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">${t('label_grade')}</span>
+                                <input type="number" class="form-control" id="grade-${s.id}" value="${s.grade || ''}" placeholder="0-100">
+                                <button class="btn btn-outline-success" onclick="saveGrade(${s.id})">${t('btn_save')}</button>
+                                <button class="btn btn-outline-warning" onclick="reassignSubmission(${s.id})">${t('btn_reassign')}</button>
+                            </div>
+                        `;
+                        return div;
+                    }
+                });
             }
         }
         catch (e) {
@@ -10654,117 +11009,753 @@ function openUserManagement() {
         tab.show();
     }
     loadUserList();
+    loadUserManagementStats();
+}
+function loadUserManagementStats() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const res = yield fetchAPI('/admin/user-management-stats');
+            if (res.ok) {
+                const stats = yield res.json();
+                const totalTenantsEl = document.getElementById('stat-total-tenants');
+                const totalUsersEl = document.getElementById('stat-total-users');
+                const growthPercentEl = document.getElementById('stat-growth-percent');
+
+                if (totalTenantsEl) totalTenantsEl.textContent = stats.total_tenants.toLocaleString();
+                if (totalUsersEl) totalUsersEl.textContent = stats.total_users.toLocaleString();
+                if (growthPercentEl) growthPercentEl.textContent = stats.growth_percentage + '%';
+            }
+        } catch (e) {
+            console.error("Failed to load user management stats:", e);
+        }
+    });
 }
 function loadUserList() {
     return __awaiter(this, void 0, void 0, function* () {
         const tbody = document.getElementById('users-table-body');
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+        const countEl = document.getElementById('user-result-count');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+        if (countEl) countEl.textContent = 'Loading…';
+
+        // Reset search fields on fresh load
+        const searchEl = document.getElementById('user-search-input');
+        const roleEl = document.getElementById('user-role-filter');
+        if (searchEl) searchEl.value = '';
+        if (roleEl) roleEl.value = '';
+        const clearBtn = document.getElementById('user-search-clear');
+        if (clearBtn) clearBtn.style.display = 'none';
+
         try {
             const response = yield fetchAPI('/admin/users');
             if (response.ok) {
-                const users = yield response.json();
-                if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No users found.</td></tr>';
-                    return;
-                }
-                tbody.innerHTML = users.map(u => `
-                <tr>
-                    <td class="ps-4 fw-bold">${u.name}</td>
-                    <td><span class="badge rounded-pill bg-light text-dark border">${u.role}</span></td>
-                    <td>${u.id}</td>
-                    <td>${u.role === 'Student' ? 'Grade ' + u.grade : (u.preferred_subject || '-')}</td>
-                    <!-- <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="alert('Edit feature coming soon')"><span class="material-icons" style="font-size:16px">edit</span></button>
-                    </td> -->
-                </tr>
-            `).join('');
+                window._allUsers = yield response.json();
+                filterUserList(); // render first page
+            } else {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-5">Failed to load users.</td></tr>';
+                if (countEl) countEl.textContent = '0 users';
             }
-            else {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load users.</td></tr>';
-            }
-        }
-        catch (e) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Network error.</td></tr>';
+        } catch (e) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-5">Network error.</td></tr>';
+            if (countEl) countEl.textContent = 'Error';
         }
     });
 }
+
+// ── Real-time Search & Filter (AC 2, AC 3, AC 4) ──────────────────────────────
+function filterUserList() {
+    const dataset = window._allUsers || [];
+    const tbody = document.getElementById('users-table-body');
+    const countEl = document.getElementById('user-result-count');
+    const clearBtn = document.getElementById('user-search-clear');
+
+    const query = (document.getElementById('user-search-input') || {}).value || '';
+    const roleFilter = (document.getElementById('user-role-filter') || {}).value || '';
+    const q = query.trim().toLowerCase();
+
+    // Show/hide clear button
+    if (clearBtn) clearBtn.style.display = q ? 'inline-flex' : 'none';
+
+    // ── Filter ───────────────────────────────────────────────────────────────
+    const filtered = dataset.filter(u => {
+        const matchesSearch = !q || [
+            u.name, u.first_name, u.last_name,
+            u.email, u.username, u.id
+        ].some(v => v && String(v).toLowerCase().includes(q));
+
+        const matchesRole = !roleFilter || u.role === roleFilter;
+        return matchesSearch && matchesRole;
+    });
+
+    // ── Result count badge ───────────────────────────────────────────────────
+    if (countEl) {
+        const total = dataset.length;
+        if (q || roleFilter) {
+            countEl.textContent = `${filtered.length} of ${total} users`;
+            countEl.className = filtered.length === 0
+                ? 'badge bg-warning-subtle text-warning fw-semibold px-3 py-2 rounded-pill'
+                : 'badge bg-primary-subtle text-primary fw-semibold px-3 py-2 rounded-pill';
+        } else {
+            countEl.textContent = `${total} users`;
+            countEl.className = 'badge bg-primary-subtle text-primary fw-semibold px-3 py-2 rounded-pill';
+        }
+    }
+
+    // ── AC 3 – "No users found" empty state ──────────────────────────────────
+    if (filtered.length === 0) {
+        if (tbody) tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center py-5">
+                    <div class="py-4">
+                        <span class="material-icons text-muted mb-2" style="font-size:48px;">search_off</span>
+                        <p class="fw-semibold text-muted mb-1 mt-2">No users found</p>
+                        <small class="text-muted">Try a different name, email, or role filter</small>
+                    </div>
+                </td>
+            </tr>`;
+        const pg = document.getElementById('users-pagination');
+        if (pg) pg.innerHTML = '';
+        return;
+    }
+
+    // ── AC 1 & AC 4 – Render table rows with pagination ───────────────────────
+    function _buildRow(u) {
+        const safeId = String(u.id || '').replace(/'/g, "\\'");
+        const safeName = String(u.name || '').replace(/'/g, "\\'");
+        return `
+        <tr>
+            <td class="ps-4">
+                <div class="d-flex align-items-center">
+                    <div class="avatar-sm me-3 bg-light rounded-circle d-flex align-items-center justify-content-center">
+                        <span class="material-icons text-primary fs-5">person</span>
+                    </div>
+                    <div>
+                        <div class="fw-bold text-dark">${u.name || '-'}</div>
+                        <small class="text-muted">${u.first_name || ''} ${u.last_name || ''}</small>
+                    </div>
+                </div>
+            </td>
+            <td><span class="badge rounded-pill bg-light text-primary border border-primary-subtle px-3">${u.role || '-'}</span></td>
+            <td class="text-muted small font-monospace">${u.id || '-'}</td>
+            <td class="fw-medium">${u.username || '-'}</td>
+            <td class="text-muted small">${u.email || '-'}</td>
+            <td><span class="badge bg-secondary-subtle text-secondary rounded-pill px-2">#${u.institution_id || '-'}</span></td>
+            <td class="small text-truncate" style="max-width:150px;">${u.institution_name || '-'}</td>
+            <td><span class="badge bg-info-subtle text-info rounded-pill px-2">${u.institution_type || '-'}</span></td>
+            <td class="text-end pe-4">
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-primary border-0" onclick="viewUser('${safeId}')" title="View">
+                        <span class="material-icons fs-5">visibility</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning border-0" onclick="editUser('${safeId}')" title="Edit">
+                        <span class="material-icons fs-5">edit</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteUser('${safeId}', '${safeName}')" title="Delete">
+                        <span class="material-icons fs-5">delete</span>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
+    }
+
+    CB.ui.paginate({
+        data: filtered,
+        container: 'users-table-body',
+        paginationContainer: 'users-pagination',
+        pageSize: 10,
+        renderRow: _buildRow
+    });
+}
+
+// Clear the search input and re-render full list
+function clearUserSearch() {
+    const searchEl = document.getElementById('user-search-input');
+    const clearBtn = document.getElementById('user-search-clear');
+    if (searchEl) { searchEl.value = ''; searchEl.focus(); }
+    if (clearBtn) clearBtn.style.display = 'none';
+    filterUserList();
+}
+
+
+function editUser(id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // Navigate to the edit view immediately
+            switchView('edit-user-view');
+            euGoStep(1);
+            document.getElementById('eu-user-id').value = id;
+            document.getElementById('eu-subtitle').textContent = 'Loading...';
+
+            // Load extended profile
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(id)}/extended`);
+            if (!res.ok) { showToast('Failed to load user data.', 'danger'); return; }
+            const u = yield res.json();
+
+            // Section 1 - Primary Details
+            document.getElementById('eu-username').value = u.id || id;
+            document.getElementById('eu-firstname').value = u.first_name || '';
+            document.getElementById('eu-lastname').value = u.last_name || '';
+            document.getElementById('eu-email').value = u.email || '';
+            document.getElementById('eu-password').value = '';
+
+            // Load role chips with user's current assigned_roles pre-selected
+            const preSelected = (u.assigned_roles && u.assigned_roles.length > 0)
+                ? u.assigned_roles
+                : (u.role ? [u.role] : []);
+            yield _loadRoleChips('eu', preSelected);
+
+            // Section 2 - Contact
+            document.getElementById('eu-primary-phone').value = u.primary_phone || '';
+            document.getElementById('eu-mobile').value = u.mobile_phone || '';
+            document.getElementById('eu-secondary-email').value = u.secondary_email || '';
+            document.getElementById('eu-address').value = u.address || '';
+
+            // Section 4 - Organizational
+            document.getElementById('eu-employee-id').value = u.employee_id || '';
+            document.getElementById('eu-job-title').value = u.job_title || '';
+            document.getElementById('eu-department').value = u.department || '';
+            document.getElementById('eu-manager').value = u.manager || '';
+            document.getElementById('eu-office-location').value = u.office_location || '';
+
+            // Section 5 - Settings
+            const setSelectVal = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && val) { for (let o of el.options) { if (o.value === val) { o.selected = true; break; } } }
+            };
+            setSelectVal('eu-language', u.preferred_language);
+            setSelectVal('eu-timezone', u.timezone);
+            setSelectVal('eu-date-format', u.date_format);
+
+            document.getElementById('eu-subtitle').textContent = `Editing: ${u.name || id}`;
+
+            // Section 3 - Load guardians
+            yield euLoadGuardians(id);
+        } catch (e) {
+            showToast('Network error loading user.', 'danger');
+        }
+    });
+}
+
+function euLoadGuardians(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const container = document.getElementById('eu-guardian-list');
+        if (!container) return;
+        container.innerHTML = `<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm text-warning"></div><span class="ms-2 small">Loading guardians…</span></div>`;
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians`);
+            if (!res.ok) { container.innerHTML = '<p class="text-muted small">Could not load guardians.</p>'; return; }
+            const guardians = yield res.json();
+            container.innerHTML = '';
+            if (guardians.length === 0) {
+                container.innerHTML = `<div class="text-center text-muted py-4"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians. Click "Add Guardian" to begin.</p></div>`;
+            } else {
+                guardians.forEach(g => {
+                    const row = _buildGuardianRow('eu-guardian-list', null, g);
+                    container.appendChild(row);
+                });
+            }
+        } catch (e) {
+            container.innerHTML = '<p class="text-danger small">Error loading guardians.</p>';
+        }
+    });
+}
+
+function handleUpdateUser(e) {
+    return __awaiter(this, void 0, void 0, function* () {
+        e.preventDefault();
+        const userId = document.getElementById('eu-user-id').value;
+        if (!userId) return;
+
+        const errEl = document.getElementById('eu-form-error');
+        const btn = document.getElementById('eu-submit-btn');
+        errEl.classList.add('d-none');
+
+        // Handle new guardians (rows without data-guardian-id)
+        const newGuardianRows = document.querySelectorAll('#eu-guardian-list .guardian-row[data-guardian-id="new"]');
+        for (const row of newGuardianRows) {
+            const fn = row.querySelector('.g-firstname').value.trim();
+            const ln = row.querySelector('.g-lastname').value.trim();
+            const em = row.querySelector('.g-email').value.trim();
+            const ph = row.querySelector('.g-phone').value.trim();
+            const mo = row.querySelector('.g-mobile').value.trim();
+            if (!fn || !ln || !em) { errEl.textContent = 'All guardian name and email fields are required.'; errEl.classList.remove('d-none'); return; }
+        }
+
+        const selectedRoles = _getSelectedRoles('eu');
+        const primaryRole = selectedRoles[0] || document.getElementById('eu-role').value || null;
+        const payload = {
+            first_name: document.getElementById('eu-firstname').value.trim() || null,
+            last_name: document.getElementById('eu-lastname').value.trim() || null,
+            email: document.getElementById('eu-email').value.trim() || null,
+            role: primaryRole,
+            roles: selectedRoles.length > 0 ? selectedRoles : null,
+            primary_phone: document.getElementById('eu-primary-phone').value.trim() || null,
+            mobile_phone: document.getElementById('eu-mobile').value.trim() || null,
+            secondary_email: document.getElementById('eu-secondary-email').value.trim() || null,
+            address: document.getElementById('eu-address').value.trim() || null,
+            employee_id: document.getElementById('eu-employee-id').value.trim() || null,
+            job_title: document.getElementById('eu-job-title').value.trim() || null,
+            department: document.getElementById('eu-department').value.trim() || null,
+            manager: document.getElementById('eu-manager').value.trim() || null,
+            office_location: document.getElementById('eu-office-location').value.trim() || null,
+            preferred_language: document.getElementById('eu-language').value || null,
+            timezone: document.getElementById('eu-timezone').value || null,
+            date_format: document.getElementById('eu-date-format').value || null,
+        };
+        const pass = document.getElementById('eu-password').value;
+        if (pass && pass.trim()) payload.password = pass;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/extended`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const err = yield res.json().catch(() => ({}));
+                errEl.textContent = err.detail || 'Failed to save changes.';
+                errEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons align-middle me-1">save</span>Save Changes';
+                return;
+            }
+
+            // Save new guardians
+            for (const row of newGuardianRows) {
+                const fn = row.querySelector('.g-firstname').value.trim();
+                const ln = row.querySelector('.g-lastname').value.trim();
+                const em = row.querySelector('.g-email').value.trim();
+                const ph = row.querySelector('.g-phone').value.trim();
+                const mo = row.querySelector('.g-mobile').value.trim();
+                yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians`, {
+                    method: 'POST',
+                    body: JSON.stringify({ first_name: fn, last_name: ln, email: em, primary_phone: ph, mobile_phone: mo })
+                });
+            }
+
+            showToast('User updated successfully!', 'success');
+            switchView('user-management-view');
+            loadUserList();
+        } catch (ex) {
+            errEl.textContent = 'Network error: ' + ex.message;
+            errEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons align-middle me-1">save</span>Save Changes';
+        }
+    });
+}
+
+function saveEditUser(id) {
+    // Legacy stub – redirects to new edit view
+    editUser(id);
+}
+
+function deleteUser(id, name) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (!confirm(`Are you sure you want to permanently delete user:\n\n"${name}" (${id})\n\nThis cannot be undone.`)) return;
+        try {
+            const res = yield fetchAPI(`/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (res.ok) {
+                if (typeof showToast === 'function') showToast(`User "${name}" deleted successfully.`, 'success');
+                else alert(`User "${name}" deleted.`);
+                loadUserList();
+                loadUserManagementStats();
+            } else {
+                const err = yield res.json().catch(() => ({}));
+                alert('Error: ' + (err.detail || 'Could not delete user.'));
+            }
+        } catch (e) {
+            alert('Network error: ' + e.message);
+        }
+    });
+}
+
+// ── Role Chip Helpers (AC1 + AC2) ──
+
+/**
+ * Fetches roles from /api/admin/roles and renders clickable chips in #{prefix}-role-picker.
+ * @param {string} prefix  'cu' (create) or 'eu' (edit)
+ * @param {string[]} preSelected  Array of role names to pre-select
+ */
+function _loadRoleChips(prefix, preSelected) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const picker = document.getElementById(`${prefix}-role-picker`);
+        if (!picker) return;
+        picker.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading roles…</span>';
+        try {
+            const res = yield fetchAPI('/admin/roles');
+            if (!res.ok) throw new Error('Failed');
+            const roles = yield res.json();
+            picker.innerHTML = '';
+            // Filter out Root_Super_Admin for non-root users
+            const filtered = roles.filter(r => r.name !== 'Root_Super_Admin');
+            filtered.forEach(role => {
+                const chip = document.createElement('div');
+                chip.className = 'role-chip';
+                chip.setAttribute('data-role-name', role.name);
+                chip.setAttribute('data-role-id', role.id);
+                chip.innerHTML = `<span class="role-chip-dot"></span>${role.name.replace(/_/g, ' ')}`;
+                // Pre-select if in preSelected list
+                if (preSelected && preSelected.includes(role.name)) {
+                    chip.classList.add('selected');
+                }
+                chip.addEventListener('click', () => _toggleRoleChip(chip, prefix, role.name, role.permissions));
+                picker.appendChild(chip);
+            });
+            // Auto-select first chip if nothing pre-selected
+            const anySelected = picker.querySelector('.role-chip.selected');
+            if (!anySelected && filtered.length > 0) {
+                const first = picker.querySelector('.role-chip');
+                if (first) first.classList.add('selected');
+            }
+            // Show permission preview for the first selected chip
+            const firstSelected = picker.querySelector('.role-chip.selected');
+            if (firstSelected) {
+                const roleName = firstSelected.getAttribute('data-role-name');
+                const matchedRole = filtered.find(r => r.name === roleName);
+                if (matchedRole) _showRolePerms(prefix, matchedRole.permissions);
+            }
+            _syncHiddenRoleInput(prefix);
+        } catch (e) {
+            picker.innerHTML = '<span class="text-danger small">Failed to load roles. Please refresh.</span>';
+        }
+    });
+}
+
+/** Toggle a role chip selected state and update the permission preview. */
+function _toggleRoleChip(chip, prefix, roleName, perms) {
+    chip.classList.toggle('selected');
+    _syncHiddenRoleInput(prefix);
+    // Always preview the permissions for the clicked role
+    _showRolePerms(prefix, perms);
+}
+
+/** Render the permission preview panel for the given permissions array. */
+function _showRolePerms(prefix, perms) {
+    const panel = document.getElementById(`${prefix}-role-perms-panel`);
+    if (!panel) return;
+    panel.style.display = 'block';
+    if (!perms || perms.length === 0) {
+        panel.innerHTML = '<div class="perms-empty">No permissions assigned to this role.</div>';
+        return;
+    }
+    // Group by category (use code prefix before first underscore)
+    const groups = {};
+    perms.forEach(p => {
+        const grp = (p.description || p.code).split(' ')[0] || 'General';
+        // Use a friendlier grouping from code prefix
+        const pfx = (p.code || '').split('_')[0] || 'other';
+        if (!groups[pfx]) groups[pfx] = [];
+        groups[pfx].push(p.description || p.code);
+    });
+    let html = '';
+    Object.entries(groups).forEach(([grp, items]) => {
+        const label = grp.charAt(0).toUpperCase() + grp.slice(1);
+        html += `<div class="role-perms-group"><div class="role-perms-group-label">${label}</div>`;
+        items.forEach(desc => { html += `<span class="perm-badge">${desc}</span>`; });
+        html += '</div>';
+    });
+    panel.innerHTML = html;
+}
+
+/** Sync the hidden #{prefix}-role input with the first selected chip name (for legacy compat). */
+function _syncHiddenRoleInput(prefix) {
+    const picker = document.getElementById(`${prefix}-role-picker`);
+    const hiddenInput = document.getElementById(`${prefix}-role`);
+    if (!picker || !hiddenInput) return;
+    const selected = Array.from(picker.querySelectorAll('.role-chip.selected'))
+        .map(c => c.getAttribute('data-role-name'));
+    hiddenInput.value = selected[0] || '';
+}
+
+/** Return array of selected role names for the given prefix. */
+function _getSelectedRoles(prefix) {
+    const picker = document.getElementById(`${prefix}-role-picker`);
+    if (!picker) return [];
+    return Array.from(picker.querySelectorAll('.role-chip.selected'))
+        .map(c => c.getAttribute('data-role-name'));
+}
+
 // --- USER MANAGEMENT (VIEW BASED) ---
 function openAddUserModal() {
-    switchView('add-user-view');
-    document.getElementById('add-user-form').reset();
-    document.getElementById('new-user-role').value = "Student";
-    toggleUserFields();
+    switchView('add-user-view-v2');
+    cuGoStep(1);
+    const form = document.getElementById('add-user-form');
+    if (form) form.reset();
+    // Clear guardian list
+    const gList = document.getElementById('cu-guardian-list');
+    if (gList) gList.innerHTML = `<div class="text-center text-muted py-4" id="cu-no-guardian-msg"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added yet. Click "Add Guardian" to begin.</p></div>`;
+    const errEl = document.getElementById('cu-form-error');
+    if (errEl) errEl.classList.add('d-none');
+    // Load role chips (no pre-selection → first chip auto-selected)
+    _loadRoleChips('cu', []);
 }
+
 function toggleUserFields() {
-    const role = document.getElementById('new-user-role').value;
-    const studentFields = document.getElementById('student-fields');
-    const teacherFields = document.getElementById('teacher-fields');
-    if (role === 'Student') {
-        studentFields.style.display = 'block';
-        teacherFields.style.display = 'none';
-    }
-    else if (role === 'Teacher') {
-        studentFields.style.display = 'none';
-        teacherFields.style.display = 'block';
-    }
-    else {
-        studentFields.style.display = 'none';
-        teacherFields.style.display = 'none';
-    }
+    const role = document.getElementById('new-user-role');
+    if (!role) return;
+    const r = role.value;
+    const sf = document.getElementById('student-fields');
+    const tf = document.getElementById('teacher-fields');
+    if (sf) sf.style.display = r === 'Student' ? 'block' : 'none';
+    if (tf) tf.style.display = r === 'Teacher' ? 'block' : 'none';
 }
+
+// ── Stepper: Create User ──
+function cuGoStep(step) {
+    document.querySelectorAll('.cu-section').forEach(el => el.style.display = 'none');
+    const target = document.getElementById(`cu-section-${step}`);
+    if (target) target.style.display = 'block';
+    document.querySelectorAll('#cu-step-indicator .cu-step').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === step);
+        el.classList.toggle('completed', s < step);
+    });
+    if (step === 5) cuBuildReviewSummary();
+}
+function cuNextStep(current) {
+    if (current === 1) {
+        const username = document.getElementById('cu-username').value.trim();
+        const email = document.getElementById('cu-email').value.trim();
+        const fn = document.getElementById('cu-firstname').value.trim();
+        const ln = document.getElementById('cu-lastname').value.trim();
+        const pass = document.getElementById('cu-password').value;
+        if (!username || !email || !fn || !ln || !pass) { showToast('Please fill in all required primary detail fields.', 'warning'); return; }
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) { showToast('Please enter a valid email address.', 'warning'); return; }
+    }
+    cuGoStep(current + 1);
+}
+function cuBuildReviewSummary() {
+    const el = document.getElementById('cu-review-summary');
+    if (!el) return;
+    const v = id => (document.getElementById(id) || {}).value || '—';
+    el.innerHTML = `
+        <div class="row g-3">
+            <div class="col-md-6"><strong>Username:</strong> ${v('cu-username')}</div>
+            <div class="col-md-6"><strong>Email:</strong> ${v('cu-email')}</div>
+            <div class="col-md-6"><strong>Name:</strong> ${v('cu-firstname')} ${v('cu-lastname')}</div>
+            <div class="col-md-6"><strong>Role:</strong> ${v('cu-role')}</div>
+            <div class="col-md-6"><strong>Primary Phone:</strong> ${v('cu-primary-phone')}</div>
+            <div class="col-md-6"><strong>Mobile:</strong> ${v('cu-mobile')}</div>
+            <div class="col-md-6"><strong>Job Title:</strong> ${v('cu-job-title')}</div>
+            <div class="col-md-6"><strong>Department:</strong> ${v('cu-department')}</div>
+            <div class="col-md-4"><strong>Language:</strong> ${v('cu-language')}</div>
+            <div class="col-md-4"><strong>Timezone:</strong> ${v('cu-timezone')}</div>
+            <div class="col-md-4"><strong>Date Format:</strong> ${v('cu-date-format')}</div>
+        </div>`;
+}
+
+// ── Stepper: Edit User ──
+function euGoStep(step) {
+    document.querySelectorAll('.eu-section').forEach(el => el.style.display = 'none');
+    const target = document.getElementById(`eu-section-${step}`);
+    if (target) target.style.display = 'block';
+    document.querySelectorAll('#eu-step-indicator .cu-step').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === step);
+        el.classList.toggle('completed', s < step);
+    });
+}
+function euNextStep(current) {
+    euGoStep(current + 1);
+}
+
+// ── Guardian Row Helpers ──
+function _buildGuardianRow(listId, onDeleteNew, existingGuardian) {
+    const row = document.createElement('div');
+    row.className = 'guardian-row card border-0 bg-light rounded-3 p-3 mb-2';
+    const isExisting = !!existingGuardian;
+    row.dataset.guardianId = isExisting ? existingGuardian.id : 'new';
+    row.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-semibold text-secondary small">
+                <span class="material-icons align-middle" style="font-size:16px;">person</span>
+                ${isExisting ? `Guardian (Saved)` : 'New Guardian'}
+            </span>
+            <button type="button" class="btn btn-link text-danger btn-sm p-0 remove-guardian-btn"
+                onclick="removeGuardianRow(this, '${listId}', ${isExisting ? existingGuardian.id : 'null'}, '${isExisting ? (existingGuardian.user_id || '') : ''}')">
+                <span class="material-icons" style="font-size:18px;">remove_circle</span>
+            </button>
+        </div>
+        <div class="row g-2">
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm bg-white g-firstname" placeholder="First Name *"
+                    value="${isExisting ? (existingGuardian.first_name || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-4">
+                <input type="text" class="form-control form-control-sm bg-white g-lastname" placeholder="Last Name *"
+                    value="${isExisting ? (existingGuardian.last_name || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-4">
+                <input type="email" class="form-control form-control-sm bg-white g-email" placeholder="Email *"
+                    value="${isExisting ? (existingGuardian.email || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-6">
+                <input type="tel" class="form-control form-control-sm bg-white g-phone" placeholder="Primary Phone"
+                    value="${isExisting ? (existingGuardian.primary_phone || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+            <div class="col-md-6">
+                <input type="tel" class="form-control form-control-sm bg-white g-mobile" placeholder="Mobile"
+                    value="${isExisting ? (existingGuardian.mobile_phone || '') : ''}" ${isExisting ? 'readonly' : ''}>
+            </div>
+        </div>`;
+    return row;
+}
+
+function addGuardianRow(listId) {
+    const container = document.getElementById(listId);
+    if (!container) return;
+    // Remove empty state message if present
+    const emptyMsg = container.querySelector('.text-center.text-muted');
+    if (emptyMsg) emptyMsg.remove();
+    const row = _buildGuardianRow(listId, null, null);
+    container.appendChild(row);
+}
+
+function removeGuardianRow(btn, listId, guardianId, userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const row = btn.closest('.guardian-row');
+        if (!row) return;
+        if (guardianId && guardianId !== 'null' && userId) {
+            // It's a saved guardian — delete from backend
+            if (!confirm('Remove this guardian permanently?')) return;
+            try {
+                const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians/${guardianId}`, { method: 'DELETE' });
+                if (!res.ok) { showToast('Failed to remove guardian.', 'danger'); return; }
+                showToast('Guardian removed.', 'success');
+            } catch (e) {
+                showToast('Network error removing guardian.', 'danger');
+                return;
+            }
+        }
+        row.remove();
+        // Show empty state if no rows left
+        const container = document.getElementById(listId);
+        if (container && container.querySelectorAll('.guardian-row').length === 0) {
+            const emptyId = listId === 'cu-guardian-list' ? 'cu-no-guardian-msg' : '';
+            container.innerHTML = `<div class="text-center text-muted py-4"${emptyId ? ` id="${emptyId}"` : ''}><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added.</p></div>`;
+        }
+    });
+}
+
 function handleCreateUser(e) {
     return __awaiter(this, void 0, void 0, function* () {
         e.preventDefault();
-        const role = document.getElementById('new-user-role').value;
-        // Validate Password
-        const password = document.getElementById('new-user-password').value;
-        if (password.length < 8) {
-            alert("Password must be at least 8 characters long.");
+        const errEl = document.getElementById('cu-form-error');
+        errEl.classList.add('d-none');
+
+        const username = document.getElementById('cu-username').value.trim();
+        const email = document.getElementById('cu-email').value.trim();
+        const firstName = document.getElementById('cu-firstname').value.trim();
+        const lastName = document.getElementById('cu-lastname').value.trim();
+        const password = document.getElementById('cu-password').value;
+
+        if (!username || !email || !firstName || !lastName || !password) {
+            errEl.textContent = 'Please fill in all required Primary Detail fields.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
             return;
         }
-        const data = {
-            name: document.getElementById('new-user-name').value,
-            id: document.getElementById('new-user-id').value,
-            role: role,
-            password: password,
-            grade: role === 'Student' ? parseInt(document.getElementById('new-user-grade').value) : 0,
-            preferred_subject: role === 'Teacher' ? document.getElementById('new-user-subject').value : "All"
-        };
-        const btn = e.submitter;
-        const originalText = btn.innerHTML;
-        try {
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
-            const response = yield fetchAPI('/admin/users', {
-                method: 'POST',
-                body: JSON.stringify(data)
+        if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+            errEl.textContent = 'Please enter a valid email address.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
+            return;
+        }
+
+        // Collect guardian rows
+        const guardianRows = document.querySelectorAll('#cu-guardian-list .guardian-row');
+        const guardians = [];
+        for (const row of guardianRows) {
+            const fn = row.querySelector('.g-firstname').value.trim();
+            const ln = row.querySelector('.g-lastname').value.trim();
+            const em = row.querySelector('.g-email').value.trim();
+            if (!fn || !ln || !em) {
+                errEl.textContent = 'All guardian name and email fields are required.';
+                errEl.classList.remove('d-none');
+                cuGoStep(3);
+                return;
+            }
+            guardians.push({
+                first_name: fn, last_name: ln, email: em,
+                primary_phone: row.querySelector('.g-phone').value.trim(),
+                mobile_phone: row.querySelector('.g-mobile').value.trim()
             });
-            if (response.ok) {
-                if (typeof showToast === 'function')
-                    showToast("User created successfully!", "success");
-                else
-                    alert("User created successfully!");
-                switchView('user-management-view');
-                loadUserList();
-            }
-            else {
-                const err = yield response.json();
-                alert("Error: " + (err.detail || "Failed to create user"));
-            }
         }
-        catch (e) {
-            alert("Network Error: " + e.message);
+
+        // Role validation & collection
+        const selectedRoles = _getSelectedRoles('cu');
+        if (selectedRoles.length === 0) {
+            const errBox = document.getElementById('cu-role-error');
+            if (errBox) errBox.style.display = 'block';
+            errEl.textContent = 'Please select at least one role.';
+            errEl.classList.remove('d-none');
+            cuGoStep(1);
+            return;
+        } else {
+            const errBox = document.getElementById('cu-role-error');
+            if (errBox) errBox.style.display = 'none';
         }
-        finally {
-            const btn = e.submitter;
-            if (btn) {
+        const role = selectedRoles[0]; // primary role
+
+        const payload = {
+            username, email, first_name: firstName, last_name: lastName,
+            password, role,
+            roles: selectedRoles,
+            primary_phone: document.getElementById('cu-primary-phone').value.trim(),
+            mobile_phone: document.getElementById('cu-mobile').value.trim(),
+            secondary_email: document.getElementById('cu-secondary-email').value.trim(),
+            address: document.getElementById('cu-address').value.trim(),
+            employee_id: document.getElementById('cu-employee-id').value.trim(),
+            job_title: document.getElementById('cu-job-title').value.trim(),
+            department: document.getElementById('cu-department').value.trim(),
+            manager: document.getElementById('cu-manager').value.trim(),
+            office_location: document.getElementById('cu-office-location').value.trim(),
+            preferred_language: document.getElementById('cu-language').value,
+            timezone: document.getElementById('cu-timezone').value,
+            date_format: document.getElementById('cu-date-format').value,
+        };
+
+        const btn = document.getElementById('cu-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+
+        try {
+            const res = yield fetchAPI('/admin/users/extended', { method: 'POST', body: JSON.stringify(payload) });
+            if (!res.ok) {
+                const err = yield res.json().catch(() => ({}));
+                errEl.textContent = err.detail || 'Failed to create user.';
+                errEl.classList.remove('d-none');
                 btn.disabled = false;
-                if (typeof originalText !== 'undefined')
-                    btn.innerHTML = originalText;
+                btn.innerHTML = '<span class="material-icons align-middle me-1">person_add</span>Create User';
+                return;
             }
+            const result = yield res.json();
+            const newUserId = result.user_id || username;
+
+            // Post guardians
+            for (const g of guardians) {
+                yield fetchAPI(`/admin/users/${encodeURIComponent(newUserId)}/guardians`, {
+                    method: 'POST', body: JSON.stringify(g)
+                });
+            }
+
+            showToast('User created successfully!', 'success');
+            switchView('user-management-view');
+            loadUserList();
+            loadUserManagementStats();
+        } catch (ex) {
+            errEl.textContent = 'Network error: ' + ex.message;
+            errEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons align-middle me-1">person_add</span>Create User';
         }
     });
 }
+
+
+
 function showAuditLogs() {
     return __awaiter(this, void 0, void 0, function* () {
         // switchView('admin-view'); // REMOVED: We use tabs now
@@ -10784,7 +11775,6 @@ function showAuditLogs() {
                 container.innerHTML = `<div class="p-5 text-center text-muted">No logs found.</div>`;
                 return;
             }
-            // Render Table with Exit Time and Duration added
             container.innerHTML = `
             <div class="card border-0 shadow-sm">
                 <div class="card-body p-0">
@@ -10798,36 +11788,47 @@ function showAuditLogs() {
                                 <th class="py-3">Duration</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            ${logs.map(log => `
-                                <tr style="background-color: #f9f9f9;">
-                                    <td class="ps-4 py-3 align-middle font-monospace small">
-                                        ${new Date(log.timestamp).toLocaleString()}
-                                    </td>
-                                    <td class="fw-bold align-middle">
-                                        ${log.user_id}
-                                    </td>
-                                    <td class="align-middle">
-                                        <span class="badge rounded-pill ${getEventBadgeClass(log.event_type)} px-3">
-                                            ${log.event_type}
-                                        </span>
-                                    </td>
-                                    <td class="align-middle text-muted small">
-                                        ${log.details}
-                                    </td>
-                                    <td class="align-middle font-monospace small text-muted">
-                                        ${log.logout_time ? new Date(log.logout_time).toLocaleString() : '-'}
-                                    </td>
-                                    <td class="align-middle fw-bold text-dark">
-                                        ${log.duration_minutes ? log.duration_minutes + ' min' : '-'}
-                                    </td>
-                                </tr>
-                            `).join('')}
+                        <tbody id="audit-logs-tbody">
                         </tbody>
                     </table>
                 </div>
             </div>
+            <div id="audit-logs-pagination" class="mt-3 mb-3 d-flex justify-content-center"></div>
         `;
+
+            CB.ui.paginate({
+                data: logs,
+                container: 'audit-logs-tbody',
+                paginationContainer: 'audit-logs-pagination',
+                pageSize: 15,
+                renderRow: (log) => {
+                    const tr = document.createElement('tr');
+                    tr.style.backgroundColor = '#f9f9f9';
+                    tr.innerHTML = `
+                        <td class="ps-4 py-3 align-middle font-monospace small">
+                            ${new Date(log.timestamp).toLocaleString()}
+                        </td>
+                        <td class="fw-bold align-middle">
+                            ${log.user_id}
+                        </td>
+                        <td class="align-middle">
+                            <span class="badge rounded-pill ${getEventBadgeClass(log.event_type)} px-3">
+                                ${log.event_type}
+                            </span>
+                        </td>
+                        <td class="align-middle text-muted small">
+                            ${log.details}
+                        </td>
+                        <td class="align-middle font-monospace small text-muted">
+                            ${log.logout_time ? new Date(log.logout_time).toLocaleString() : '-'}
+                        </td>
+                        <td class="align-middle fw-bold text-dark">
+                            ${log.duration_minutes ? log.duration_minutes + ' min' : '-'}
+                        </td>
+                    `;
+                    return tr;
+                }
+            });
         }
         catch (e) {
             console.error(e);
@@ -11436,7 +12437,7 @@ function switchCommTab(tabName, btnElement) {
 function loadCommAnnouncements() {
     return __awaiter(this, void 0, void 0, function* () {
         const container = document.getElementById('comm-content-area');
-        let html = `
+        let headerHtml = `
         <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-3">
             <h4 class="fw-bold m-0 text-primary">Announcements</h4>
             <button class="btn btn-primary-custom" onclick="showCreateAnnouncementModal()">
@@ -11444,39 +12445,58 @@ function loadCommAnnouncements() {
             </button>
         </div>
     `;
+        container.innerHTML = `<div class="p-4 h-100 overflow-auto" id="comm-announcements-wrapper">
+            ${headerHtml}
+            <div id="announcements-container">
+                <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+            </div>
+            <div id="announcements-pagination" class="mt-3 mb-3 d-flex justify-content-center w-100"></div>
+        </div>`;
+
+        const listContainer = document.getElementById('announcements-container');
+        const paginationContainer = document.getElementById('announcements-pagination');
+
         try {
             const response = yield fetchAPI('/communication/announcements');
             let announcements = [];
             if (response.ok) {
                 announcements = yield response.json();
             }
+            listContainer.innerHTML = '';
             if (announcements.length === 0) {
-                html += `<div class="text-center text-muted py-5">
+                listContainer.innerHTML = `<div class="text-center text-muted py-5">
                 <span class="material-icons fs-1 text-secondary mb-3">campaign</span>
                 <p>No announcements posts yet.</p>
             </div>`;
+                paginationContainer.innerHTML = '';
             }
             else {
-                html += `<div class="list-group list-group-flush">`;
-                announcements.forEach(a => {
-                    html += `
-                    <div class="list-group-item px-0 py-3">
-                        <div class="d-flex justify-content-between">
-                            <h5 class="fw-bold text-dark mb-1">${a.title}</h5>
-                            <small class="text-muted">${new Date(a.created_at).toLocaleDateString()}</small>
-                        </div>
-                        <p class="mb-2 text-secondary">${a.content}</p>
-                        <span class="badge bg-light text-dark border">Target: ${a.target_role}</span>
-                    </div>
-                `;
+                listContainer.className = 'list-group list-group-flush';
+                CB.ui.paginate({
+                    data: announcements,
+                    container: listContainer,
+                    paginationContainer: paginationContainer,
+                    pageSize: 10,
+                    renderRow: (a) => {
+                        const div = document.createElement('div');
+                        div.className = 'list-group-item px-0 py-3';
+                        div.innerHTML = `
+                            <div class="d-flex justify-content-between">
+                                <h5 class="fw-bold text-dark mb-1">${a.title}</h5>
+                                <small class="text-muted">${new Date(a.created_at).toLocaleDateString()}</small>
+                            </div>
+                            <p class="mb-2 text-secondary">${a.content}</p>
+                            <span class="badge bg-light text-dark border">Target: ${a.target_role}</span>
+                        `;
+                        return div;
+                    }
                 });
-                html += `</div>`;
             }
         }
         catch (e) {
-            html += `<p class="text-danger">Failed to load announcements.</p>`;
+            listContainer.innerHTML = `<p class="text-danger">Failed to load announcements.</p>`;
+            paginationContainer.innerHTML = '';
         }
-        container.innerHTML = `<div class="p-4 h-100 overflow-auto">${html}</div>`;
     });
 }
 // Modal handling for Announcements
@@ -12171,6 +13191,7 @@ function loadExamsView() {
                         </tbody>
                     </table>
                 </div>
+                <div id="exam-schedules-pagination" class="mt-3"></div>
             </div>
 
             <div class="view full-page-view" id="examScheduleEditModal" tabindex="-1" aria-hidden="true">
@@ -12426,10 +13447,19 @@ async function loadExamSchedulesAdmin() {
         if (res.ok) {
             const rows = await res.json();
             examSchedulesCache = rows || [];
-            tbody.innerHTML = renderExamScheduleRows(examSchedulesCache, true);
+
             if (!examSchedulesCache.length) {
                 tbody.innerHTML = '<tr><td class="ps-4 text-muted" colspan="10">No schedules yet.</td></tr>';
+                return;
             }
+
+            CB.ui.paginate({
+                data: examSchedulesCache,
+                container: 'exam-schedules-table-body',
+                paginationContainer: 'exam-schedules-pagination',
+                pageSize: 10,
+                renderRow: (r) => renderSingleExamScheduleRow(r, true)
+            });
         } else {
             tbody.innerHTML = '<tr><td class="ps-4 text-danger" colspan="10">Failed to load schedules.</td></tr>';
         }
@@ -12448,10 +13478,19 @@ async function loadExamSchedulesMy() {
         if (res.ok) {
             const rows = await res.json();
             examSchedulesCache = rows || [];
-            tbody.innerHTML = renderExamScheduleRows(examSchedulesCache, false);
+
             if (!examSchedulesCache.length) {
                 tbody.innerHTML = '<tr><td class="ps-4 text-muted" colspan="9">No schedules yet.</td></tr>';
+                return;
             }
+
+            CB.ui.paginate({
+                data: examSchedulesCache,
+                container: 'exam-schedules-table-body',
+                paginationContainer: 'exam-schedules-pagination',
+                pageSize: 10,
+                renderRow: (r) => renderSingleExamScheduleRow(r, false)
+            });
         } else {
             tbody.innerHTML = '<tr><td class="ps-4 text-danger" colspan="9">Failed to load schedules.</td></tr>';
         }
@@ -12461,31 +13500,38 @@ async function loadExamSchedulesMy() {
     }
 }
 
+function renderSingleExamScheduleRow(r, showActions) {
+    const sectionName = r.section_name || '-';
+    const teacherName = r.teacher_name || r.teacher_id || '-';
+    const actions = showActions
+        ? `<td class="text-end pe-3">
+               <button class="btn btn-sm btn-outline-primary me-2" onclick="openExamScheduleEditModal(${r.id})">Edit</button>
+               <button class="btn btn-sm btn-outline-secondary" onclick="notifyExamSchedule(${r.id})">Notify</button>
+           </td>`
+        : '';
+    return `
+        <tr>
+            <td class="ps-4 fw-bold">${r.title || '-'}</td>
+            <td>${r.subject || '-'}</td>
+            <td>${r.grade_level || '-'}</td>
+            <td>${sectionName}</td>
+            <td>${formatExamDate(r.exam_date)}</td>
+            <td>${formatExamTime(r.start_time, r.end_time)}</td>
+            <td>${r.venue || '-'}</td>
+            <td>${r.instructions || '-'}</td>
+            <td>${teacherName}</td>
+            ${actions}
+        </tr>
+    `;
+}
+
+// Backward-compatible helper used by legacy callers and global exports.
 function renderExamScheduleRows(rows, showActions) {
-    return rows.map(r => {
-        const sectionName = r.section_name || '-';
-        const teacherName = r.teacher_name || r.teacher_id || '-';
-        const actions = showActions
-            ? `<td class="text-end pe-3">
-                   <button class="btn btn-sm btn-outline-primary me-2" onclick="openExamScheduleEditModal(${r.id})">Edit</button>
-                   <button class="btn btn-sm btn-outline-secondary" onclick="notifyExamSchedule(${r.id})">Notify</button>
-               </td>`
-            : '';
-        return `
-            <tr>
-                <td class="ps-4 fw-bold">${r.title || '-'}</td>
-                <td>${r.subject || '-'}</td>
-                <td>${r.grade_level || '-'}</td>
-                <td>${sectionName}</td>
-                <td>${formatExamDate(r.exam_date)}</td>
-                <td>${formatExamTime(r.start_time, r.end_time)}</td>
-                <td>${r.venue || '-'}</td>
-                <td>${r.instructions || '-'}</td>
-                <td>${teacherName}</td>
-                ${actions}
-            </tr>
-        `;
-    }).join('');
+    if (!Array.isArray(rows) || rows.length === 0) {
+        const colSpan = showActions ? '10' : '9';
+        return `<tr><td class="ps-4 text-muted" colspan="${colSpan}">No schedules yet.</td></tr>`;
+    }
+    return rows.map((row) => renderSingleExamScheduleRow(row, showActions)).join('');
 }
 
 async function openExamScheduleEditModal(id) {
@@ -13927,15 +14973,32 @@ function openStaffReviewModal(userId, userName) {
                 list.innerHTML = `<div class="text-center text-muted small">No past reviews found.</div>`;
             }
             else {
-                list.innerHTML = reviews.map(r => `
-                    <div class="p-2 border rounded mb-2 bg-light small">
-                        <div class="d-flex justify-content-between">
-                            <strong>${r.review_date}</strong>
-                            <span class="badge bg-warning text-dark">Rating: ${r.rating}/5</span>
-                        </div>
-                        <div class="text-muted mt-1">${r.comments}</div>
-                    </div>
-                `).join('');
+                let paginationContainer = document.getElementById('recent-reviews-pagination');
+                if (!paginationContainer) {
+                    paginationContainer = document.createElement('div');
+                    paginationContainer.id = 'recent-reviews-pagination';
+                    paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+                    list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+                }
+                list.innerHTML = '';
+                CB.ui.paginate({
+                    data: reviews,
+                    container: list,
+                    paginationContainer: paginationContainer,
+                    pageSize: 10,
+                    renderRow: (r) => {
+                        const div = document.createElement('div');
+                        div.className = 'p-2 border rounded mb-2 bg-light small';
+                        div.innerHTML = `
+                            <div class="d-flex justify-content-between">
+                                <strong>${r.review_date}</strong>
+                                <span class="badge bg-warning text-dark">Rating: ${r.rating}/5</span>
+                            </div>
+                            <div class="text-muted mt-1">${r.comments}</div>
+                        `;
+                        return div;
+                    }
+                });
             }
         });
     document.getElementById('staff-review-form').onsubmit = (e) => __awaiter(this, void 0, void 0, function* () {
@@ -14152,7 +15215,7 @@ function renderStudentProfilesList(container) {
             </div>
             <button class="btn btn-primary" onclick="openAddUserModal()"><span class="material-icons align-middle me-1">add</span> New Student</button>
         </div>
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm mb-3">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0" id="profiles-table">
                     <thead class="bg-light">
@@ -14165,41 +15228,58 @@ function renderStudentProfilesList(container) {
                         </tr>
                     </thead>
                     <tbody id="profiles-table-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="profiles-pagination"></div>
     `;
-    appState.allStudents.forEach(s => {
-        html += `
-            <tr class="profile-row" data-name="${s.name.toLowerCase()}">
-                <td class="ps-4">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="rounded-circle bg-light d-flex align-items-center justify-content-center text-primary fw-bold" style="width: 40px; height: 40px; font-size: 14px;">
-                            ${s.name.charAt(0)}
-                        </div>
-                        <div>
-                            <div class="fw-bold text-dark">${s.name}</div>
-                            <small class="text-muted">Joined ${s.joined_date || '2025'}</small>
-                        </div>
-                    </div>
-                </td>
-                <td><span class="font-monospace small bg-light px-2 py-1 rounded border">${s.id}</span></td>
-                <td>
-                    <span class="badge bg-info-subtle text-info text-dark">Grade ${s.grade || 9}</span>
-                </td>
-                <td><span class="badge bg-success-subtle text-success">Active</span></td>
-                <td class="text-end pe-4">
-                    <button class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="openEditStudentModal('${s.id}')">View Profile</button>
-                </td>
-            </tr>
-        `;
-    });
-    html += `</tbody></table></div></div>`;
     container.innerHTML = html;
+
+    window._renderProfilesPage = (data) => {
+        CB.ui.paginate({
+            data: data,
+            container: 'profiles-table-body',
+            paginationContainer: 'profiles-pagination',
+            pageSize: 10,
+            renderRow: (s) => {
+                const tr = document.createElement('tr');
+                tr.className = 'profile-row';
+                tr.dataset.name = s.name.toLowerCase();
+                tr.innerHTML = `
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-light d-flex align-items-center justify-content-center text-primary fw-bold" style="width: 40px; height: 40px; font-size: 14px;">
+                                ${s.name.charAt(0)}
+                            </div>
+                            <div>
+                                <div class="fw-bold text-dark">${s.name}</div>
+                                <small class="text-muted">Joined ${s.joined_date || '2025'}</small>
+                            </div>
+                        </div>
+                    </td>
+                    <td><span class="font-monospace small bg-light px-2 py-1 rounded border">${s.id}</span></td>
+                    <td>
+                        <span class="badge bg-info-subtle text-info text-dark">Grade ${s.grade || 9}</span>
+                    </td>
+                    <td><span class="badge bg-success-subtle text-success">Active</span></td>
+                    <td class="text-end pe-4">
+                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3" onclick="openEditStudentModal('${s.id}')">View Profile</button>
+                    </td>
+                `;
+                return tr;
+            }
+        });
+    };
+
+    window._renderProfilesPage(appState.allStudents);
 }
 function filterProfileList() {
     const term = document.getElementById('profile-search').value.toLowerCase();
-    document.querySelectorAll('.profile-row').forEach(row => {
-        const name = row.getAttribute('data-name');
-        row.style.display = name.includes(term) ? '' : 'none';
-    });
+    const filtered = appState.allStudents.filter(s => s.name.toLowerCase().includes(term));
+    if (window._renderProfilesPage) {
+        window._renderProfilesPage(filtered);
+    }
 }
 // 2. CLASS ASSIGNMMENT MODULE
 function renderClassAssignmentView(container) {
@@ -14572,20 +15652,34 @@ function refreshDocsList(studentId) {
                 list.innerHTML = '<div class="text-muted text-center">No documents found.</div>';
                 return;
             }
-            docs.forEach(d => {
-                const item = document.createElement('div');
-                item.className = 'list-group-item d-flex justify-content-between align-items-center';
-                item.innerHTML = `
-                <div class="d-flex align-items-center gap-3">
-                    <span class="material-icons text-primary">description</span>
-                    <div>
-                        <strong>${d.document_name}</strong>
-                        <div class="small text-muted">${d.document_type} • ${d.upload_date.split('T')[0]}</div>
+            let paginationContainer = document.getElementById('docs-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'docs-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+                list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+            }
+            list.innerHTML = '';
+            CB.ui.paginate({
+                data: docs,
+                container: list,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (d) => {
+                    const item = document.createElement('div');
+                    item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    item.innerHTML = `
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="material-icons text-primary">description</span>
+                        <div>
+                            <strong>${d.document_name}</strong>
+                            <div class="small text-muted">${d.document_type} • ${d.upload_date.split('T')[0]}</div>
+                        </div>
                     </div>
-                </div>
-                <button class="btn btn-sm text-danger" onclick="deleteDocument(${d.id})"><span class="material-icons">delete</span></button>
-            `;
-                list.appendChild(item);
+                    <button class="btn btn-sm text-danger" onclick="deleteDocument(${d.id})"><span class="material-icons">delete</span></button>
+                    `;
+                    return item;
+                }
             });
         }
         catch (e) { }
@@ -14784,60 +15878,76 @@ function renderResources(resources) {
         container.innerHTML = '<div class="col-12 text-center py-5 text-muted">No resources found.</div>';
         return;
     }
-    resources.forEach(res => {
-        const isPolicy = res.category === 'Policy';
-        const isSchedule = res.category === 'Schedule';
-        const isForm = res.category === 'Form';
-        let icon = 'description';
-        let colorClass = 'text-primary';
-        let bgClass = 'bg-primary';
-        // Check file extension
-        const fileExt = res.file_path ? res.file_path.split('.').pop().toLowerCase() : '';
-        if (fileExt === 'pdf') {
-            icon = 'picture_as_pdf';
-            colorClass = 'text-danger';
-            bgClass = 'bg-danger';
-        }
-        else if (['doc', 'docx'].includes(fileExt)) {
-            icon = 'article';
-            colorClass = 'text-primary';
-            bgClass = 'bg-primary';
-        }
-        else if (['xls', 'xlsx'].includes(fileExt)) {
-            icon = 'table_chart';
-            colorClass = 'text-success';
-            bgClass = 'bg-success';
-        }
-        else if (isSchedule) {
-            icon = 'calendar_today';
-            colorClass = 'text-warning';
-            bgClass = 'bg-warning';
-        }
-        else if (isPolicy) {
-            icon = 'gavel';
-            colorClass = 'text-danger';
-            bgClass = 'bg-danger';
-        }
-        else if (isForm) {
-            icon = 'assignment';
-            colorClass = 'text-success';
-            bgClass = 'bg-success';
-        }
-        // Mock download/view action
-        // Construct Full URL
-        // API_BASE_URL usually ends with /api. We need the root for static files.
-        const backendRoot = API_BASE_URL.replace('/api', '');
-        const fullUrl = res.file_path.startsWith('http') ? res.file_path : `${backendRoot}${res.file_path}`;
-        // View Action (Modal or New Tab)
-        const viewAction = `onclick="viewResource('${fullUrl}', '${res.title}', '${fileExt}')"`;
-        // Buttons
-        const actionBtn = `<button ${viewAction} class="btn btn-sm btn-light border fw-medium d-flex align-items-center justify-content-center gap-1 px-3 flex-grow-1 text-nowrap"><span class="material-icons fs-6">visibility</span> View</button>`;
-        let deleteBtn = '';
-        if (appState.role === 'Tenant_Admin' || appState.role === 'Principal' || appState.isSuperAdmin) {
-            deleteBtn = `<button class="btn btn-sm btn-light border text-danger d-flex align-items-center justify-content-center px-2" onclick="deleteResource(${res.id})" title="Delete"><span class="material-icons fs-6">delete</span></button>`;
-        }
-        const html = `
-            <div class="col-md-6 col-lg-4 col-xl-3">
+
+    let pgContainer = document.getElementById('resources-pagination');
+    if (!pgContainer && container.parentElement) {
+        pgContainer = document.createElement('div');
+        pgContainer.id = 'resources-pagination';
+        pgContainer.className = 'mt-4 d-flex justify-content-center w-100';
+        container.parentElement.appendChild(pgContainer);
+    }
+
+    CB.ui.paginate({
+        data: resources,
+        container: 'resources-list-container',
+        paginationContainer: 'resources-pagination',
+        pageSize: 12, // Grid layout works well with 12 (3x4 or 4x3)
+        renderRow: (res) => {
+            const isPolicy = res.category === 'Policy';
+            const isSchedule = res.category === 'Schedule';
+            const isForm = res.category === 'Form';
+            let icon = 'description';
+            let colorClass = 'text-primary';
+            let bgClass = 'bg-primary';
+            // Check file extension
+            const fileExt = res.file_path ? res.file_path.split('.').pop().toLowerCase() : '';
+            if (fileExt === 'pdf') {
+                icon = 'picture_as_pdf';
+                colorClass = 'text-danger';
+                bgClass = 'bg-danger';
+            }
+            else if (['doc', 'docx'].includes(fileExt)) {
+                icon = 'article';
+                colorClass = 'text-primary';
+                bgClass = 'bg-primary';
+            }
+            else if (['xls', 'xlsx'].includes(fileExt)) {
+                icon = 'table_chart';
+                colorClass = 'text-success';
+                bgClass = 'bg-success';
+            }
+            else if (isSchedule) {
+                icon = 'calendar_today';
+                colorClass = 'text-warning';
+                bgClass = 'bg-warning';
+            }
+            else if (isPolicy) {
+                icon = 'gavel';
+                colorClass = 'text-danger';
+                bgClass = 'bg-danger';
+            }
+            else if (isForm) {
+                icon = 'assignment';
+                colorClass = 'text-success';
+                bgClass = 'bg-success';
+            }
+            // Mock download/view action
+            // Construct Full URL
+            // API_BASE_URL usually ends with /api. We need the root for static files.
+            const backendRoot = API_BASE_URL.replace('/api', '');
+            const fullUrl = res.file_path.startsWith('http') ? res.file_path : `${backendRoot}${res.file_path}`;
+            // View Action (Modal or New Tab)
+            const viewAction = `onclick="viewResource('${fullUrl}', '${res.title}', '${fileExt}')"`;
+            // Buttons
+            const actionBtn = `<button ${viewAction} class="btn btn-sm btn-light border fw-medium d-flex align-items-center justify-content-center gap-1 px-3 flex-grow-1 text-nowrap"><span class="material-icons fs-6">visibility</span> View</button>`;
+            let deleteBtn = '';
+            if (appState.role === 'Tenant_Admin' || appState.role === 'Principal' || appState.isSuperAdmin) {
+                deleteBtn = `<button class="btn btn-sm btn-light border text-danger d-flex align-items-center justify-content-center px-2" onclick="deleteResource(${res.id})" title="Delete"><span class="material-icons fs-6">delete</span></button>`;
+            }
+
+            const div = document.createElement('div');
+            div.className = 'col-md-6 col-lg-4 col-xl-3 mb-4';
+            div.innerHTML = `
                 <div class="card h-100 border-0 shadow-sm hover-up transition-hover glass-card-solid">
                     <div class="card-body p-4 d-flex flex-column">
                         <!-- Header -->
@@ -14867,9 +15977,9 @@ function renderResources(resources) {
                         </div>
                     </div>
                 </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', html);
+            `;
+            return div;
+        }
     });
 }
 function viewResource(url, title, ext) {
@@ -15272,27 +16382,32 @@ function loadLMSCatalog() {
 function renderLMSCatalog(courses) {
     const grid = document.getElementById('lms-course-grid');
     grid.innerHTML = '';
+
+    // We want the "Create Course" card to be PREPENDED to the grid. 
+    // And if there are no courses, we might display a message.
+    let staticContent = '';
+
     // "Create Course" Card for Teachers
     if (appState.role === 'Teacher' || appState.isSuperAdmin) {
-        const createCard = document.createElement('div');
-        createCard.className = 'col-md-6 col-lg-4 col-xl-3';
-        createCard.innerHTML = `
-            <div class="card h-100 border-2 border-dashed d-flex align-items-center justify-content-center bg-white text-muted shadow-sm hover-up" 
-                 style="cursor: pointer; min-height: 320px; border-color: #dee2e6 !important;"
-                 data-bs-toggle="modal" data-bs-target="#lmsCreateCourseModal">
-                <div class="text-center p-4">
-                    <div class="bg-light rounded-circle d-inline-flex p-3 mb-3 text-primary">
-                        <span class="material-icons fs-2">add</span>
+        staticContent += `
+            <div class="col-md-6 col-lg-4 col-xl-3 mb-4">
+                <div class="card h-100 border-2 border-dashed d-flex align-items-center justify-content-center bg-white text-muted shadow-sm hover-up" 
+                     style="cursor: pointer; min-height: 320px; border-color: #dee2e6 !important;"
+                     data-bs-toggle="modal" data-bs-target="#lmsCreateCourseModal">
+                    <div class="text-center p-4">
+                        <div class="bg-light rounded-circle d-inline-flex p-3 mb-3 text-primary">
+                            <span class="material-icons fs-2">add</span>
+                        </div>
+                        <h5 class="fw-bold text-dark">Create New Course</h5>
+                        <p class="small text-muted mb-0">Design your curriculum</p>
                     </div>
-                    <h5 class="fw-bold text-dark">Create New Course</h5>
-                    <p class="small text-muted mb-0">Design your curriculum</p>
                 </div>
             </div>
         `;
-        grid.appendChild(createCard);
     }
+
     if (courses.length === 0 && appState.role !== 'Teacher') {
-        grid.innerHTML = `
+        staticContent += `
             <div class="col-12 text-center py-5">
                 <div class="mb-3">
                     <span class="material-icons text-muted" style="font-size: 64px; opacity: 0.3;">school</span>
@@ -15302,37 +16417,63 @@ function renderLMSCatalog(courses) {
             </div>
         `;
     }
-    courses.forEach(course => {
-        const col = document.createElement('div');
-        col.className = 'col-md-6 col-lg-4 col-xl-3';
-        const thumb = course.thumbnail_url || 'https://images.unsplash.com/photo-1501504905252-473c47e087f8?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
-        col.innerHTML = `
-            <div class="card h-100 shadow-sm border-0 overflow-hidden hover-up" style="transition: transform 0.2s, box-shadow 0.2s;">
-                <div class="position-relative">
-                    <div style="height: 160px; background: url('${thumb}') center/cover;"></div>
-                    <span class="badge bg-white text-primary position-absolute top-0 start-0 m-3 shadow-sm px-3 py-2 rounded-pill fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">
-                        ${course.category}
-                    </span>
-                </div>
-                <div class="card-body p-4 d-flex flex-column">
-                    <h5 class="fw-bold mb-2 text-dark text-truncate" title="${course.title}">${course.title}</h5>
-                    <p class="text-muted small flex-grow-1 text-clamp-3" style="line-height: 1.6;">${course.description || 'No description available for this course.'}</p>
-                    
-                    <div class="d-flex align-items-center justify-content-between mt-4 pt-3 border-top border-light">
-                        <div class="d-flex align-items-center">
-                            <span class="material-icons text-warning fs-6 me-1">star</span>
-                            <small class="fw-bold text-dark">4.8</small>
-                            <small class="text-muted ms-1">(24)</small>
+
+    // Set static content first
+    grid.innerHTML = staticContent;
+
+    // We will append a new inner paginated grid container and the paginator box below the current grid.
+    if (courses.length > 0) {
+        let itemsGrid = document.createElement('div');
+        itemsGrid.id = 'lms-course-items';
+        itemsGrid.className = 'row w-100 m-0 p-0';
+        grid.appendChild(itemsGrid);
+
+        let pgContainer = document.getElementById('lms-course-pagination');
+        if (!pgContainer) {
+            pgContainer = document.createElement('div');
+            pgContainer.id = 'lms-course-pagination';
+            pgContainer.className = 'mt-4 d-flex justify-content-center w-100';
+            grid.parentElement.appendChild(pgContainer);
+        }
+
+        CB.ui.paginate({
+            data: courses,
+            container: 'lms-course-items',
+            paginationContainer: 'lms-course-pagination',
+            pageSize: 11, // If teacher card is present, 11+1=12. Better fit for grids.
+            renderRow: (course) => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 col-lg-4 col-xl-3 mb-4';
+                const thumb = course.thumbnail_url || 'https://images.unsplash.com/photo-1501504905252-473c47e087f8?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60';
+                col.innerHTML = `
+                    <div class="card h-100 shadow-sm border-0 overflow-hidden hover-up" style="transition: transform 0.2s, box-shadow 0.2s;">
+                        <div class="position-relative">
+                            <div style="height: 160px; background: url('${thumb}') center/cover;"></div>
+                            <span class="badge bg-white text-primary position-absolute top-0 start-0 m-3 shadow-sm px-3 py-2 rounded-pill fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">
+                                ${course.category}
+                            </span>
                         </div>
-                        <button onclick="launchLMSPlayer(${course.id})" class="btn btn-sm btn-primary rounded-pill px-4 fw-medium">
-                            ${appState.role === 'Teacher' ? 'Manage' : 'Start'}
-                        </button>
+                        <div class="card-body p-4 d-flex flex-column">
+                            <h5 class="fw-bold mb-2 text-dark text-truncate" title="${course.title}">${course.title}</h5>
+                            <p class="text-muted small flex-grow-1 text-clamp-3" style="line-height: 1.6;">${course.description || 'No description available for this course.'}</p>
+                            
+                            <div class="d-flex align-items-center justify-content-between mt-4 pt-3 border-top border-light">
+                                <div class="d-flex align-items-center">
+                                    <span class="material-icons text-warning fs-6 me-1">star</span>
+                                    <small class="fw-bold text-dark">4.8</small>
+                                    <small class="text-muted ms-1">(24)</small>
+                                </div>
+                                <button onclick="launchLMSPlayer(${course.id})" class="btn btn-sm btn-primary rounded-pill px-4 fw-medium">
+                                    ${appState.role === 'Teacher' ? 'Manage' : 'Start'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-        `;
-        grid.appendChild(col);
-    });
+                `;
+                return col;
+            }
+        });
+    }
 }
 function submitLMSCourse() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -15918,37 +17059,43 @@ function loadAttendanceList() {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-center p-4">No students found for this class.</td></tr>';
                 return;
             }
-            data.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                <td class="ps-4">
-                    <div class="d-flex align-items-center">
-                        <div class="bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style="width: 40px; height: 40px;">
-                            ${s.photo_url ? `<img src="${s.photo_url}" class="rounded-circle w-100 h-100 object-fit-cover">` : s.name.substring(0, 2).toUpperCase()}
+            CB.ui.paginate({
+                data: data,
+                container: 'attendance-list-body',
+                paginationContainer: 'attendance-pagination',
+                pageSize: 15, // Showing up to 15 students per page is good for an attendance register
+                renderRow: (s) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style="width: 40px; height: 40px;">
+                                ${s.photo_url ? `<img src="${s.photo_url}" class="rounded-circle w-100 h-100 object-fit-cover">` : s.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                                <div class="fw-bold text-dark">${s.name}</div>
+                                <div class="small text-muted">ID: ${s.id}</div>
+                            </div>
                         </div>
-                        <div>
-                            <div class="fw-bold text-dark">${s.name}</div>
-                            <div class="small text-muted">ID: ${s.id}</div>
+                    </td>
+                    <td class="text-center">
+                         <div class="btn-group" role="group">
+                            <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_p_${s.id}" value="Present" ${s.status === 'Present' || s.status === 'Not Marked' ? 'checked' : ''}>
+                            <label class="btn btn-outline-success btn-sm" for="att_p_${s.id}">Present</label>
+
+                            <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_a_${s.id}" value="Absent" ${s.status === 'Absent' ? 'checked' : ''}>
+                            <label class="btn btn-outline-danger btn-sm" for="att_a_${s.id}">Absent</label>
+
+                            <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_l_${s.id}" value="Late" ${s.status === 'Late' ? 'checked' : ''}>
+                            <label class="btn btn-outline-warning btn-sm" for="att_l_${s.id}">Late</label>
                         </div>
-                    </div>
-                </td>
-                <td class="text-center">
-                     <div class="btn-group" role="group">
-                        <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_p_${s.id}" value="Present" ${s.status === 'Present' || s.status === 'Not Marked' ? 'checked' : ''}>
-                        <label class="btn btn-outline-success btn-sm" for="att_p_${s.id}">Present</label>
-
-                        <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_a_${s.id}" value="Absent" ${s.status === 'Absent' ? 'checked' : ''}>
-                        <label class="btn btn-outline-danger btn-sm" for="att_a_${s.id}">Absent</label>
-
-                        <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_l_${s.id}" value="Late" ${s.status === 'Late' ? 'checked' : ''}>
-                        <label class="btn btn-outline-warning btn-sm" for="att_l_${s.id}">Late</label>
-                    </div>
-                </td>
-                <td class="pe-4">
-                    <input type="text" class="form-control form-control-sm" id="att_rem_${s.id}" placeholder="Note (optional)..." value="${s.remarks || ''}">
-                </td>
-            `;
-                tbody.appendChild(tr);
+                    </td>
+                    <td class="pe-4">
+                        <input type="text" class="form-control form-control-sm" id="att_rem_${s.id}" placeholder="Note (optional)..." value="${s.remarks || ''}">
+                    </td>
+                    `;
+                    return tr;
+                }
             });
         }
         catch (e) {
@@ -15959,20 +17106,25 @@ function loadAttendanceList() {
                 tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger p-4">Error: ${e.message}</td></tr>`;
                 return;
             }
-            fallback.forEach(s => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                <td class="ps-4">
-                    <div class="d-flex align-items-center">
-                        <div class="bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style="width: 40px; height: 40px;">
-                            ${s.photo_url ? `<img src="${s.photo_url}" class="rounded-circle w-100 h-100 object-fit-cover">` : s.name.substring(0, 2).toUpperCase()}
+            CB.ui.paginate({
+                data: fallback,
+                container: 'attendance-list-body',
+                paginationContainer: 'attendance-pagination',
+                pageSize: 15,
+                renderRow: (s) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style="width: 40px; height: 40px;">
+                                ${s.photo_url ? `<img src="${s.photo_url}" class="rounded-circle w-100 h-100 object-fit-cover">` : s.name.substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                                <div class="fw-bold text-dark">${s.name}</div>
+                                <div class="small text-muted">ID: ${s.id}</div>
+                            </div>
                         </div>
-                        <div>
-                            <div class="fw-bold text-dark">${s.name}</div>
-                            <div class="small text-muted">ID: ${s.id}</div>
-                        </div>
-                    </div>
-                </td>
+                    </td>
                 <td class="text-center">
                      <div class="btn-group" role="group">
                         <input type="radio" class="btn-check" name="att_status_${s.id}" id="att_p_${s.id}" value="Present" ${s.status === 'Present' || s.status === 'Not Marked' ? 'checked' : ''}>
@@ -15986,11 +17138,12 @@ function loadAttendanceList() {
                 <td class="pe-4">
                     <input type="text" class="form-control form-control-sm" id="att_rem_${s.id}" placeholder="Note (optional)..." value="${s.remarks || ''}">
                 </td>`;
-                tbody.appendChild(tr);
+                    return tr;
+                }
             });
             const notice = document.createElement('tr');
             notice.innerHTML = `<td colspan="3" class="text-center text-warning small py-2">Attendance API is unavailable. Showing real student records from backup source.</td>`;
-            tbody.appendChild(notice);
+            document.getElementById('attendance-list-body').appendChild(notice);
         }
     });
 }
@@ -16711,23 +17864,37 @@ function loadPendingLeaves() {
                 list.innerHTML = '<div class="list-group-item p-4 text-center text-muted">No pending leave requests.</div>';
                 return;
             }
-            data.forEach(l => {
-                const item = document.createElement('div');
-                item.className = 'list-group-item p-4 mb-3 rounded-4 border shadow-sm';
-                item.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <h5 class="fw-bold mb-1">${l.student_name} <span class="badge bg-light text-dark border">Grade ${l.grade}</span></h5>
-                        <p class="mb-1 text-primary fw-medium">${l.type} • ${l.dates}</p>
-                        <p class="text-muted small mb-0">"${l.reason}"</p>
+            let paginationContainer = document.getElementById('leave-requests-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'leave-requests-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+                list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+            }
+            list.innerHTML = '';
+            CB.ui.paginate({
+                data: data,
+                container: list,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (l) => {
+                    const item = document.createElement('div');
+                    item.className = 'list-group-item p-4 mb-3 rounded-4 border shadow-sm';
+                    item.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="fw-bold mb-1">${l.student_name} <span class="badge bg-light text-dark border">Grade ${l.grade}</span></h5>
+                            <p class="mb-1 text-primary fw-medium">${l.type} • ${l.dates}</p>
+                            <p class="text-muted small mb-0">"${l.reason}"</p>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-danger btn-sm" onclick="handleLeaveAction(${l.id}, 'deny')">Deny</button>
+                            <button class="btn btn-success btn-sm text-white" onclick="handleLeaveAction(${l.id}, 'approve')">Approve</button>
+                        </div>
                     </div>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-outline-danger btn-sm" onclick="handleLeaveAction(${l.id}, 'deny')">Deny</button>
-                        <button class="btn btn-success btn-sm text-white" onclick="handleLeaveAction(${l.id}, 'approve')">Approve</button>
-                    </div>
-                </div>
-            `;
-                list.appendChild(item);
+                `;
+                    return item;
+                }
             });
         }
         catch (e) {
@@ -17131,14 +18298,28 @@ async function loadMyLeaveHistory() {
             return;
         }
 
-        listContainer.innerHTML = '';
-        history.forEach(req => {
-            let badgeClass = 'bg-warning';
-            if (req.status === 'Approved') badgeClass = 'bg-success';
-            if (req.status === 'Denied') badgeClass = 'bg-danger';
+        let paginationContainer = document.getElementById('student-leave-history-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'student-leave-history-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            listContainer.parentNode.insertBefore(paginationContainer, listContainer.nextSibling);
+        }
 
-            const html = `
-                <div class="list-group-item p-3">
+        listContainer.innerHTML = '';
+        CB.ui.paginate({
+            data: history,
+            container: listContainer,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (req) => {
+                let badgeClass = 'bg-warning';
+                if (req.status === 'Approved') badgeClass = 'bg-success';
+                if (req.status === 'Denied') badgeClass = 'bg-danger';
+
+                const div = document.createElement('div');
+                div.className = 'list-group-item p-3';
+                div.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <span class="badge ${badgeClass}">${req.status}</span>
                         <small class="text-muted">${new Date(req.created_at).toLocaleDateString()}</small>
@@ -17146,9 +18327,9 @@ async function loadMyLeaveHistory() {
                     <h6 class="mb-1">${req.type}</h6>
                     <small class="text-muted d-block">${req.start_date} to ${req.end_date}</small>
                     <p class="mb-0 small mt-1 text-secondary">"${req.reason}"</p>
-                </div>
-            `;
-            listContainer.innerHTML += html;
+                `;
+                return div;
+            }
         });
 
     } catch (e) {
@@ -17380,14 +18561,21 @@ async function loadTeacherLeaveApprovals() {
         }
 
         container.innerHTML = '';
-        requests.forEach(req => {
-            const start = new Date(req.start_date);
-            const end = new Date(req.end_date);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-            const html = `
-                <li class="list-group-item p-4 border-light">
+        CB.ui.paginate({
+            data: requests,
+            container: 'leave-approval-list',
+            paginationContainer: 'leave-approval-pagination',
+            pageSize: 10,
+            renderRow: (req) => {
+                const start = new Date(req.start_date);
+                const end = new Date(req.end_date);
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+                const li = document.createElement('li');
+                li.className = 'list-group-item p-4 border-light';
+                li.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center gap-3">
                             <div class="avatar-md bg-soft-warning text-warning rounded-circle d-flex align-items-center justify-content-center fw-bold"
@@ -17414,9 +18602,9 @@ async function loadTeacherLeaveApprovals() {
                             <button onclick="updateLeaveStatus(${req.id}, 'Approved')" class="btn btn-success btn-sm rounded-pill px-4 fw-bold shadow-sm">Approve Request</button>
                         </div>
                     </div>
-                </li>
-            `;
-            container.innerHTML += html;
+                `;
+                return li;
+            }
         });
 
     } catch (e) {
@@ -17467,15 +18655,22 @@ async function loadTeacherLeaveHistory() {
         }
 
         container.innerHTML = '';
-        history.forEach(req => {
-            const statusClass = req.status === 'Approved' ? 'bg-success' : 'bg-danger';
-            const reviewedBy = req.reviewed_by || 'N/A';
-            const studentName = req.name || req.user_id;
-            const grade = req.grade || '-';
-            const createdAt = req.created_at ? new Date(req.created_at).toLocaleDateString() : '-';
 
-            const html = `
-                <li class="list-group-item p-4 border-light">
+        CB.ui.paginate({
+            data: history,
+            container: 'leave-approval-list',
+            paginationContainer: 'leave-approval-pagination',
+            pageSize: 10,
+            renderRow: (req) => {
+                const statusClass = req.status === 'Approved' ? 'bg-success' : 'bg-danger';
+                const reviewedBy = req.reviewed_by || 'N/A';
+                const studentName = req.name || req.user_id;
+                const grade = req.grade || '-';
+                const createdAt = req.created_at ? new Date(req.created_at).toLocaleDateString() : '-';
+
+                const li = document.createElement('li');
+                li.className = 'list-group-item p-4 border-light';
+                li.innerHTML = `
                     <div class="d-flex justify-content-between align-items-start gap-3">
                         <div>
                             <h6 class="mb-1 fw-bold text-dark">${studentName} <span class="badge bg-light text-muted border fw-normal ms-2">Grade ${grade}</span></h6>
@@ -17488,9 +18683,9 @@ async function loadTeacherLeaveHistory() {
                             <div class="small text-muted">Applied: ${createdAt}</div>
                         </div>
                     </div>
-                </li>
-            `;
-            container.innerHTML += html;
+                `;
+                return li;
+            }
         });
 
         if (usingMyHistoryFallback) {
@@ -17837,15 +19032,32 @@ async function loadEmailInbox() {
             list.innerHTML = '<div class="p-4 text-center text-muted">No messages.</div>';
             return;
         }
-        list.innerHTML = data.map(e => renderEmailListItem(e, true)).join('');
-        list.querySelectorAll('[data-email-id]').forEach((el) => {
-            el.addEventListener('click', async () => {
-                const id = el.getAttribute('data-email-id');
+        let paginationContainer = document.getElementById('email-inbox-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'email-inbox-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+        }
+        list.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: list,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (e) => {
+                const div = document.createElement('div');
+                div.innerHTML = renderEmailListItem(e, true);
+                const actualNode = div.firstElementChild;
+                const id = actualNode.getAttribute('data-email-id');
                 if (id) {
-                    await fetchAPI(`/email/${id}/read`, { method: 'PUT' });
-                    el.classList.remove('bg-light');
+                    actualNode.addEventListener('click', async () => {
+                        await fetchAPI(`/email/${id}/read`, { method: 'PUT' });
+                        actualNode.classList.remove('bg-light');
+                    });
                 }
-            });
+                return actualNode;
+            }
         });
     } catch (e) {
         list.innerHTML = `<div class="p-4 text-center text-danger">${e.message}</div>`;
@@ -17864,7 +19076,21 @@ async function loadEmailSent() {
             list.innerHTML = '<div class="p-4 text-center text-muted">No sent messages.</div>';
             return;
         }
-        list.innerHTML = data.map(e => renderEmailListItem(e, false)).join('');
+        let paginationContainer = document.getElementById('email-sent-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'email-sent-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+        }
+        list.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: list,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (e) => renderEmailListItem(e, false)
+        });
     } catch (e) {
         list.innerHTML = `<div class="p-4 text-center text-danger">${e.message}</div>`;
     }
@@ -17914,7 +19140,21 @@ async function loadParentEmailInbox() {
             list.innerHTML = '<div class="p-4 text-center text-muted">No messages.</div>';
             return;
         }
-        list.innerHTML = data.map(e => renderEmailListItem(e, true)).join('');
+        let paginationContainer = document.getElementById('parent-email-inbox-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'parent-email-inbox-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+        }
+        list.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: list,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (e) => renderEmailListItem(e, true)
+        });
     } catch (e) {
         list.innerHTML = `<div class="p-4 text-center text-danger">${e.message}</div>`;
     }
@@ -17932,7 +19172,21 @@ async function loadParentEmailSent() {
             list.innerHTML = '<div class="p-4 text-center text-muted">No sent messages.</div>';
             return;
         }
-        list.innerHTML = data.map(e => renderEmailListItem(e, false)).join('');
+        let paginationContainer = document.getElementById('parent-email-sent-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'parent-email-sent-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+        }
+        list.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: list,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (e) => renderEmailListItem(e, false)
+        });
     } catch (e) {
         list.innerHTML = `<div class="p-4 text-center text-danger">${e.message}</div>`;
     }
@@ -17979,15 +19233,34 @@ async function loadNotificationsInto(listId) {
             list.innerHTML = '<div class="p-4 text-center text-muted">No notifications.</div>';
             return;
         }
-        list.innerHTML = data.map(renderNotificationListItem).join('');
-        list.querySelectorAll('[data-notif-id]').forEach((el) => {
-            el.addEventListener('click', async () => {
-                const id = el.getAttribute('data-notif-id');
-                if (!id)
-                    return;
-                await fetchAPI(`/notifications/${id}/read`, { method: 'PUT' });
-                el.classList.remove('bg-light');
-            });
+        let paginationContainer = document.getElementById(`${listId}-pagination`);
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = `${listId}-pagination`;
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+            list.parentNode.insertBefore(paginationContainer, list.nextSibling);
+        }
+
+        list.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: list,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (n) => {
+                const div = document.createElement('div');
+                div.innerHTML = renderNotificationListItem(n);
+                const actualNode = div.firstElementChild;
+
+                const notifId = actualNode.getAttribute('data-notif-id');
+                if (notifId) {
+                    actualNode.addEventListener('click', async () => {
+                        await fetchAPI(`/notifications/${notifId}/read`, { method: 'PUT' });
+                        actualNode.classList.remove('bg-light');
+                    });
+                }
+                return actualNode;
+            }
         });
     }
     catch (e) {
@@ -18061,16 +19334,28 @@ async function loadQuestionBanks() {
                 return;
             }
 
-            banks.forEach(qb => {
-                const date = new Date(qb.created_at).toLocaleDateString();
-                const icon = qb.file_path.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description';
-                // Construct full URL assuming backend is relative to API base
-                // If API_BASE_URL ends in /api, strip it
-                const backendRoot = API_BASE_URL.endsWith('/api') ? API_BASE_URL.slice(0, -4) : API_BASE_URL;
-                const downloadUrl = `${backendRoot}${qb.file_path}`;
+            let paginationContainer = document.getElementById('question-bank-pagination');
+            if (!paginationContainer) {
+                paginationContainer = document.createElement('div');
+                paginationContainer.id = 'question-bank-pagination';
+                paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center';
+                container.parentNode.insertBefore(paginationContainer, container.nextSibling);
+            }
+            container.innerHTML = '';
+            CB.ui.paginate({
+                data: banks,
+                container: container,
+                paginationContainer: paginationContainer,
+                pageSize: 10,
+                renderRow: (qb) => {
+                    const date = new Date(qb.created_at).toLocaleDateString();
+                    const icon = qb.file_path.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description';
+                    const backendRoot = API_BASE_URL.endsWith('/api') ? API_BASE_URL.slice(0, -4) : API_BASE_URL;
+                    const downloadUrl = `${backendRoot}${qb.file_path}`;
 
-                const html = `
-                    <div class="list-group-item p-3 d-flex justify-content-between align-items-center">
+                    const div = document.createElement('div');
+                    div.className = 'list-group-item p-3 d-flex justify-content-between align-items-center';
+                    div.innerHTML = `
                         <div class="d-flex align-items-center">
                             <div class="icon-circle bg-light me-3 text-primary">
                                 <span class="material-icons">${icon}</span>
@@ -18083,9 +19368,9 @@ async function loadQuestionBanks() {
                         <a href="${downloadUrl}" target="_blank" class="btn btn-outline-primary btn-sm rounded-pill px-3">
                             <span class="material-icons align-middle fs-6 me-1">download</span> Download
                         </a>
-                    </div>
-                `;
-                container.innerHTML += html;
+                    `;
+                    return div;
+                }
             });
 
         } else {
@@ -19200,17 +20485,28 @@ async function loadAttendanceSheetData() {
             return;
         }
 
-        // Generate Table Rows
-        let html = '';
-        data.forEach(s => {
-            // Determine status style
-            let badgeClass = 'bg-secondary-subtle text-secondary';
-            if (s.status === 'Present') badgeClass = 'bg-success-subtle text-success';
-            if (s.status === 'Absent') badgeClass = 'bg-danger-subtle text-danger';
-            if (s.status === 'Late') badgeClass = 'bg-warning-subtle text-warning-emphasis';
+        let paginationContainer = document.getElementById('sheet-view-pagination');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.id = 'sheet-view-pagination';
+            paginationContainer.className = 'mt-3 mb-3 d-flex justify-content-center w-100';
+            tbody.parentNode.parentNode.insertBefore(paginationContainer, tbody.parentNode.nextSibling); // after the table container
+        }
 
-            html += `
-                <tr>
+        tbody.innerHTML = '';
+        CB.ui.paginate({
+            data: data,
+            container: tbody,
+            paginationContainer: paginationContainer,
+            pageSize: 10,
+            renderRow: (s) => {
+                let badgeClass = 'bg-secondary-subtle text-secondary';
+                if (s.status === 'Present') badgeClass = 'bg-success-subtle text-success';
+                if (s.status === 'Absent') badgeClass = 'bg-danger-subtle text-danger';
+                if (s.status === 'Late') badgeClass = 'bg-warning-subtle text-warning-emphasis';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
                     <td class="ps-4">
                         <div class="d-flex align-items-center">
                             <div class="bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center me-3 fw-bold" style="width: 40px; height: 40px;">
@@ -19228,11 +20524,10 @@ async function loadAttendanceSheetData() {
                     <td class="pe-4 text-muted fst-italic">
                         ${s.remarks || '-'}
                     </td>
-                </tr>
-            `;
+                `;
+                return tr;
+            }
         });
-
-        tbody.innerHTML = html;
 
     } catch (e) {
         console.error(e);
@@ -19273,12 +20568,13 @@ window.loadRoleDetails = loadRoleDetails;
 window.openRoleModal = openRoleModal;
 window.loadPermissionsForModal = loadPermissionsForModal;
 window._renderPermissionsCheckboxes = _renderPermissionsCheckboxes;
-window._onPermCheckChange = _onPermCheckChange;
 window._removePermTag = _removePermTag;
 window._updatePermCount = _updatePermCount;
 window._getSelectedPermCodes = _getSelectedPermCodes;
 window._updateSelectedPermsTags = _updateSelectedPermsTags;
 window.filterRolePermissions = filterRolePermissions;
+window.clearAllPermissions = clearAllPermissions;
+window._moveToSelected = _moveToSelected;
 window.handleSaveRole = handleSaveRole;
 window.deleteRole = deleteRole;
 window.loadPermissionsSetup = loadPermissionsSetup;
@@ -19451,10 +20747,24 @@ window.handleUpdateSchool = handleUpdateSchool;
 window.handleDeleteSchool = handleDeleteSchool;
 window.openUserManagement = openUserManagement;
 window.loadUserList = loadUserList;
+window.loadUserManagementStats = loadUserManagementStats;
+window.filterUserList = filterUserList;
+window.clearUserSearch = clearUserSearch;
 window.openAddUserModal = openAddUserModal;
 window.toggleUserFields = toggleUserFields;
 window.handleCreateUser = handleCreateUser;
+window.handleUpdateUser = handleUpdateUser;
 window.showAuditLogs = showAuditLogs;
+window.viewUser = viewUser;
+window.editUser = editUser;
+window.deleteUser = deleteUser;
+window.saveEditUser = saveEditUser;
+window.cuGoStep = cuGoStep;
+window.cuNextStep = cuNextStep;
+window.euGoStep = euGoStep;
+window.euNextStep = euNextStep;
+window.addGuardianRow = addGuardianRow;
+window.removeGuardianRow = removeGuardianRow;
 window.initBackgroundPaths = initBackgroundPaths;
 window.initAllAnimations = initAllAnimations;
 window.initGlowingEffect = initGlowingEffect;
@@ -19669,6 +20979,3 @@ window.handleCreatePDFExam = handleCreatePDFExam;
 window.initProgressEnterView = initProgressEnterView;
 window.initProgressPublishView = initProgressPublishView;
 window.loadAttendanceSheetData = loadAttendanceSheetData;
-
-
-

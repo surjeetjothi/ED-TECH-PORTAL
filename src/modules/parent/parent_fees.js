@@ -3,7 +3,7 @@ async function loadParentFeesView() {
     const view = document.getElementById('parent-fees-view');
     if (!view)
         return;
-    view.innerHTML = '<div class="text-center py-5"><span class="spinner-border text-primary"></span><p class="text-muted mt-2">Loading child fee data...</p></div>';
+    view.innerHTML = CB.ui.spinner('Loading child fee data...', 'lg');
     try {
         const res = await fetchAPI('/finance/fees/child');
         const payload = await res.json().catch(() => ({}));

@@ -4,7 +4,7 @@ function loadResources() {
         const container = document.getElementById('resources-list-container');
         if (!container)
             return;
-        container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
+        container.innerHTML = CB.ui.spinner('Loading resources...');
         try {
             const effectiveSchoolId = appState.schoolId || appState.activeSchoolId || 1;
             const normalizedCategory = normalizeResourceCategory(category);
@@ -364,7 +364,7 @@ function handleUploadResourceView(e) {
         try {
             // Show loading state
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading...';
+            CB.ui.btnLoading(btn, 'Uploading...');
             let response;
             if (useTemplatePublish) {
                 response = yield fetchAPI('/resources/form-templates', {

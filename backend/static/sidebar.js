@@ -314,16 +314,17 @@ function getSidebarConfig(role) {
         ];
     }
     // Default to Admin/Principal structure (Existing fallback)
+    const hideLegacySuperAdminSections = appState.isSuperAdmin || ['Root_Super_Admin', 'Super_Admin', 'Super Admin'].includes(appState.role || '');
     const items = [
         { label: 'sidebar_dashboard', icon: 'dashboard', view: 'teacher-view', onClick: () => handleTeacherViewToggle('teacher-view') },
-        {
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'Classes', icon: 'class', id: 'cat-classes',
             children: [
                 { label: 'Create Class', view: 'create-class-view', route: '/teacher/classes/create' },
                 { label: 'Manage Classes', view: 'teacher-class-management-view', route: '/teacher/classes/manage', onClick: () => handleTeacherViewToggle('teacher-class-management-view') },
             ]
-        },
-        {
+        }] : []),
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'sidebar_students', icon: 'school', id: 'cat-students',
             children: [
                 {
@@ -340,7 +341,7 @@ function getSidebarConfig(role) {
                 },
                 { label: 'sidebar_student_list', view: 'student-info-view', route: '/teacher/students/list', onClick: () => handleTeacherViewToggle('student-info-view') }
             ]
-        },
+        }] : []),
         {
             label: 'sidebar_reports', icon: 'bar_chart', id: 'cat-reports',
             children: [
@@ -348,14 +349,14 @@ function getSidebarConfig(role) {
                 { label: 'sidebar_performance_report', view: 'performance-report-view', route: '/teacher/reports/performance' }
             ]
         },
-        {
+        ...(!hideLegacySuperAdminSections ? [{
             label: 'sidebar_approve_leave', icon: 'fact_check', id: 'cat-approvals',
             view: 'attendance-leave-approval-view', route: '/admin/approvals',
             onClick: () => {
                 switchView('attendance-leave-approval-view');
                 if (typeof loadTeacherLeaveApprovals === 'function') loadTeacherLeaveApprovals();
             }
-        }
+        }] : [])
     ];
     const isFinanceAdmin = ['Finance_Officer', 'Root_Super_Admin', 'finance_admin', 'accountant', 'payroll_officer'].includes(appState.role);
     const isFinancePrincipal = appState.role === 'Principal';
@@ -439,14 +440,25 @@ function getSidebarConfig(role) {
         ]
     });
     items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
-    if (hasPermission('role_management')) {
+    if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
         items.push({
-            label: 'sidebar_roles_perms',
-            icon: 'security',
-            view: 'role-management-view',
+            label: 'Role Management',
+            icon: 'manage_accounts',
+            view: 'roles-view',
             onClick: () => {
-                handleTeacherViewToggle('role-management-view');
+                switchView('roles-view');
                 loadRoles();
+            }
+        });
+    }
+    if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
+        items.push({
+            label: 'Permission Setup',
+            icon: 'vpn_key',
+            view: 'permissions-view',
+            onClick: () => {
+                switchView('permissions-view');
+                loadPermissionsSetup();
             }
         });
     }

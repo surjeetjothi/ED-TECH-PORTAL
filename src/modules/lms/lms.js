@@ -4,7 +4,7 @@ function loadLMSCatalog() {
         const search = document.getElementById('lms-search').value;
         const category = document.getElementById('lms-category-filter').value;
         const grid = document.getElementById('lms-course-grid');
-        grid.innerHTML = '<div class="text-center p-5"><div class="spinner-border text-primary"></div></div>';
+        grid.innerHTML = CB.ui.spinner('Loading courses...');
         // Switch View if not already
         if (!document.getElementById('lms-catalog-view').classList.contains('active')) {
             switchView('lms-catalog-view');
@@ -465,7 +465,7 @@ function submitLMSQuiz(moduleId) {
         const submitBtn = document.querySelector(`button[onclick="submitLMSQuiz(${moduleId})"]`);
         if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Grading...';
+            CB.ui.btnLoading(submitBtn, 'Grading...');
         }
         try {
             for (let idx = 0; idx < questions.length; idx++) {

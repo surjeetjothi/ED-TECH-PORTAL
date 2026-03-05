@@ -93,8 +93,14 @@ def _verify_totp_code(secret_key: str, submitted_code: str, step_seconds: int = 
 async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
     # Reload .env on each login so auth toggles (like ENABLE_2FA) take effect immediately.
     from dotenv import load_dotenv
-    env_path_local = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    # Walk up to backend/ root to find the .env (not the routers subdirectory)
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    env_path_local = os.path.join(_this_dir, ".env")
+    if not os.path.exists(env_path_local):
+        # Try backend/ root (two levels up from app/routers/)
+        env_path_local = os.path.join(_this_dir, "..", "..", ".env")
     load_dotenv(dotenv_path=env_path_local, override=True)
+
     teacher_login_alias = os.getenv("TEACHER_LOGIN_ALIAS", TEACHER_LOGIN_ALIAS)
     admin_login_email = os.getenv("ADMIN_LOGIN_EMAIL", ADMIN_LOGIN_EMAIL)
     admin_login_password = os.getenv("ADMIN_LOGIN_PASSWORD", ADMIN_LOGIN_PASSWORD)
@@ -491,7 +497,6 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
             conn.close()
             remaining = 5 - new_attempts
             logger.warning(f"Login failed for user: {auth_user_id} - Invalid password.")
-            log_auth_event(auth_user_id, "Login Failed", f"Invalid password.")
             log_auth_event(auth_user_id, "Login Failed", f"Invalid password.")
             raise HTTPException(status_code=401, detail=f"Invalid credentials. {remaining} attempts remaining.")
 

@@ -4,13 +4,13 @@ function loadPendingLeaves() {
         const list = document.getElementById('leave-requests-list');
         if (!list)
             return;
-        list.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
+        list.innerHTML = CB.ui.spinner('Loading leave requests...');
         try {
             const res = yield fetchAPI('/leave/student/pending');
             const data = yield res.json();
             list.innerHTML = '';
             if (data.length === 0) {
-                list.innerHTML = '<div class="list-group-item p-4 text-center text-muted">No pending leave requests.</div>';
+                list.innerHTML = CB.ui.empty('No pending leave requests.', 'event_busy');
                 return;
             }
             data.forEach(l => {
@@ -174,7 +174,7 @@ function loadStudentLeaveView() {
 
 async function loadMyLeaveHistory() {
     const listContainer = document.getElementById('student-leave-history-list');
-    listContainer.innerHTML = '<div class="text-center p-3">Loading...</div>';
+    listContainer.innerHTML = CB.ui.spinner('Loading...');
 
     try {
         const res = await fetchAPI(`/leave/my-history?user_id=${appState.userId}`);
@@ -185,7 +185,7 @@ async function loadMyLeaveHistory() {
         const history = await res.json();
 
         if (history.length === 0) {
-            listContainer.innerHTML = '<div class="text-center p-4 text-muted">No leave history found.</div>';
+            listContainer.innerHTML = CB.ui.empty('No leave history found.', 'event_busy');
             return;
         }
 
@@ -218,7 +218,7 @@ async function loadParentFeesView() {
     const view = document.getElementById('parent-fees-view');
     if (!view)
         return;
-    view.innerHTML = '<div class="text-center py-5"><span class="spinner-border text-primary"></span><p class="text-muted mt-2">Loading child fee data...</p></div>';
+    view.innerHTML = CB.ui.spinner('Loading child fee data...', 'lg');
     try {
         const res = await fetchAPI('/finance/fees/child');
         const payload = await res.json().catch(() => ({}));
@@ -422,7 +422,7 @@ async function loadTeacherLeaveApprovals() {
     const container = document.getElementById('leave-approval-list');
     if (!container) return;
 
-    container.innerHTML = '<div class="text-center p-5">Loading requests...</div>';
+    container.innerHTML = CB.ui.spinner('Loading requests...');
 
     try {
         const res = await fetchAPI('/leave/pending');
@@ -433,7 +433,7 @@ async function loadTeacherLeaveApprovals() {
         if (pendingTab) pendingTab.textContent = `Pending (${requests.length})`;
 
         if (requests.length === 0) {
-            container.innerHTML = '<div class="text-center p-5 text-muted">No pending leave requests.</div>';
+            container.innerHTML = CB.ui.empty('No pending leave requests.', 'event_busy');
             return;
         }
 

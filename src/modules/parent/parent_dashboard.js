@@ -23,7 +23,7 @@ function loadParentChildData() {
         appState.activeStudentId = childId;
         contentDiv.classList.remove('d-none');
         nameSpan.textContent = "Loading...";
-        metricsDiv.innerHTML = '<div class="spinner-border text-primary"></div>';
+        metricsDiv.innerHTML = CB.ui.spinner('Loading...');
         try {
             // Reuse the student data endpoint (Observer pattern)
             const response = yield fetchAPI(`/students/${childId}/data`);

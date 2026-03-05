@@ -1827,6 +1827,15 @@ function t(key, params = {}) {
     }
     return text;
 }
+// Language metadata used to update the navbar button and lazy-load flags
+const _langMeta = {
+    en: { flag: 'us', label: 'English' },
+    es: { flag: 'es', label: 'Español' },
+    ar: { flag: 'sa', label: 'العربية' },
+    hi: { flag: 'in', label: 'हिन्दी' },
+    ja: { flag: 'jp', label: '日本語' }
+};
+
 function changeLanguage(lang) {
     currentLanguage = lang;
     localStorage.setItem('appLanguage', lang);
@@ -1867,6 +1876,17 @@ function updateTranslations() {
             locale = 'en-US';
         calDate.textContent = now.toLocaleDateString(locale, opts);
     }
+    // 4. Update the navbar language button (flag + text)
+    const meta = _langMeta[currentLanguage] || _langMeta['en'];
+    const langFlagImg = document.getElementById('current-lang-flag');
+    const langBtnText = document.getElementById('current-lang-text');
+    if (langFlagImg) {
+        langFlagImg.src = `https://flagcdn.com/w40/${meta.flag}.png`;
+        langFlagImg.alt = meta.label;
+    }
+    if (langBtnText) {
+        langBtnText.textContent = meta.label;
+    }
     // Update global selector value if called programmatically
     const globalToggle = document.getElementById('global-lang-toggle');
     if (globalToggle)
@@ -1884,41 +1904,8 @@ function updateGlobalLanguageControlVisibility(currentViewId = null) {
 }
 
 function ensureGlobalLanguageControl() {
-    if (document.getElementById('global-language-control'))
-        return;
-    const host = document.createElement('div');
-    host.id = 'global-language-control';
-    host.style.position = 'fixed';
-    host.style.top = '16px';
-    host.style.right = '20px';
-    host.style.zIndex = '99999';
-    host.style.background = 'rgba(255,255,255,0.95)';
-    host.style.border = '1px solid #e5e7eb';
-    host.style.borderRadius = '12px';
-    host.style.padding = '6px 10px';
-    host.style.boxShadow = '0 6px 20px rgba(15,23,42,0.12)';
-    host.style.alignItems = 'center';
-    host.style.gap = '8px';
-    host.innerHTML = `
-        <span class="material-icons" style="font-size:18px;color:#6b7280;">language</span>
-        <select id="global-lang-toggle" aria-label="Global Language" style="border:0;background:transparent;outline:none;font-weight:600;color:#374151;min-width:106px;">
-            <option value="en">English</option>
-            <option value="es">Español</option>
-            <option value="ar">العربية</option>
-            <option value="hi">हिन्दी</option>
-            <option value="ja">日本語</option>
-        </select>
-    `;
-    document.body.appendChild(host);
-    const sel = document.getElementById('global-lang-toggle');
-    if (sel) {
-        sel.value = currentLanguage;
-        sel.addEventListener('change', (e) => {
-            const next = e.target && e.target.value ? e.target.value : 'en';
-            changeLanguage(next);
-        });
-    }
-    updateGlobalLanguageControlVisibility();
+    // Disabled: Used to inject a float language selector, but we now have one in the navbar.
+    return;
 }
 // Initialize Language on Load
 // Initialize Language & Auth on Load

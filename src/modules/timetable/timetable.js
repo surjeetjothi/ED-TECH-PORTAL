@@ -105,7 +105,7 @@ function loadTimetable() {
         const container = document.getElementById(isParent ? 'parent-timetable-view' : 'timetable-view');
         if (!container)
             return;
-        container.innerHTML = '<div class="text-center py-5"><span class="spinner-border text-primary"></span><p class="text-muted mt-2">Loading timetable...</p></div>';
+        container.innerHTML = CB.ui.spinner('Loading timetable...', 'lg');
         const isStudent = appState.role === 'Student' || isParent;
         let endpoint = isStudent ? '/timetable/student/my' : `/timetable/teacher/${encodeURIComponent(appState.userId || '')}`;
         let pdfEndpoint = isStudent ? '/timetable/student/my/pdfs' : '/timetable/teacher/my/pdfs';

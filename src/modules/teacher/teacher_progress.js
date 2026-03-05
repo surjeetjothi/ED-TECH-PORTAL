@@ -205,7 +205,7 @@ async function loadProgressReportView() {
     }
 }
 async function loadProgressCardForStudent(studentId, container) {
-    container.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
+    container.innerHTML = CB.ui.spinner('Loading progress card...');
     try {
         const data = await fetchProgressCard(studentId);
         renderProgressCard(data, container);
@@ -218,7 +218,7 @@ async function loadParentProgressCardView() {
     const container = ensureParentProgressCardViewLayout();
     if (!container)
         return;
-    container.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
+    container.innerHTML = CB.ui.spinner('Loading progress card...');
     try {
         const data = await fetchMyProgressCard();
         renderProgressCard(data, container, true);
@@ -237,7 +237,7 @@ async function loadStudentProgressCardView() {
         container.innerHTML = '<div class="text-center text-muted py-4">Student session not found.</div>';
         return;
     }
-    container.innerHTML = '<div class="text-center p-4"><span class="spinner-border text-primary"></span></div>';
+    container.innerHTML = CB.ui.spinner('Loading progress card...');
     try {
         const data = await fetchMyProgressCard();
         renderProgressCard(data, container, true);

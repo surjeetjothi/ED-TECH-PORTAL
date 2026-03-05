@@ -87,7 +87,7 @@ function loadAttendanceList() {
         const grade = document.getElementById('att-target-grade').value;
         const date = document.getElementById('att-date').value;
         const tbody = document.getElementById('attendance-list-body');
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center p-4"><span class="spinner-border text-primary"></span></td></tr>';
+        tbody.innerHTML = CB.ui.tableSpinner(3);
         try {
             const res = yield fetchAPI(`/attendance/class/${grade}?date=${date}`);
             const data = yield res.json();
@@ -230,7 +230,7 @@ function saveAttendanceRecord() {
         const original = btn ? btn.innerHTML : 'Save Record';
         try {
             if (btn) {
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+                CB.ui.btnLoading(btn, 'Saving...');
             }
             const res = yield fetchAPI('/attendance/bulk', {
                 method: 'POST',
@@ -289,7 +289,7 @@ function loadAttendanceViewList() {
         const container = document.getElementById('attendance-view-list-body');
         if (!container) return; // Guard
 
-        container.innerHTML = '<div class="text-center p-5"><div class="spinner-border text-primary"></div><p>Loading...</p></div>';
+        container.innerHTML = CB.ui.spinner('Loading...', 'lg');
 
         try {
             const res = yield fetchAPI(`/attendance/class/${grade}?date=${date}`);
@@ -422,7 +422,7 @@ function saveAttendanceViewRecord() {
 
         try {
             const btn = document.querySelector('button[onclick="saveAttendanceViewRecord()"]');
-            if (btn) btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+            if (btn) CB.ui.btnLoading(btn, 'Saving...');
 
             const res = yield fetchAPI('/attendance/bulk', {
                 method: 'POST',
@@ -476,14 +476,8 @@ function saveAttendanceViewRecord() {
 // Better: Add a global listener for hash change or view change if possible.
 // Or, initialize it if the element exists on page load (if SPA state persists)
 
-// Initialize Default Date on Load
-document.addEventListener('DOMContentLoaded', () => {
-    const d = document.getElementById('att-view-date');
-    if (d) {
-        d.valueAsDate = new Date();
-        loadAttendanceViewList();
-    }
-});
+// Note: initialization is handled by the VIEW_LOADERS registry in cb_view_registry.js
+// when the user navigates to 'attendance-take-view'.
 // --- TIMETABLE & LEAVE ---
 
 // --- Window bindings for inline HTML onclick handlers ---

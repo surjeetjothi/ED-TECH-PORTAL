@@ -1,7 +1,0 @@
-__pycache__/
-*.pyc
-.env
-# Allowing databases and resources as requested
-# *.db 
-# *.sqlite3
-# static/resources/*

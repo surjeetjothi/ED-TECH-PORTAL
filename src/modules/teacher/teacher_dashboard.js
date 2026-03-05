@@ -231,7 +231,7 @@ function handleAddMaterial(e) {
 }
 function loadClassMaterials() {
     return __awaiter(this, void 0, void 0, function* () {
-        elements.materialsList.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+        elements.materialsList.innerHTML = CB.ui.spinner('Loading materials...');
         try {
             const response = yield fetchAPI('/materials/all');
             if (response.ok) {
@@ -468,18 +468,7 @@ document.getElementById('confirm-delete-btn').onclick = () => __awaiter(this, vo
             elements.deleteConfirmationModal.hide();
             initializeDashboard(); // Refresh list
             // Show small toast or alert
-            const toast = document.createElement('div');
-            toast.className = 'position-fixed bottom-0 end-0 p-3';
-            toast.style.zIndex = '1100';
-            toast.innerHTML = `
-                        <div class="toast show align-items-center text-white bg-success border-0" role="alert">
-                            <div class="d-flex">
-                                <div class="toast-body">Student deleted successfully.</div>
-                                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                            </div>
-                        </div>`;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            CB.ui.toast('Student deleted successfully.', 'success');
         }
         else {
             const data = yield response.json();

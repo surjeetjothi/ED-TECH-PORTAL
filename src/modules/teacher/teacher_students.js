@@ -182,18 +182,7 @@ document.getElementById('confirm-delete-btn').onclick = () => __awaiter(this, vo
             elements.deleteConfirmationModal.hide();
             initializeDashboard(); // Refresh list
             // Show small toast or alert
-            const toast = document.createElement('div');
-            toast.className = 'position-fixed bottom-0 end-0 p-3';
-            toast.style.zIndex = '1100';
-            toast.innerHTML = `
-                        <div class="toast show align-items-center text-white bg-success border-0" role="alert">
-                            <div class="d-flex">
-                                <div class="toast-body">Student deleted successfully.</div>
-                                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                            </div>
-                        </div>`;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            CB.ui.toast('Student deleted successfully.', 'success');
         }
         else {
             const data = yield response.json();
@@ -321,7 +310,7 @@ function handleAddActivity(e) {
 function renderTeacherDashboard() {
     return __awaiter(this, void 0, void 0, function* () {
         switchView('teacher-view');
-        elements.teacherMetrics.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+        elements.teacherMetrics.innerHTML = CB.ui.spinner('Loading dashboard...');
         elements.rosterTable.innerHTML = '';
         if (window.Plotly) Plotly.purge(elements.classPerformanceChart);
         try {
@@ -419,7 +408,7 @@ function openAccessCardModal(studentId) {
         const listEl = document.getElementById('card-codes-list');
         nameEl.textContent = "Loading...";
         idEl.textContent = studentId;
-        listEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div>';
+        listEl.innerHTML = CB.ui.spinner('', 'sm');
         try {
             const response = yield fetchAPI(`/teacher/students/${studentId}/codes`);
             if (response.ok) {

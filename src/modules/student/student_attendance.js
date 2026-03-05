@@ -4,7 +4,7 @@ function loadStudentAttendanceView() {
         const view = document.getElementById('parent-attendance-view');
         if (!view)
             return;
-        view.innerHTML = '<div class="text-center py-5"><span class="spinner-border text-primary"></span><p class="text-muted mt-2">Loading attendance...</p></div>';
+        view.innerHTML = CB.ui.spinner('Loading attendance...', 'lg');
         try {
             const now = new Date();
             const selectedMonth = Number(view.dataset.selectedMonth || (now.getMonth() + 1));

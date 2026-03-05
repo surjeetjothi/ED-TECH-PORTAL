@@ -28,7 +28,7 @@ IS_PRODUCTION = os.getenv("RENDER") == "true" or (USE_POSTGRES and "postgres" in
 
 REDIS_URL = os.getenv("REDIS_URL")
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com")
 
 # --- EMAIL CONFIGURATION ---
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")

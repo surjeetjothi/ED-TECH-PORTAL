@@ -371,6 +371,107 @@ class AddUserRequest(BaseModel):
     grade: Optional[int] = 0
     preferred_subject: Optional[str] = "All"
 
+
+class UserGuardianRequest(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    primary_phone: Optional[str] = ""
+    mobile_phone: Optional[str] = ""
+
+
+class UserGuardianResponse(BaseModel):
+    id: int
+    user_id: str
+    first_name: str
+    last_name: str
+    email: str
+    primary_phone: Optional[str] = ""
+    mobile_phone: Optional[str] = ""
+
+
+class CreateUserExtendedRequest(BaseModel):
+    # --- Section 1: Primary Details ---
+    username: str
+    first_name: str
+    last_name: str
+    email: str
+    password: str
+    role: str                              # primary / legacy role
+    roles: Optional[List[str]] = []        # multi-role assignment
+    # --- Section 2: Contact Info ---
+    primary_phone: Optional[str] = ""
+    mobile_phone: Optional[str] = ""
+    secondary_email: Optional[str] = ""
+    address: Optional[str] = ""
+    # --- Section 3: Guardians are submitted separately via /guardians endpoint ---
+    # --- Section 4: Organizational ---
+    employee_id: Optional[str] = ""
+    job_title: Optional[str] = ""
+    department: Optional[str] = ""
+    manager: Optional[str] = ""
+    office_location: Optional[str] = ""
+    # --- Section 5: Settings ---
+    preferred_language: Optional[str] = "English"
+    timezone: Optional[str] = "UTC"
+    date_format: Optional[str] = "YYYY-MM-DD"
+
+
+class UpdateUserExtendedRequest(BaseModel):
+    # --- Section 1: Primary Details ---
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    roles: Optional[List[str]] = None      # multi-role update
+    # --- Section 2: Contact Info ---
+    primary_phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
+    secondary_email: Optional[str] = None
+    address: Optional[str] = None
+    # --- Section 4: Organizational ---
+    employee_id: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    manager: Optional[str] = None
+    office_location: Optional[str] = None
+    # --- Section 5: Settings ---
+    preferred_language: Optional[str] = None
+    timezone: Optional[str] = None
+    date_format: Optional[str] = None
+
+
+class ExtendedUserResponse(BaseModel):
+    id: str
+    name: str
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    assigned_roles: Optional[List[str]] = []   # multi-role list
+    grade: Optional[int] = None
+    preferred_subject: Optional[str] = None
+    institution_id: Optional[int] = None
+    institution_name: Optional[str] = None
+    institution_type: Optional[str] = None
+    # Contact Info
+    primary_phone: Optional[str] = ""
+    mobile_phone: Optional[str] = ""
+    secondary_email: Optional[str] = ""
+    address: Optional[str] = ""
+    # Organizational
+    employee_id: Optional[str] = ""
+    job_title: Optional[str] = ""
+    department: Optional[str] = ""
+    manager: Optional[str] = ""
+    office_location: Optional[str] = ""
+    # Settings
+    preferred_language: Optional[str] = "English"
+    timezone: Optional[str] = "UTC"
+    date_format: Optional[str] = "YYYY-MM-DD"
+
 class RoleCreateRequest(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -400,6 +501,13 @@ class UserResponse(BaseModel):
     role: str
     grade: Optional[int]
     preferred_subject: Optional[str]
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    institution_id: Optional[int] = None
+    institution_name: Optional[str] = None
+    institution_type: Optional[str] = None
 
 
 # --- STUDENT MANAGEMENT MODELS ---

@@ -52,7 +52,7 @@ async function loadQuestionBanks() {
     }
 
     if (!container) return;
-    container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+    container.innerHTML = CB.ui.spinner('Loading notifications...', 'lg');
 
     try {
         const res = await fetchAPI('/question-bank');

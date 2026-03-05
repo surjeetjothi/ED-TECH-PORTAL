@@ -173,7 +173,7 @@ function handleAddMaterial(e) {
 }
 function loadClassMaterials() {
     return __awaiter(this, void 0, void 0, function* () {
-        elements.materialsList.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+        elements.materialsList.innerHTML = CB.ui.spinner('Loading materials...');
         try {
             const response = yield fetchAPI('/materials/all');
             if (response.ok) {

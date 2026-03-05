@@ -428,3 +428,24 @@ window.handleCreatePDFExam = handleCreatePDFExam;
 window.initProgressEnterView = initProgressEnterView;
 window.initProgressPublishView = initProgressPublishView;
 window.loadAttendanceSheetData = loadAttendanceSheetData;
+window.viewUser = viewUser;
+window.editUser = editUser;
+window.deleteUser = deleteUser;
+window.saveEditUser = saveEditUser;
+window.handleUpdateUser = handleUpdateUser;
+window.filterUserList = filterUserList;
+window.clearUserSearch = clearUserSearch;
+window.loadUserManagementStats = loadUserManagementStats;
+window._loadRoleChips = _loadRoleChips;
+window._toggleRoleChip = _toggleRoleChip;
+window._showRolePerms = _showRolePerms;
+window._syncHiddenRoleInput = _syncHiddenRoleInput;
+window._getSelectedRoles = _getSelectedRoles;
+
+window.cuGoStep = cuGoStep;
+window.cuNextStep = cuNextStep;
+window.euGoStep = euGoStep;
+window.euNextStep = euNextStep;
+window.addGuardianRow = addGuardianRow;
+window.removeGuardianRow = removeGuardianRow;
+

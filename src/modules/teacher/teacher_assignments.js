@@ -37,7 +37,7 @@ function loadAssignments(sectionId) {
         const list = getActiveAssignmentListElement();
         if (!list)
             return;
-        list.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+        list.innerHTML = CB.ui.spinner('Loading assignments...');
         setCreateAssignmentButtonsVisibility(canCreateAssignments());
         try {
             const query = sectionId ? `?section_id=${sectionId}` : '';
@@ -220,7 +220,7 @@ function loadMarksForSelectedAssignment() {
 function loadCourseAssignments(groupId) {
     return __awaiter(this, void 0, void 0, function* () {
         const list = document.getElementById('assignments-list');
-        list.innerHTML = '<div class="spinner-border text-primary m-3"></div>';
+        list.innerHTML = CB.ui.spinner('Loading...');
         // Show/Hide "Create" button based on role
         const createBtn = document.getElementById('create-assignment-btn');
         if (appState.role === 'Teacher' || appState.role === 'Admin') {
@@ -234,7 +234,7 @@ function loadCourseAssignments(groupId) {
             if (res.ok) {
                 const assignments = yield res.json();
                 if (assignments.length === 0) {
-                    list.innerHTML = '<p class="text-muted text-center py-4">No assignments yet.</p>';
+                    list.innerHTML = CB.ui.empty('No assignments yet.', 'assignment');
                     return;
                 }
                 list.innerHTML = assignments.map(a => {
@@ -269,7 +269,7 @@ function loadCourseAssignments(groupId) {
         }
         catch (e) {
             console.error(e);
-            list.innerHTML = '<p class="text-danger">Failed to load assignments.</p>';
+            list.innerHTML = CB.ui.error('Failed to load assignments.');
         }
     });
 }
@@ -477,7 +477,7 @@ function handleSubmitAssignment() {
                 if (typeof loadStudentAssignmentsAndResults === 'function') loadStudentAssignmentsAndResults();
                 if (typeof loadStudentDashboardAssignments === 'function') loadStudentDashboardAssignments(appState.userId);
                 // Show a friendly success toast
-                showToast('✅ Assignment submitted successfully!', 'success');
+                CB.ui.toast('Assignment submitted successfully!', 'success');
             }
             else {
                 const errText = yield res.text().catch(() => '');

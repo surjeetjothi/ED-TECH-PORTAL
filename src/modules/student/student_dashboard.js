@@ -30,7 +30,7 @@ function loadStudentDashboard(studentId) {
         }
         const metricsContainer = document.getElementById('student-metrics');
         if (metricsContainer) {
-            metricsContainer.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2 text-muted small">Loading your dashboard...</p></div>';
+            metricsContainer.innerHTML = CB.ui.spinner('Loading your dashboard...');
         }
         if (elements.recommendationBox)
             elements.recommendationBox.style.display = 'none';
@@ -189,13 +189,13 @@ function loadStudentDashboardAssignments(studentId) {
         const container = document.getElementById('student-upcoming-assignments');
         if (!container)
             return;
-        container.innerHTML = '<p class="text-muted small">Loading assignments...</p>';
+        container.innerHTML = CB.ui.spinner('Loading assignments...', 'sm');
         try {
             const res = yield fetchAPI(`/students/${studentId}/assignments`);
             if (res.ok) {
                 const assignments = yield res.json();
                 if (assignments.length === 0) {
-                    container.innerHTML = '<p class="text-muted small">Hooray! No pending assignments.</p>';
+                    container.innerHTML = CB.ui.empty('No pending assignments.', 'assignment_turned_in');
                     return;
                 }
                 container.innerHTML = assignments.map(a => `
@@ -219,7 +219,7 @@ function loadStudentDashboardAssignments(studentId) {
             `).join('');
             }
             else {
-                container.innerHTML = '<p class="text-danger small">Failed to load assignments.</p>';
+                container.innerHTML = CB.ui.error('Failed to load assignments.');
             }
         }
         catch (e) {
@@ -234,13 +234,13 @@ function loadStudentQuizResults(studentId) {
         const container = document.getElementById('student-quiz-results-list');
         if (!container)
             return;
-        container.innerHTML = '<p class="text-muted small">Loading results...</p>';
+        container.innerHTML = CB.ui.spinner('Loading results...', 'sm');
         try {
             const res = yield fetchAPI(`/students/${studentId}/quiz-results`);
             if (res.ok) {
                 const results = yield res.json();
                 if (results.length === 0) {
-                    container.innerHTML = '<p class="text-muted small">No quiz results found.</p>';
+                    container.innerHTML = CB.ui.empty('No quiz results found.', 'quiz');
                     return;
                 }
                 container.innerHTML = results.map((r, i) => `
@@ -259,7 +259,7 @@ function loadStudentQuizResults(studentId) {
             `).join('');
             }
             else {
-                container.innerHTML = '<p class="text-danger small">Failed to load results.</p>';
+                container.innerHTML = CB.ui.error('Failed to load results.');
             }
         }
         catch (e) {

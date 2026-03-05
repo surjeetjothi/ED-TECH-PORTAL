@@ -10,7 +10,7 @@ function loadRoles() {
         const listContainer = document.getElementById('rbac-roles-list');
         if (!listContainer)
             return;
-        listContainer.innerHTML = '<div class="text-center p-4"><div class="spinner-border text-primary" role="status"></div></div>';
+        listContainer.innerHTML = CB.ui.spinner('Loading roles...');
         try {
             const response = yield fetchAPI('/admin/roles');
             if (response.ok) {
@@ -28,39 +28,44 @@ function loadRoles() {
     });
 }
 function renderRolesList(roles) {
-    const listContainer = document.getElementById('rbac-roles-list');
-    listContainer.innerHTML = '';
-    roles.forEach(role => {
-        // Filter Root_Super_Admin logic
-        if (role.name === 'Super Admin' && !appState.isSuperAdmin)
-            return;
-        const a = document.createElement('a');
-        a.href = '#';
-        a.className = 'list-group-item list-group-item-action p-3 d-flex justify-content-between align-items-center role-item';
-        a.dataset.id = role.id; // Mark for active state
-        a.onclick = (e) => {
-            e.preventDefault();
-            // Highlight active
-            document.querySelectorAll('.role-item').forEach(el => el.classList.remove('active'));
-            a.classList.add('active');
-            loadRoleDetails(role.id);
-        };
-        a.innerHTML = `
-            <div>
-                <div class="fw-bold text-dark">${role.name}</div>
-                <small class="text-muted">${role.description || 'No description'}</small>
-            </div>
-            <span class="badge ${role.status === 'Active' ? 'bg-success' : 'bg-secondary'} rounded-pill">${role.status}</span>
-        `;
-        listContainer.appendChild(a);
+    CB.ui.paginate({
+        data: roles.filter(r => r.name !== 'Super Admin' || appState.isSuperAdmin),
+        container: 'roles-table-body',
+        paginationContainer: 'roles-pagination',
+        pageSize: 10,
+        renderRow: (role) => {
+            const tr = document.createElement('tr');
+            tr.className = 'role-item-row align-middle';
+            tr.innerHTML = `
+                <td><span class="badge bg-light text-dark border font-monospace">R-${String(role.id).padStart(3, '0')}</span></td>
+                <td>
+                    <div class="fw-bold text-dark">${role.name}</div>
+                </td>
+                <td><span class="badge ${role.status === 'Active' ? 'bg-success' : 'bg-secondary'} rounded-pill">${role.status}</span></td>
+                <td><small class="text-muted text-truncate d-inline-block" style="max-width:300px;">${role.description || 'No description'}</small></td>
+                <td class="text-end pe-4">
+                    <button class="btn btn-sm btn-light border text-primary rounded-circle shadow-sm me-1" title="View Details" onclick="loadRoleDetails(${role.id})">
+                        <span class="material-icons" style="font-size:16px;">visibility</span>
+                    </button>
+                    ${(hasPermission('role_management') && !role.is_system) ? `
+                    <button class="btn btn-sm btn-light border text-primary rounded-circle shadow-sm me-1" title="Edit" onclick="openRoleModal(${role.id})">
+                        <span class="material-icons" style="font-size:16px;">edit</span>
+                    </button>
+                    <button class="btn btn-sm btn-light border text-danger rounded-circle shadow-sm" title="Delete" onclick="deleteRole(${role.id}, '${role.name}')">
+                        <span class="material-icons" style="font-size:16px;">delete</span>
+                    </button>` : ''}
+                </td>`;
+            return tr;
+        }
     });
 }
 function loadRoleDetails(roleId) {
     return __awaiter(this, void 0, void 0, function* () {
         const titleEl = document.getElementById('rbac-role-detail-title');
         const bodyEl = document.getElementById('rbac-role-detail-body');
+        if (!titleEl || !bodyEl) return;
         titleEl.textContent = 'Loading...';
-        bodyEl.innerHTML = '<div class="text-center p-5"><div class="spinner-border text-secondary"></div></div>';
+        bodyEl.innerHTML = CB.ui.spinner('Loading...', 'lg');
         try {
             const response = yield fetchAPI(`/admin/roles/${roleId}`);
             if (response.ok) {
@@ -122,13 +127,24 @@ function loadRoleDetails(roleId) {
         }
     });
 }
+
+function normalizeRolePermissionCodes(permissions) {
+    if (!Array.isArray(permissions)) return [];
+    return permissions
+        .map((p) => {
+            if (typeof p === 'string') return p;
+            if (p && typeof p.code === 'string') return p.code;
+            return '';
+        })
+        .filter(Boolean);
+}
 function openRoleModal(roleId = null) {
     const modalTitle = document.getElementById('role-form-title');
     const form = document.getElementById('role-form');
     // Clear Form
     form.reset();
     document.getElementById('role-id').value = '';
-    document.getElementById('role-perms-container').innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading permissions...';
+    document.getElementById('role-perms-container').innerHTML = CB.ui.spinner('Loading permissions...', 'sm');
     if (roleId) {
         modalTitle.textContent = 'Edit Role';
         document.getElementById('role-id').value = roleId;
@@ -140,7 +156,7 @@ function openRoleModal(roleId = null) {
             if (document.querySelector(`input[name="roleStatus"][value="${data.status}"]`)) {
                 document.querySelector(`input[name="roleStatus"][value="${data.status}"]`).checked = true;
             }
-            loadPermissionsForModal(data.permissions.map(p => p.code));
+            loadPermissionsForModal(normalizeRolePermissionCodes(data.permissions));
         });
     }
     else {
@@ -149,50 +165,48 @@ function openRoleModal(roleId = null) {
     }
     switchView('role-form-view');
 }
+
+let _allRolePermissions = {};
+
 function loadPermissionsForModal() {
     return __awaiter(this, arguments, void 0, function* (selectedCodes = []) {
         const container = document.getElementById('role-perms-container');
+        if (!container) return;
+
+        // Reset selected tags area
+        if (typeof _updateSelectedPermsTags === 'function') _updateSelectedPermsTags(selectedCodes);
+
+        container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div><br><span class="text-muted small">Loading permissions...</span></div>';
+
         try {
             const response = yield fetchAPI('/admin/permissions');
+            if (!response.ok) throw new Error("Failed to load perms");
+
             const groupedPerms = yield response.json();
-            container.innerHTML = '';
-            for (const [group, perms] of Object.entries(groupedPerms)) {
-                const groupDiv = document.createElement('div');
-                groupDiv.className = 'mb-3';
-                groupDiv.innerHTML = `<h6 class="fw-bold small text-uppercase text-muted border-bottom pb-1 mb-2">${group}</h6>`;
-                const row = document.createElement('div');
-                row.className = 'row g-2';
-                perms.forEach(p => {
-                    const isChecked = selectedCodes.includes(p.code);
-                    const col = document.createElement('div');
-                    col.className = 'col-md-6';
-                    col.innerHTML = `
-                    <div class="form-check">
-                        <input class="form-check-input perm-check" type="checkbox" value="${p.code}" id="perm-${p.id}" ${isChecked ? 'checked' : ''}>
-                        <label class="form-check-label small" for="perm-${p.id}" title="${p.description}">
-                            ${p.description} <span class="text-muted" style="font-size: 10px;">(${p.code})</span>
-                        </label>
-                    </div>
-                `;
-                    row.appendChild(col);
-                });
-                groupDiv.appendChild(row);
-                container.appendChild(groupDiv);
-            }
-        }
-        catch (e) {
-            container.textContent = "Error loading permissions.";
+            _allRolePermissions = groupedPerms;
+            if (typeof _renderPermissionsCheckboxes === 'function') _renderPermissionsCheckboxes(groupedPerms, selectedCodes);
+        } catch (e) {
+            console.error('loadPermissionsForModal error:', e);
+            if (container) container.innerHTML = '<p class="text-danger small">Error loading permissions.</p>';
         }
     });
 }
+
 function handleSaveRole() {
     return __awaiter(this, void 0, void 0, function* () {
         const roleId = document.getElementById('role-id').value;
         const name = document.getElementById('role-name').value;
         const desc = document.getElementById('role-desc').value;
         const status = document.querySelector('input[name="roleStatus"]:checked').value;
-        // Get checked perms
-        const selectedPerms = Array.from(document.querySelectorAll('.perm-check:checked')).map(el => el.value);
+        // Get checked perms (or from tags if _getSelectedPermCodes exists)
+        const selectedFromTags = typeof _getSelectedPermCodes === 'function'
+            ? _getSelectedPermCodes()
+            : [];
+        const selectedFromChecks = Array.from(document.querySelectorAll('.perm-check:checked'))
+            .map((el) => el.value)
+            .filter(Boolean);
+        const selectedPerms = Array.from(new Set([...(selectedFromTags || []), ...selectedFromChecks]));
+
         const endpoint = roleId ? `/admin/roles/${roleId}` : '/admin/roles';
         const method = roleId ? 'PUT' : 'POST';
         try {
@@ -261,22 +275,26 @@ function loadPermissionsList() {
     });
 }
 function renderPermissionsTable(perms) {
-    const tableBody = document.getElementById('perms-table-body');
-    tableBody.innerHTML = '';
-    perms.forEach(p => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><span class="badge bg-light text-dark border">${p.display_code}</span></td>
-            <td class="fw-medium font-monospace text-primary small">${p.code}</td>
-            <td class="small text-muted">${p.description}</td>
-            <td>
-                ${(hasPermission('permission_management')) ?
-                `<button class="btn btn-sm btn-link text-primary p-0" onclick="openPermissionEditModal(${p.id}, '${p.code}', '${p.description.replace(/'/g, "\\'")}')">
-                        <span class="material-icons" style="font-size: 18px;">edit</span>
-                    </button>` : ''}
-            </td>
-        `;
-        tableBody.appendChild(tr);
+    CB.ui.paginate({
+        data: perms,
+        container: 'perms-table-body',
+        paginationContainer: 'perms-pagination',
+        pageSize: 10,
+        renderRow: (p) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="badge bg-light text-dark border">${p.display_code}</span></td>
+                <td class="fw-medium font-monospace text-primary small">${p.code}</td>
+                <td class="small text-muted">${p.description}</td>
+                <td>
+                    ${(hasPermission('permission_management')) ?
+                    `<button class="btn btn-sm btn-link text-primary p-0" onclick="openPermissionEditModal(${p.id}, '${p.code}', '${p.description.replace(/'/g, "\\'")}')">
+                            <span class="material-icons" style="font-size: 18px;">edit</span>
+                        </button>` : ''}
+                </td>
+            `;
+            return tr;
+        }
     });
 }
 function openPermissionEditModal(id, code, desc) {

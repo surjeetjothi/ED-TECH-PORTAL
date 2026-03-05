@@ -1294,6 +1294,161 @@
             box-shadow: 0 4px 12px rgba(77, 68, 181, 0.3);
         }
 
+        /* ── 5-Section User Form Stepper ── */
+        .cu-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 50px;
+            background: #f1f5f9;
+            cursor: pointer;
+            border: 2px solid transparent;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #94a3b8;
+            transition: all 0.25s ease;
+            user-select: none;
+        }
+
+        .cu-step .cu-step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            flex-shrink: 0;
+            transition: background 0.25s;
+        }
+
+        .cu-step.active {
+            background: #eff6ff;
+            border-color: #3b82f6;
+            color: #2563eb;
+        }
+
+        .cu-step.active .cu-step-num {
+            background: #3b82f6;
+        }
+
+        .cu-step.completed {
+            background: #f0fdf4;
+            border-color: #22c55e;
+            color: #16a34a;
+        }
+
+        .cu-step.completed .cu-step-num {
+            background: #22c55e;
+        }
+
+        .cu-step:hover:not(.active):not(.completed) {
+            background: #e8ecf2;
+            color: #475569;
+        }
+
+        .cu-step-divider {
+            flex: 1;
+            min-width: 20px;
+            height: 2px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            align-self: center;
+        }
+
+        /* ── Role Chip Picker ── */
+        .role-chip-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .role-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 50px;
+            cursor: pointer;
+            border: 2px solid #e2e8f0;
+            background: #f8fafc;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #64748b;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .role-chip:hover {
+            border-color: #94a3b8;
+            color: #334155;
+            background: #f1f5f9;
+        }
+
+        .role-chip.selected {
+            border-color: #3b82f6;
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+
+        .role-chip .role-chip-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        .role-chip.selected .role-chip-dot {
+            background: #3b82f6;
+        }
+
+        /* ── Permission Preview Panel ── */
+        .role-perms-preview {
+            margin-top: 10px;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            min-height: 50px;
+            transition: all 0.2s ease;
+        }
+
+        .role-perms-preview .perms-empty {
+            color: #94a3b8;
+            font-size: 0.82rem;
+            font-style: italic;
+        }
+
+        .role-perms-group {
+            margin-bottom: 8px;
+        }
+
+        .role-perms-group-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .perm-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            margin: 2px;
+            background: #dbeafe;
+            color: #1e40af;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+
         .bg-primary-subtle {
             background-color: #F3F4FF !important;
         }
@@ -1626,6 +1781,24 @@
         }
     </style>
     <!-- Google Identity Services -->
+    <script>
+        // Safety: Prevent Google GSI from crashing/erroring on template markers
+        (function () {
+            const cleanup = () => {
+                const gOnload = document.getElementById('g_id_onload');
+                if (gOnload && (gOnload.getAttribute('data-client_id') || '').includes('{{')) {
+                    console.warn("[CB] Removing unconfigured Google Sign-In elements.");
+                    gOnload.remove();
+                    document.querySelectorAll('.g_id_signin').forEach(el => el.remove());
+                }
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', cleanup);
+            } else {
+                cleanup();
+            }
+        })();
+    </script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- Microsoft Authentication Library (MSAL) — deferred, not needed at first paint -->
     <script src="https://alcdn.msauth.net/browser/2.30.0/js/msal-browser.min.js" defer></script>
@@ -2680,6 +2853,8 @@
                     </div>
                 </div>
             </div>
+            <!-- Pagination Container -->
+            <div id="roles-pagination" class="mt-3"></div>
         </div>
 
         <!-- ROLE FORM VIEW -->
@@ -2790,20 +2965,34 @@
                                 oninput="filterRolePermissions(this.value)">
                         </div>
 
-                        <!-- Selected Permissions tag list -->
-                        <div id="selected-perms-list" class="mb-3 d-flex flex-wrap gap-2 min-height"
-                            style="min-height:40px;padding:10px;background:#f8f7ff;border:1.5px dashed #c7d2fe;border-radius:10px;">
-                            <span class="text-muted small fst-italic" id="no-perms-hint" style="opacity:0.6;">
-                                Selected permissions will appear here...
-                            </span>
-                        </div>
-
-                        <!-- Permission picker -->
-                        <div id="role-perms-container"
-                            style="max-height:340px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;padding:14px;">
-                            <div class="text-center py-4">
-                                <div class="spinner-border spinner-border-sm text-primary"></div>
-                                <span class="text-muted small ms-2">Loading permissions...</span>
+                        <div class="row g-3">
+                            <!-- Available Permissions -->
+                            <div class="col-md-6">
+                                <h6 class="fw-bold small text-muted mb-2 text-uppercase">Available Permissions</h6>
+                                <div id="role-perms-container"
+                                    style="height:340px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;padding:14px;background:#fff;">
+                                    <div class="text-center py-4">
+                                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                                        <span class="text-muted small ms-2">Loading permissions...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Selected Permissions -->
+                            <div class="col-md-6">
+                                <h6 class="fw-bold small text-muted mb-2 text-uppercase d-flex justify-content-between">
+                                    <span>Selected Permissions</span>
+                                    <span class="text-primary text-lowercase" style="cursor:pointer;"
+                                        onclick="clearAllPermissions()">Clear All</span>
+                                </h6>
+                                <div id="selected-perms-container"
+                                    style="height:340px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;padding:14px;background:#f8f7ff;">
+                                    <div id="selected-perms-list" class="d-flex flex-column gap-2">
+                                        <span class="text-muted small fst-italic" id="no-perms-hint"
+                                            style="opacity:0.6;">
+                                            Selected permissions will appear here...
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3404,6 +3593,10 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Pagination Controls -->
+            <div id="permissions-pagination" class="mt-3"></div>
+
         </div>
 
         <!-- Role Modal -->
@@ -4403,6 +4596,11 @@
                     onclick="handleTeacherViewToggle('engagement-helper-view')">
                     <span class="material-icons">psychology</span> <span data-i18n="btn_engagement_helper">Engagement
                         Helper</span>
+                </button>
+                <button id="dashboard-user-mgmt-btn"
+                    class="btn btn-secondary shadow-sm d-none align-items-center gap-2 text-white fw-bold"
+                    onclick="openUserManagement()">
+                    <span class="material-icons">group_add</span> <span>User Management</span>
                 </button>
             </div>
 
@@ -5678,6 +5876,7 @@
                     <div id="live-classes-list">
                         <p class="text-muted" data-i18n="msg_no_live_classes">No live classes scheduled.</p>
                     </div>
+                    <div id="live-classes-pagination" class="mt-3"></div>
                 </div>
             </div>
 
@@ -6668,6 +6867,7 @@
                         </div>
                     </li>
                 </ul>
+                <div id="leave-approval-pagination" class="mt-3 mb-3 d-flex justify-content-center"></div>
             </div>
         </div>
 
@@ -7183,6 +7383,7 @@
                 <div class="list-group-item p-4 text-center text-muted" data-i18n="msg_loading_submissions">Loading
                     submissions...</div>
             </div>
+            <div id="assignment-review-pagination" class="mt-3 mb-3 d-flex justify-content-center"></div>
         </div>
         <div id="assignment-marks-view" class="view container-fluid p-4">
             <h3 class="fw-bold mb-4" data-i18n="marks_entry_title">Marks Entry</h3>
@@ -7207,6 +7408,7 @@
                 <div class="list-group-item p-4 text-center text-muted" data-i18n="marks_select_prompt">Select an
                     assignment to view submissions.</div>
             </div>
+            <div id="assignment-marks-pagination" class="mt-3 mb-3 d-flex justify-content-center"></div>
         </div>
 
         <!-- 4. Online Test -->
@@ -7275,6 +7477,7 @@
                         </div>
                     </div>
                 </div>
+                <div id="teacher-quiz-pagination" class="mt-3 mb-3 d-flex justify-content-center"></div>
             </div>
         </div>
 
@@ -8516,6 +8719,777 @@
             <!-- Reuse Profile content or placeholder -->
         </div>
 
+        <!-- USER MANAGEMENT VIEW -->
+        <div id="user-management-view" class="view" style="padding-top: 30px;">
+            <div class="container-fluid px-5">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="h3 fw-bold text-dark mb-0">User Management</h1>
+                    <button class="btn btn-primary-custom" onclick="openAddUserModal()">
+                        <span class="material-icons align-middle fs-5 me-1">add</span> Add New User
+                    </button>
+                </div>
+
+                <!-- User Management Stats Cards -->
+                <div class="row g-4 mb-4" id="user-mgmt-stats-container">
+                    <div class="col-md-4">
+                        <div class="card border-0 shadow-sm rounded-4 h-100 p-3"
+                            style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white;">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="text-white-50 fw-bold mb-0">Total Active Tenants</h6>
+                                    <span class="material-icons opacity-75">business</span>
+                                </div>
+                                <h2 class="display-6 fw-bold mb-0" id="stat-total-tenants">--</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 shadow-sm rounded-4 h-100 p-3" style="background: white;">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="text-muted fw-bold mb-0">Total Registered Users</h6>
+                                    <span class="material-icons text-primary">groups</span>
+                                </div>
+                                <h2 class="display-6 fw-bold mb-0" id="stat-total-users">--</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-0 shadow-sm rounded-4 h-100 p-3" style="background: white;">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="text-muted fw-bold mb-0">Growth (Last Month)</h6>
+                                    <span class="material-icons text-success">trending_up</span>
+                                </div>
+                                <h2 class="display-6 fw-bold mb-0 text-success" id="stat-growth-percent">--</h2>
+                                <p class="text-muted small mb-0">+ from last month</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-bold" id="pills-users-tab" data-bs-toggle="pill"
+                            data-bs-target="#pills-users" type="button" onclick="loadUserList()">
+                            <span class="material-icons align-middle fs-6 me-1">people</span> All Users
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold" id="pills-audit-tab" data-bs-toggle="pill"
+                            data-bs-target="#pills-audit" type="button" onclick="showAuditLogs()">
+                            <span class="material-icons align-middle fs-6 me-1">history</span> Audit Logs
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="pills-tabContent">
+                    <!-- User List Tab -->
+                    <div class="tab-pane fade show active" id="pills-users" role="tabpanel">
+
+                        <!-- ── Search & Filter Toolbar ── -->
+                        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                            <!-- Search input -->
+                            <div class="flex-grow-1" style="min-width: 220px; max-width: 420px;">
+                                <div class="input-group shadow-sm rounded-3 overflow-hidden border bg-white">
+                                    <span class="input-group-text bg-white border-0 ps-3">
+                                        <span class="material-icons text-muted" style="font-size:18px;">search</span>
+                                    </span>
+                                    <input type="text" id="user-search-input" class="form-control border-0 shadow-none"
+                                        placeholder="Search by name, email or ID…" oninput="filterUserList()"
+                                        autocomplete="off">
+                                    <button class="btn btn-link border-0 text-muted pe-3" id="user-search-clear"
+                                        onclick="clearUserSearch()" title="Clear search" style="display:none;">
+                                        <span class="material-icons" style="font-size:16px;">close</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Role filter -->
+                            <div style="min-width: 170px;">
+                                <select id="user-role-filter" class="form-select border shadow-sm rounded-3"
+                                    onchange="filterUserList()">
+                                    <option value="">All Roles</option>
+                                    <option value="Admin">Admin</option>
+                                    <option value="Root_Super_Admin">Root Super Admin</option>
+                                    <option value="Teacher">Teacher</option>
+                                    <option value="Student">Student</option>
+                                    <option value="Parent_Guardian">Parent / Guardian</option>
+                                    <option value="Tenant_Admin">Tenant Admin</option>
+                                    <option value="Academic_Admin">Academic Admin</option>
+                                    <option value="HR_Admin">HR Admin</option>
+                                </select>
+                            </div>
+
+                            <!-- Result count badge -->
+                            <div class="ms-auto">
+                                <span id="user-result-count"
+                                    class="badge bg-primary-subtle text-primary fw-semibold px-3 py-2 rounded-pill">
+                                    Loading…
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- ── User Table ── -->
+                        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-hover align-middle mb-0" id="users-table">
+                                        <thead class="bg-light">
+                                            <tr>
+                                                <th class="py-3 ps-4">Name</th>
+                                                <th class="py-3">Role</th>
+                                                <th class="py-3">User ID</th>
+                                                <th class="py-3">Username</th>
+                                                <th class="py-3">Email</th>
+                                                <th class="py-3">Institution ID</th>
+                                                <th class="py-3">Institution Name</th>
+                                                <th class="py-3">Institution Type</th>
+                                                <th class="py-3 text-end pe-4">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="users-table-body">
+                                            <tr>
+                                                <td colspan="9" class="text-center py-5">
+                                                    <div class="spinner-border text-primary"></div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div id="users-pagination" class="p-3"></div>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- Audit Logs Tab -->
+                    <div class="tab-pane fade" id="pills-audit" role="tabpanel">
+                        <div class="card border-0 shadow-sm rounded-4">
+                            <div class="card-body p-4 text-center text-muted py-5">
+                                <span class="material-icons fs-1 mb-2">history</span>
+                                <p>Audit logs for user actions will appear here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADD USER VIEW (5-Section Form) -->
+        <div id="add-user-view-v2" class="view" style="padding-top: 30px;">
+            <div class="container-fluid px-4 px-md-5">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <button class="btn btn-light rounded-circle shadow-sm"
+                            onclick="switchView('user-management-view')">
+                            <span class="material-icons text-dark">arrow_back</span>
+                        </button>
+                        <div>
+                            <h1 class="h3 fw-bold text-dark mb-0">Create New User</h1>
+                            <p class="text-muted small mb-0">Fill in the sections below to create a user account</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step Indicator -->
+                <div class="d-flex gap-2 mb-4 flex-wrap" id="cu-step-indicator">
+                    <div class="cu-step active" data-step="1" onclick="cuGoStep(1)">
+                        <span class="cu-step-num">1</span><span class="cu-step-label">Primary Details</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="2" onclick="cuGoStep(2)">
+                        <span class="cu-step-num">2</span><span class="cu-step-label">Contact Info</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="3" onclick="cuGoStep(3)">
+                        <span class="cu-step-num">3</span><span class="cu-step-label">Guardians</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="4" onclick="cuGoStep(4)">
+                        <span class="cu-step-num">4</span><span class="cu-step-label">Organizational</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="5" onclick="cuGoStep(5)">
+                        <span class="cu-step-num">5</span><span class="cu-step-label">Settings</span>
+                    </div>
+                </div>
+
+                <form id="add-user-form" onsubmit="handleCreateUser(event)" novalidate>
+
+                    <!-- ======= SECTION 1: PRIMARY DETAILS ======= -->
+                    <div class="cu-section active" id="cu-section-1">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1 text-primary">
+                                <span class="material-icons align-middle fs-5 me-2">person</span>Primary Details
+                            </h5>
+                            <p class="text-muted small mb-4">Core identity fields. Username and email must be unique.
+                            </p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Username <span
+                                            class="text-danger">*</span></label>
+                                    <input type="text" id="cu-username" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="e.g. john.doe" required autocomplete="off">
+                                    <small class="text-muted">Must be unique. Used as login ID.</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Email Address <span
+                                            class="text-danger">*</span></label>
+                                    <input type="email" id="cu-email" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="john@example.com" required>
+                                    <small class="text-muted">Must be a valid, unique email.</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">First Name <span
+                                            class="text-danger">*</span></label>
+                                    <input type="text" id="cu-firstname"
+                                        class="form-control bg-light border-0 rounded-3" placeholder="John" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Last Name <span
+                                            class="text-danger">*</span></label>
+                                    <input type="text" id="cu-lastname" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="Doe" required>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold text-secondary small">
+                                        Role(s) <span class="text-danger">*</span>
+                                        <small class="text-muted fw-normal ms-1">Select one or more. Click a role to see
+                                            its permissions.</small>
+                                    </label>
+                                    <div id="cu-role-picker" class="role-chip-picker">
+                                        <span class="text-muted small">Loading roles…</span>
+                                    </div>
+                                    <input type="hidden" id="cu-role" value="">
+                                    <div id="cu-role-perms-panel" class="role-perms-preview mt-2" style="display:none;">
+                                        <div class="perms-empty">Click a role chip to preview its permissions.</div>
+                                    </div>
+                                    <div id="cu-role-error" class="text-danger small mt-1" style="display:none;">Please
+                                        select at least one role.</div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Password <span
+                                            class="text-danger">*</span></label>
+                                    <input type="password" id="cu-password"
+                                        class="form-control bg-light border-0 rounded-3"
+                                        placeholder="Min. 8 chars, incl. number & special char" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-light"
+                                onclick="switchView('user-management-view')">Cancel</button>
+                            <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold"
+                                onclick="cuNextStep(1)">
+                                Next: Contact Info <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ======= SECTION 2: CONTACT INFO ======= -->
+                    <div class="cu-section" id="cu-section-2" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1 text-primary">
+                                <span class="material-icons align-middle fs-5 me-2">contact_phone</span>Contact Info
+                            </h5>
+                            <p class="text-muted small mb-4">Phone numbers, secondary email and address for this user.
+                            </p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Primary Phone
+                                        Number</label>
+                                    <input type="tel" id="cu-primary-phone"
+                                        class="form-control bg-light border-0 rounded-3" placeholder="+1 555 000 0000">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Mobile Phone</label>
+                                    <input type="tel" id="cu-mobile" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="+1 555 000 0001">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Secondary Email</label>
+                                    <input type="email" id="cu-secondary-email"
+                                        class="form-control bg-light border-0 rounded-3"
+                                        placeholder="alternate@example.com">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Address</label>
+                                    <input type="text" id="cu-address" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="123 Main St, City, State">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="cuGoStep(1)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold"
+                                onclick="cuNextStep(2)">
+                                Next: Guardians <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ======= SECTION 3: GUARDIAN DETAILS ======= -->
+                    <div class="cu-section" id="cu-section-3" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h5 class="fw-bold mb-0 text-primary">
+                                    <span class="material-icons align-middle fs-5 me-2">family_restroom</span>Guardian
+                                    Details
+                                </h5>
+                                <button type="button" class="btn btn-outline-primary btn-sm rounded-pill"
+                                    onclick="addGuardianRow('cu-guardian-list')">
+                                    <span class="material-icons align-middle" style="font-size:16px;">add</span> Add
+                                    Guardian
+                                </button>
+                            </div>
+                            <p class="text-muted small mb-4">More than one guardian can be added. Each guardian email
+                                must be unique.</p>
+                            <div id="cu-guardian-list">
+                                <!-- Guardian rows added dynamically -->
+                                <div class="text-center text-muted py-4" id="cu-no-guardian-msg">
+                                    <span class="material-icons"
+                                        style="font-size:40px;opacity:0.3;">supervisor_account</span>
+                                    <p class="mt-2 mb-0 small">No guardians added yet. Click "Add Guardian" to begin.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="cuGoStep(2)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold"
+                                onclick="cuNextStep(3)">
+                                Next: Organizational <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ======= SECTION 4: ORGANIZATIONAL ======= -->
+                    <div class="cu-section" id="cu-section-4" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1 text-primary">
+                                <span class="material-icons align-middle fs-5 me-2">business_center</span>Organizational
+                            </h5>
+                            <p class="text-muted small mb-4">Work-related information for staff and admin users.</p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Employee ID</label>
+                                    <input type="text" id="cu-employee-id"
+                                        class="form-control bg-light border-0 rounded-3" placeholder="EMP-001">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Job Title</label>
+                                    <input type="text" id="cu-job-title"
+                                        class="form-control bg-light border-0 rounded-3"
+                                        placeholder="e.g. Math Teacher">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Department</label>
+                                    <input type="text" id="cu-department"
+                                        class="form-control bg-light border-0 rounded-3" placeholder="e.g. Sciences">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Manager /
+                                        Supervisor</label>
+                                    <input type="text" id="cu-manager" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="e.g. Jane Smith">
+                                </div>
+                                <div class="col-md-12">
+                                    <label class="form-label fw-semibold text-secondary small">Office Location</label>
+                                    <input type="text" id="cu-office-location"
+                                        class="form-control bg-light border-0 rounded-3"
+                                        placeholder="e.g. Block A, Room 201">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="cuGoStep(3)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn btn-primary rounded-pill px-4 fw-bold"
+                                onclick="cuNextStep(4)">
+                                Next: Settings <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ======= SECTION 5: SETTINGS ======= -->
+                    <div class="cu-section" id="cu-section-5" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1 text-primary">
+                                <span class="material-icons align-middle fs-5 me-2">settings</span>Settings
+                            </h5>
+                            <p class="text-muted small mb-4">User preferences and display settings.</p>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Preferred
+                                        Language</label>
+                                    <select id="cu-language" class="form-select bg-light border-0 rounded-3">
+                                        <option value="English" selected>English</option>
+                                        <option value="Spanish">Spanish</option>
+                                        <option value="French">French</option>
+                                        <option value="Arabic">Arabic</option>
+                                        <option value="Hindi">Hindi</option>
+                                        <option value="Chinese">Chinese</option>
+                                        <option value="Portuguese">Portuguese</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Timezone</label>
+                                    <select id="cu-timezone" class="form-select bg-light border-0 rounded-3">
+                                        <option value="UTC" selected>UTC</option>
+                                        <option value="America/New_York">America/New_York (EST)</option>
+                                        <option value="America/Chicago">America/Chicago (CST)</option>
+                                        <option value="America/Denver">America/Denver (MST)</option>
+                                        <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                                        <option value="Europe/London">Europe/London (GMT)</option>
+                                        <option value="Europe/Paris">Europe/Paris (CET)</option>
+                                        <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                                        <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                                        <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+                                        <option value="Australia/Sydney">Australia/Sydney (AEDT)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Date Format</label>
+                                    <select id="cu-date-format" class="form-select bg-light border-0 rounded-3">
+                                        <option value="YYYY-MM-DD" selected>YYYY-MM-DD</option>
+                                        <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                                        <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                        <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                                        <option value="DD MMM YYYY">DD MMM YYYY</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Review Summary -->
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3"
+                            style="background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);">
+                            <h6 class="fw-bold text-primary mb-3">
+                                <span class="material-icons align-middle fs-6 me-1">preview</span>Review Before Creating
+                            </h6>
+                            <div id="cu-review-summary" class="small text-muted">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+
+                        <div id="cu-form-error" class="alert alert-danger d-none mb-3"></div>
+
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="cuGoStep(4)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="submit" id="cu-submit-btn" class="btn btn-success rounded-pill px-5 fw-bold">
+                                <span class="material-icons align-middle me-1">person_add</span>Create User
+                            </button>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+        <!-- EDIT USER VIEW (5-Section Form) -->
+        <div id="edit-user-view" class="view" style="padding-top: 30px; display:none;">
+            <div class="container-fluid px-4 px-md-5">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <button class="btn btn-light rounded-circle shadow-sm"
+                            onclick="switchView('user-management-view')">
+                            <span class="material-icons text-dark">arrow_back</span>
+                        </button>
+                        <div>
+                            <h1 class="h3 fw-bold text-dark mb-0">Edit User</h1>
+                            <p class="text-muted small mb-0" id="eu-subtitle">Loading user data…</p>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="eu-user-id">
+
+                <!-- Step Indicator (Edit) -->
+                <div class="d-flex gap-2 mb-4 flex-wrap" id="eu-step-indicator">
+                    <div class="cu-step active" data-step="1" onclick="euGoStep(1)">
+                        <span class="cu-step-num">1</span><span class="cu-step-label">Primary Details</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="2" onclick="euGoStep(2)">
+                        <span class="cu-step-num">2</span><span class="cu-step-label">Contact Info</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="3" onclick="euGoStep(3)">
+                        <span class="cu-step-num">3</span><span class="cu-step-label">Guardians</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="4" onclick="euGoStep(4)">
+                        <span class="cu-step-num">4</span><span class="cu-step-label">Organizational</span>
+                    </div>
+                    <div class="cu-step-divider"></div>
+                    <div class="cu-step" data-step="5" onclick="euGoStep(5)">
+                        <span class="cu-step-num">5</span><span class="cu-step-label">Settings</span>
+                    </div>
+                </div>
+
+                <form id="edit-user-form" onsubmit="handleUpdateUser(event)" novalidate>
+
+                    <!-- Edit Section 1 -->
+                    <div class="eu-section active" id="eu-section-1">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1" style="color:#f59e0b;">
+                                <span class="material-icons align-middle fs-5 me-2">person</span>Primary Details
+                            </h5>
+                            <p class="text-muted small mb-4">Username cannot be changed. Update name, email, role, or
+                                password.</p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Username</label>
+                                    <input type="text" id="eu-username" class="form-control bg-light border-0 rounded-3"
+                                        readonly>
+                                    <small class="text-muted">Username is fixed.</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Email Address</label>
+                                    <input type="email" id="eu-email" class="form-control bg-light border-0 rounded-3"
+                                        placeholder="john@example.com">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">First Name</label>
+                                    <input type="text" id="eu-firstname"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Last Name</label>
+                                    <input type="text" id="eu-lastname"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold text-secondary small">
+                                        Role(s)
+                                        <small class="text-muted fw-normal ms-1">Select one or more. Click a role to
+                                            preview permissions.</small>
+                                    </label>
+                                    <div id="eu-role-picker" class="role-chip-picker">
+                                        <span class="text-muted small">Loading roles…</span>
+                                    </div>
+                                    <input type="hidden" id="eu-role" value="">
+                                    <div id="eu-role-perms-panel" class="role-perms-preview mt-2" style="display:none;">
+                                        <div class="perms-empty">Click a role chip to preview its permissions.</div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">New Password <small
+                                            class="text-muted">(leave blank to keep current)</small></label>
+                                    <input type="password" id="eu-password"
+                                        class="form-control bg-light border-0 rounded-3" placeholder="••••••••">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light"
+                                onclick="switchView('user-management-view')">Cancel</button>
+                            <button type="button" class="btn rounded-pill px-4 fw-bold"
+                                style="background:#f59e0b;color:#fff;" onclick="euNextStep(1)">
+                                Next: Contact Info <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Edit Section 2 -->
+                    <div class="eu-section" id="eu-section-2" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1" style="color:#f59e0b;">
+                                <span class="material-icons align-middle fs-5 me-2">contact_phone</span>Contact Info
+                            </h5>
+                            <p class="text-muted small mb-4">Update phone numbers, secondary email, and address.</p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Primary Phone
+                                        Number</label>
+                                    <input type="tel" id="eu-primary-phone"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Mobile Phone</label>
+                                    <input type="tel" id="eu-mobile" class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Secondary Email</label>
+                                    <input type="email" id="eu-secondary-email"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Address</label>
+                                    <input type="text" id="eu-address" class="form-control bg-light border-0 rounded-3">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="euGoStep(1)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn rounded-pill px-4 fw-bold"
+                                style="background:#f59e0b;color:#fff;" onclick="euNextStep(2)">
+                                Next: Guardians <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Edit Section 3: Guardians -->
+                    <div class="eu-section" id="eu-section-3" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h5 class="fw-bold mb-0" style="color:#f59e0b;">
+                                    <span class="material-icons align-middle fs-5 me-2">family_restroom</span>Guardian
+                                    Details
+                                </h5>
+                                <button type="button" class="btn btn-outline-warning btn-sm rounded-pill"
+                                    onclick="addGuardianRow('eu-guardian-list')">
+                                    <span class="material-icons align-middle" style="font-size:16px;">add</span> Add
+                                    Guardian
+                                </button>
+                            </div>
+                            <p class="text-muted small mb-4">Existing guardians are shown below. You can add new ones or
+                                remove existing ones.</p>
+                            <div id="eu-guardian-list">
+                                <div class="text-center text-muted py-3">
+                                    <div class="spinner-border spinner-border-sm text-warning"></div>
+                                    <span class="ms-2 small">Loading guardians…</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="euGoStep(2)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn rounded-pill px-4 fw-bold"
+                                style="background:#f59e0b;color:#fff;" onclick="euNextStep(3)">
+                                Next: Organizational <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Edit Section 4: Organizational -->
+                    <div class="eu-section" id="eu-section-4" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1" style="color:#f59e0b;">
+                                <span class="material-icons align-middle fs-5 me-2">business_center</span>Organizational
+                            </h5>
+                            <p class="text-muted small mb-4">Work-related information.</p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Employee ID</label>
+                                    <input type="text" id="eu-employee-id"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Job Title</label>
+                                    <input type="text" id="eu-job-title"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Department</label>
+                                    <input type="text" id="eu-department"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold text-secondary small">Manager /
+                                        Supervisor</label>
+                                    <input type="text" id="eu-manager" class="form-control bg-light border-0 rounded-3">
+                                </div>
+                                <div class="col-md-12">
+                                    <label class="form-label fw-semibold text-secondary small">Office Location</label>
+                                    <input type="text" id="eu-office-location"
+                                        class="form-control bg-light border-0 rounded-3">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="euGoStep(3)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="button" class="btn rounded-pill px-4 fw-bold"
+                                style="background:#f59e0b;color:#fff;" onclick="euNextStep(4)">
+                                Next: Settings <span class="material-icons align-middle">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Edit Section 5: Settings -->
+                    <div class="eu-section" id="eu-section-5" style="display:none;">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+                            <h5 class="fw-bold mb-1" style="color:#f59e0b;">
+                                <span class="material-icons align-middle fs-5 me-2">settings</span>Settings
+                            </h5>
+                            <p class="text-muted small mb-4">User preferences and display settings.</p>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Preferred
+                                        Language</label>
+                                    <select id="eu-language" class="form-select bg-light border-0 rounded-3">
+                                        <option value="English">English</option>
+                                        <option value="Spanish">Spanish</option>
+                                        <option value="French">French</option>
+                                        <option value="Arabic">Arabic</option>
+                                        <option value="Hindi">Hindi</option>
+                                        <option value="Chinese">Chinese</option>
+                                        <option value="Portuguese">Portuguese</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Timezone</label>
+                                    <select id="eu-timezone" class="form-select bg-light border-0 rounded-3">
+                                        <option value="UTC">UTC</option>
+                                        <option value="America/New_York">America/New_York (EST)</option>
+                                        <option value="America/Chicago">America/Chicago (CST)</option>
+                                        <option value="America/Denver">America/Denver (MST)</option>
+                                        <option value="America/Los_Angeles">America/Los_Angeles (PST)</option>
+                                        <option value="Europe/London">Europe/London (GMT)</option>
+                                        <option value="Europe/Paris">Europe/Paris (CET)</option>
+                                        <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                                        <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                                        <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+                                        <option value="Australia/Sydney">Australia/Sydney (AEDT)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-semibold text-secondary small">Date Format</label>
+                                    <select id="eu-date-format" class="form-select bg-light border-0 rounded-3">
+                                        <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                        <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                                        <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                        <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+                                        <option value="DD MMM YYYY">DD MMM YYYY</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="eu-form-error" class="alert alert-danger d-none mb-3"></div>
+
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button" class="btn btn-light" onclick="euGoStep(4)">
+                                <span class="material-icons align-middle">chevron_left</span> Back
+                            </button>
+                            <button type="submit" id="eu-submit-btn" class="btn rounded-pill px-5 fw-bold"
+                                style="background:#f59e0b;color:#fff;">
+                                <span class="material-icons align-middle me-1">save</span>Save Changes
+                            </button>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+
     </main>
 
     <!-- Modals -->
@@ -9221,6 +10195,7 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                <div id="attendance-pagination" class="mt-3"></div>
                             </div>
                         </div>
                     </div>
@@ -9715,49 +10690,50 @@
 
         <!-- Shared helpers — must load before any feature module -->
         <script defer src="./src/modules/shared/localization.js"></script>
-        
-        
+        <script defer src="./src/modules/shared/cb_ui.js"></script>
+
+
 
         <!-- Auth & Identity -->
         <script defer src="./src/modules/shared/sidebar.js"></script>
         <script defer src="./src/modules/auth/auth.js"></script>
 
         <!-- Roles & Permissions -->
-        
+
 
         <!-- Admin panels -->
-        
-        
+
+
 
         <!-- Teacher modules -->
-        
-        
-        
-        
-        
-        
-        
-        
+
+
+
+
+
+
+
+
 
         <!-- Student modules -->
-        
-        
-        
-        
-        
+
+
+
+
+
 
         <!-- Parent modules -->
-        
-        
-        
-        
-        
+
+
+
+
+
 
         <!-- Cross-persona modules -->
-        
-        
-        
-        
+
+
+
+
 
         <!-- App shell — LAST: depends on all modules above -->
         <script defer src="./src/assets/app_loader.js"></script>
@@ -9780,148 +10756,6 @@
             </div>
         </div>
 
-        <!-- USER MANAGEMENT VIEW -->
-        <div id="user-management-view" class="view" style="padding-left: 280px; padding-top: 30px; display: none;">
-            <div class="container-fluid px-5">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1 class="h3 fw-bold text-dark mb-0">User Management</h1>
-                    <button class="btn btn-primary-custom" onclick="openAddUserModal()">
-                        <span class="material-icons align-middle fs-5 me-1">add</span> Add New User
-                    </button>
-                </div>
-
-                <!-- Tabs -->
-                <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
-                    <li class="nav-item">
-                        <button class="nav-link active fw-bold" id="pills-users-tab" data-bs-toggle="pill"
-                            data-bs-target="#pills-users" type="button" onclick="loadUserList()">
-                            <span class="material-icons align-middle fs-6 me-1">people</span> All Users
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link fw-bold" id="pills-audit-tab" data-bs-toggle="pill"
-                            data-bs-target="#pills-audit" type="button" onclick="showAuditLogs()">
-                            <span class="material-icons align-middle fs-6 me-1">history</span> Audit Logs
-                        </button>
-                    </li>
-                </ul>
-
-                <div class="tab-content" id="pills-tabContent">
-                    <!-- User List Tab -->
-                    <div class="tab-pane fade show active" id="pills-users" role="tabpanel">
-                        <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
-                            <div class="card-body p-0">
-                                <div class="table-responsive">
-                                    <table class="table table-hover align-middle mb-0" id="users-table">
-                                        <thead class="bg-light">
-                                            <tr>
-                                                <th class="py-3 ps-4">Name</th>
-                                                <th class="py-3">Role</th>
-                                                <th class="py-3">Email/ID</th>
-                                                <th class="py-3">Grade/Subject</th>
-                                                <!-- <th class="py-3 text-end pe-4">Actions</th> -->
-                                            </tr>
-                                        </thead>
-                                        <tbody id="users-table-body">
-                                            <tr>
-                                                <td colspan="5" class="text-center py-5">
-                                                    <div class="spinner-border text-primary"></div>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Audit Logs Tab -->
-                    <div class="tab-pane fade" id="pills-audit" role="tabpanel">
-                        <div id="audit-logs-container-v2" class="bg-white p-3 rounded-4 shadow-sm">
-                            <p class="text-center text-muted">Loading logs...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ADD USER VIEW -->
-        <div id="add-user-view-v2" class="view" style="padding-left: 280px; padding-top: 30px; display: none;">
-            <div class="container-fluid px-5">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <div class="d-flex align-items-center gap-3">
-                        <button class="btn btn-light rounded-circle shadow-sm"
-                            onclick="switchView('user-management-view')">
-                            <span class="material-icons text-dark">arrow_back</span>
-                        </button>
-                        <h1 class="h3 fw-bold text-dark mb-0">Create New User</h1>
-                    </div>
-                </div>
-
-                <div class="card border-0 shadow-sm rounded-4 p-4" style="max-width: 800px; margin: 0 auto;">
-                    <form id="add-user-form" onsubmit="handleCreateUser(event)">
-                        <div class="form-floating mb-3">
-                            <input type="text" id="new-user-name" class="form-control bg-light border-0"
-                                placeholder="Full Name" required>
-                            <label>Full Name</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="text" id="new-user-id" class="form-control bg-light border-0"
-                                placeholder="Email or Unique ID" required>
-                            <label>Email or Unique ID</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <select id="new-user-role" class="form-select bg-light border-0" required
-                                onchange="toggleUserFields()">
-                                <option value="Student">Student</option>
-                                <option value="Teacher">Teacher</option>
-                                <option value="Parent_Guardian">Parent / Guardian</option>
-                                <option value="Tenant_Admin">Tenant Admin (Principal)</option>
-                                <option value="Academic_Admin">Academic Admin</option>
-                                <option value="HR_Admin">HR Admin</option>
-
-                            </select>
-                            <label>Role</label>
-                        </div>
-                        <div class="form-floating mb-3">
-                            <input type="password" id="new-user-password" class="form-control bg-light border-0"
-                                placeholder="Password" required>
-                            <label>Password</label>
-                            <small class="text-muted">Must be at least 8 chars, incl. number & special char.</small>
-                        </div>
-
-                        <!-- Conditional Fields -->
-                        <div id="student-fields">
-                            <div class="form-floating mb-3">
-                                <select id="new-user-grade" class="form-select bg-light border-0">
-                                    <option value="9">Grade 9</option>
-                                    <option value="10">Grade 10</option>
-                                    <option value="11">Grade 11</option>
-                                    <option value="12">Grade 12</option>
-                                </select>
-                                <label>Grade</label>
-                            </div>
-                        </div>
-                        <div id="teacher-fields" style="display:none;">
-                            <div class="form-floating mb-3">
-                                <input type="text" id="new-user-subject" class="form-control bg-light border-0"
-                                    placeholder="Science">
-                                <label>Preferred/Teaching Subject</label>
-                            </div>
-                        </div>
-
-                        <div class="d-flex justify-content-end gap-2 mt-4">
-                            <button type="button" class="btn btn-light"
-                                onclick="switchView('user-management-view')">Cancel</button>
-                            <button type="submit" class="btn btn-primary-custom px-5 rounded-pill fw-bold">Create
-                                User</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- ADD USER MODAL -->
 
 
         <!-- Add Video Modal -->

@@ -79,10 +79,25 @@ async def initialize_db_schema():
     if engine is None:
         logger.error("Cannot initialize DB: Engine is None")
         return
-    async with engine.begin() as conn:
-        # If running Postgres, you'd usually use Alembic for migrations instead of create_all
-        # But for startup consistency based on the Base models:
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Smart check: If schools table exists, skip create_all
+    try:
+        async with engine.connect() as conn:
+            # Use a short timeout for the check (if supported by driver, e.g., asyncpg)
+            await conn.execute(text("SELECT 1 FROM schools LIMIT 1"))
+            logger.info("Database schema already exists, skipping create_all.")
+            return
+    except Exception:
+        logger.info("Database schema not found or inaccessible, proceeding with create_all.")
+
+    try:
+        async with engine.begin() as conn:
+            # For PostgreSQL, set statement_timeout.
+            if USE_POSTGRES:
+                await conn.execute(text("SET statement_timeout = 30000")) # 30 seconds
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.error(f"Failed to initialize database schema: {e}")
 
 # --- Phase 1 Legacy Adapters (For unmigrated routes in backend.py) ---
 # We move these imports inside the wrapper or make them lazy to prevent module-level crashes
@@ -151,29 +166,39 @@ class PooledPostgresConnectionWrapper(PostgresConnectionWrapper):
 def get_db_connection():
     global PG_POOL
     from app.core.config import DATABASE_URL, USE_POSTGRES
-    
+
+    def _sqlite_fallback():
+        import sqlite3
+        sqlite_candidate = os.getenv("DATABASE_URL", "class_bridge.db").strip()
+        if sqlite_candidate.startswith("sqlite:///"):
+            sqlite_candidate = sqlite_candidate.replace("sqlite:///", "", 1)
+        if not sqlite_candidate or "postgres" in sqlite_candidate.lower():
+            sqlite_candidate = "class_bridge.db"
+        conn = sqlite3.connect(sqlite_candidate, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
     if USE_POSTGRES and DATABASE_URL and "postgres" in DATABASE_URL.lower():
         pg_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
         if PG_POOL is None:
             try:
                 from psycopg2 import pool
-                PG_POOL = pool.ThreadedConnectionPool(1, 10, pg_url)
+                # Use a smaller pool for local stability/Supabase free tier
+                PG_POOL = pool.ThreadedConnectionPool(1, 3, pg_url)
             except Exception as e:
                 logger.error(f"Failed to initialize PostgreSQL connection pool: {e}")
-                raise ValueError(f"Database connection failed. Check server logs.")
+                logger.warning("Falling back to SQLite because PostgreSQL pool initialization failed.")
+                return _sqlite_fallback()
         try:
             conn = PG_POOL.getconn()
             return PooledPostgresConnectionWrapper(conn)
         except Exception as e:
             logger.error(f"Failed to get connection from PostgreSQL pool: {e}")
-            raise ValueError(f"Database connection timed out.")
+            logger.warning("Falling back to SQLite because PostgreSQL connection checkout failed.")
+            return _sqlite_fallback()
     else:
         try:
-            import sqlite3
-            sqlite_db_path = os.getenv("DATABASE_URL", "class_bridge.db").strip().replace("sqlite:///", "")
-            conn = sqlite3.connect(sqlite_db_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            return conn
+            return _sqlite_fallback()
         except Exception as e:
             logger.error(f"SQLite connection error: {e}")
             raise
