@@ -15,7 +15,7 @@ import sqlite3
 from urllib.parse import quote
 
 from app.core.database import get_db_connection
-from app.core.security import RateLimiter, ROLE_PERMISSIONS
+from app.core.security import RateLimiter
 from app.core.config import (
     TEACHER_LOGIN_ALIAS, ADMIN_LOGIN_EMAIL, ADMIN_LOGIN_PASSWORD,
     SMTP_EMAIL, STUDENT_OTP_EMAIL_OVERRIDES, PARENT_OTP_EMAIL_OVERRIDES,
@@ -42,6 +42,92 @@ from app.core.auth_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+def _make_access_token(user_id: str) -> str:
+    """Lightweight bearer token for frontend session transport."""
+    ts = int(time.time())
+    nonce = secrets.token_urlsafe(16)
+    raw = f"{user_id}:{ts}:{nonce}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _resolve_effective_rbac(cursor, user_id: str, legacy_role: str, school_id: Optional[int]) -> tuple[list[dict], list[str]]:
+    """
+    Resolve roles and permissions from canonical RBAC tables:
+      users -> user_roles -> roles -> role_permissions -> permissions
+    Scoped to the user's institution (or global roles with NULL school_id).
+    """
+    resolved_school_id = school_id if school_id is not None else 1
+
+    role_rows = cursor.execute(
+        """
+        SELECT DISTINCT r.id, r.name, r.role_code
+        FROM roles r
+        JOIN user_roles ur ON r.id = ur.role_id
+        WHERE LOWER(ur.user_id) = LOWER(?)
+          AND (r.school_id IS NULL OR r.school_id = ?)
+        """,
+        (user_id, resolved_school_id),
+    ).fetchall()
+    role_objects = [
+        {
+            "role_id": r["id"],
+            "role_title": r["name"],
+            "role_code": r["role_code"] or f"R-{int(r['id']):04d}",
+        }
+        for r in role_rows
+    ]
+    if legacy_role and legacy_role.lower() not in {(r.get("role_title") or "").lower() for r in role_objects}:
+        role_objects.append(
+            {
+                "role_id": None,
+                "role_title": legacy_role,
+                "role_code": "",
+            }
+        )
+    if not role_objects:
+        role_objects = [
+            {
+                "role_id": None,
+                "role_title": legacy_role,
+                "role_code": "",
+            }
+        ]
+
+    perm_rows = cursor.execute(
+        """
+        SELECT DISTINCT p.code
+        FROM permissions p
+        JOIN role_permissions rp ON p.id = rp.permission_id
+        JOIN user_roles ur ON rp.role_id = ur.role_id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = ?
+          AND (r.school_id IS NULL OR r.school_id = ?)
+        """,
+        (user_id, resolved_school_id),
+    ).fetchall()
+    perm_codes = [p["code"] for p in perm_rows]
+
+    # Always merge role-name permissions for the legacy students.role mapping.
+    # This fixes historical user_roles links that may point at stale/cross-tenant role IDs.
+    if legacy_role:
+        by_role_rows = cursor.execute(
+            """
+            SELECT DISTINCT p.code
+            FROM permissions p
+            JOIN role_permissions rp ON p.id = rp.permission_id
+            JOIN roles r ON rp.role_id = r.id
+            WHERE LOWER(r.name) = LOWER(?)
+              AND (r.school_id IS NULL OR r.school_id = ?)
+            """,
+            (legacy_role, resolved_school_id),
+        ).fetchall()
+        for row in by_role_rows:
+            code = row["code"]
+            if code and code not in perm_codes:
+                perm_codes.append(code)
+
+    return role_objects, perm_codes
 
 # --- We will need to redefine or import log_auth_event, validate_password_strength etc. ---
 def _ensure_authenticator_table(conn) -> None:
@@ -400,31 +486,8 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
             sch = cursor.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
             if sch: school_name = sch['name']
 
-        # Fetch RBAC Data
-        # 1. Fetch Assigned Roles
-        roles_data = cursor.execute("""
-            SELECT r.name 
-            FROM roles r 
-            JOIN user_roles ur ON r.id = ur.role_id 
-            WHERE ur.user_id = ?
-        """, (auth_user_id,)).fetchall()
-        role_names = [r['name'] for r in roles_data]
-        
-        # Fallback
-        if not role_names:
-            role_names = [role]
-
-        # 2. Fetch Permissions
-        perms_data = cursor.execute("""
-            SELECT DISTINCT p.code 
-            FROM permissions p
-            JOIN role_permissions rp ON p.id = rp.permission_id
-            JOIN user_roles ur ON rp.role_id = ur.role_id
-            WHERE ur.user_id = ?
-        """, (auth_user_id,)).fetchall()
-        perm_codes = [p['code'] for p in perms_data]
-        if not perm_codes and role in ROLE_PERMISSIONS:
-            perm_codes = list(dict.fromkeys(ROLE_PERMISSIONS.get(role, [])))
+        role_objects, perm_codes = _resolve_effective_rbac(cursor, auth_user_id, role, school_id)
+        role_titles = {(r.get("role_title") or "").strip() for r in role_objects}
 
         # Root_Super_Admin always gets wildcard permissions
         if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
@@ -433,7 +496,7 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
 
         related_student_id = None
         try:
-            if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
+            if 'Parent' in role_titles or 'Parent_Guardian' in role_titles or role in ('Parent', 'Parent_Guardian'):
                 # 1. Check guardians table by email (primary)
                 child = cursor.execute("SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?)", (auth_user_id,)).fetchone()
                 if not child and auth_user_id in PARENT_OTP_EMAIL_OVERRIDES:
@@ -470,7 +533,15 @@ async def login_user(request: LoginRequest, background_tasks: BackgroundTasks):
             user_id=user['id'], 
             name=user_dict.get('name'),
             role=role, 
-            roles=role_names,
+            access_token=_make_access_token(auth_user_id),
+            token_type="bearer",
+            user={
+                "user_id": user['id'],
+                "username": user['id'],
+                "first_name": (user_dict.get('name') or "").strip().split(" ")[0] if user_dict.get('name') else "",
+                "last_name": " ".join((user_dict.get('name') or "").strip().split(" ")[1:]) if user_dict.get('name') else "",
+            },
+            roles=role_objects,
             permissions=perm_codes,
             requires_2fa=False,
             school_id=school_id,
@@ -564,31 +635,8 @@ async def verify_backup_code(request: Verify2FARequest):
             sch = cursor.execute("SELECT name FROM schools WHERE id = ?", (school_id,)).fetchone()
             if sch: school_name = sch['name']
 
-    # Fetch RBAC Data
-    # 1. Fetch Assigned Roles
-    roles_data = cursor.execute("""
-        SELECT r.name 
-        FROM roles r 
-        JOIN user_roles ur ON r.id = ur.role_id 
-        WHERE ur.user_id = ?
-    """, (request.user_id,)).fetchall()
-    role_names = [r['name'] for r in roles_data]
-    
-    # Fallback
-    if not role_names:
-        role_names = [role]
-
-    # 2. Fetch Permissions
-    perms_data = cursor.execute("""
-        SELECT DISTINCT p.code 
-        FROM permissions p
-        JOIN role_permissions rp ON p.id = rp.permission_id
-        JOIN user_roles ur ON rp.role_id = ur.role_id
-        WHERE ur.user_id = ?
-    """, (request.user_id,)).fetchall()
-    perm_codes = [p['code'] for p in perms_data]
-    if not perm_codes and role in ROLE_PERMISSIONS:
-        perm_codes = list(dict.fromkeys(ROLE_PERMISSIONS.get(role, [])))
+    role_objects, perm_codes = _resolve_effective_rbac(cursor, request.user_id, role, school_id)
+    role_titles = {(r.get("role_title") or "").strip() for r in role_objects}
 
     # Root_Super_Admin always gets wildcard permissions
     if role in ('Root_Super_Admin', 'Super Admin') or bool(is_super_admin):
@@ -597,7 +645,7 @@ async def verify_backup_code(request: Verify2FARequest):
 
     related_student_id = None
     try:
-        if 'Parent' in role_names or 'Parent_Guardian' in role_names or role in ('Parent', 'Parent_Guardian'):
+        if 'Parent' in role_titles or 'Parent_Guardian' in role_titles or role in ('Parent', 'Parent_Guardian'):
             # 1. Check guardians table by email (primary)
             child = cursor.execute(
                 "SELECT student_id FROM guardians WHERE LOWER(email) = LOWER(?) ORDER BY id DESC LIMIT 1",
@@ -638,10 +686,18 @@ async def verify_backup_code(request: Verify2FARequest):
     log_auth_event(request.user_id, "Login Success", "2FA Verified")
 
     return LoginResponse(
+        access_token=_make_access_token(request.user_id),
+        token_type="bearer",
+        user={
+            "user_id": request.user_id,
+            "username": request.user_id,
+            "first_name": (user_dict.get('name') or "").strip().split(" ")[0] if user_dict.get('name') else "",
+            "last_name": " ".join((user_dict.get('name') or "").strip().split(" ")[1:]) if user_dict.get('name') else "",
+        },
         user_id=request.user_id,
         name=user_dict.get('name'),
         role=role, 
-        roles=role_names,
+        roles=role_objects,
         permissions=perm_codes,
         requires_2fa=False,
         school_id=school_id,
@@ -770,6 +826,22 @@ async def register_user(request: RegisterRequest, background_tasks: BackgroundTa
                 100.0, "English", hash_password(request.password), selected_role, school_id, 0, 0, verification_token, verification_expires_at
             ) 
         )
+        role_row = cursor.execute(
+            """
+            SELECT id
+            FROM roles
+            WHERE LOWER(name) = LOWER(?)
+              AND (school_id IS NULL OR school_id = ?)
+            ORDER BY CASE WHEN school_id = ? THEN 0 ELSE 1 END, id
+            LIMIT 1
+            """,
+            (selected_role, school_id, school_id),
+        ).fetchone()
+        if role_row:
+            cursor.execute(
+                "INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                (email, role_row["id"]),
+            )
 
         verification_link = f"{VERIFICATION_LINK_BASE}/api/auth/verify-email?token={verification_token}"
         email_body = f"""
@@ -1028,5 +1100,82 @@ async def reset_password(request: ResetPasswordRequest):
         
         log_auth_event(reset_entry['user_id'], "Password Reset Success", "Password updated via token & Account unlocked")
         return {"message": "Password reset successfully. You can now login."}
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RBAC: Dynamic Permission Refresh Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+# Called by the frontend after:
+#   1. Any role is saved/updated (to propagate permission changes to current user)
+#   2. Dashboard initialization (to always load fresh permissions, never stale cache)
+#
+# This is the KEY fix for the RBAC permission propagation issue.
+# Permissions are NEVER stored permanently — always resolved live from:
+#   user_roles → role_permissions → permissions
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/api/auth/refresh-permissions")
+async def refresh_user_permissions(x_user_id: str = Header(None, alias="X-User-Id")):
+    """
+    Dynamically re-fetches the authenticated user's permissions in real-time from the DB.
+
+    Resolves: users → user_roles → roles → role_permissions → permissions
+
+    This ensures that any role update (add/remove permissions) immediately propagates
+    to ALL existing users with that role — no logout or re-login required.
+
+    Returns:
+        {
+            "permissions": ["permission_code_1", "permission_code_2", ...],
+            "roles": [
+                {"role_id": 1, "role_title": "Admin", "role_code": "R-0001"}
+            ]
+        }
+    """
+    if not x_user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Special bypass for the hardcoded Root Admin (not in students table)
+    if x_user_id == "rootadmin":
+        return {
+            "permissions": ["*"],
+            "roles": [{"role_id": None, "role_title": "Root_Super_Admin", "role_code": ""}]
+        }
+
+    conn = get_db_connection()
+    try:
+        # 1. Fetch user basic info
+        user = conn.execute(
+            "SELECT role, is_super_admin, school_id FROM students WHERE LOWER(id) = LOWER(?)",
+            (x_user_id,)
+        ).fetchone()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        role = user["role"]
+        school_id = user["school_id"] if user["school_id"] is not None else 1
+        is_super_admin = bool(user["is_super_admin"])
+
+        # 2. Super Admin / Root always gets wildcard
+        if is_super_admin or role in ("Root_Super_Admin", "Super Admin"):
+            return {
+                "permissions": ["*"],
+                "roles": [{"role_id": None, "role_title": role, "role_code": ""}]
+            }
+
+        # 3. Resolve roles + permissions dynamically from RBAC relation tables
+        cursor = conn.cursor()
+        role_objects, perm_codes = _resolve_effective_rbac(cursor, x_user_id, role, school_id)
+
+        logger.info(f"[refresh-permissions] user={x_user_id} role={role} perms_count={len(perm_codes)}")
+
+        return {
+            "permissions": perm_codes,
+            "roles": role_objects
+        }
+
     finally:
         conn.close()

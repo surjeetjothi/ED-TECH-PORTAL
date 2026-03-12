@@ -42,8 +42,7 @@ function ensureRootAdminView() {
     rootView.className = 'view';
     rootView.innerHTML = `
         <div class="container-fluid py-2">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h2 class="ra-heading mb-0">Root Admin Workspace</h2>
+            <div class="d-flex justify-content-end align-items-center mb-3">
                 <button class="btn btn-outline-primary btn-sm" onclick="loadRootAdminPanel()">Refresh</button>
             </div>
             <div id="root-admin-alert" class="alert d-none" role="alert"></div>
@@ -57,7 +56,7 @@ function ensureRootAdminView() {
                             <select id="ra-student-role" class="form-select" required>
                                 <option value="Student">Student</option>
                                 <option value="Teacher">Teacher</option>
-                                <option value="Principal">Principal</option>
+                                <option value="Principal">Tenant Admin</option>
                                 <option value="Tenant_Admin">Tenant Admin</option>
                                 <option value="Parent">Parent</option>
                                 <option value="Parent_Guardian">Parent Guardian</option>
@@ -282,7 +281,7 @@ function bindRootAdminForms() {
                 school_id: Number(document.getElementById('ra-verify-school-id').value),
                 otp: document.getElementById('ra-verify-otp').value,
             };
-            const res = yield fetchAPI('/root-admin/schools/verify-otp', { method: 'POST', body: JSON.stringify(payload) });
+            const res = yield fetchAPI('/root-admin/schools' + '/verify-otp', { method: 'POST', body: JSON.stringify(payload) });
             const data = yield res.json().catch(() => ({}));
             if (!res.ok) {
                 setRootAdminAlert(`OTP verify failed: ${data.detail || 'Unknown error'}`, 'danger');

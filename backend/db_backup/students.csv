@@ -59,7 +59,7 @@ student_g5_9,Student G5-9,5,General,93.6,English,student123,46.4,60.9,84.1,Stude
 student_g5_10,Student G5-10,5,General,98.4,English,student123,72.8,85.2,69.4,Student,1,False,0,,0,[],,
 S001,Alice Smith,9,Maths,86.4,English,123,75.1,68.5,82.8,Student,1,False,0,,0,[],,
 S002,Bob Johnson,10,Science,63.1,Spanish,123,53.5,62.9,97.3,Student,1,False,0,,0,[],,
-SURJEET,Surjeet J,11,Science,66.3,Punjabi,123,73.1,83.2,86.4,Student,1,False,0,,0,[],,
+SAMPLE_STUDENT,Sample Student,11,Science,66.3,Punjabi,123,73.1,83.2,86.4,Student,1,False,0,,0,[],,
 teacher,Teacher Admin,0,All,100.0,English,teacher,100.0,100.0,100.0,Teacher,1,False,0,,0,[],,
 DEVA,Deva Krishnan,11,Tamil,76.6,Tamil,123,83.3,91.6,67.0,Student,1,False,0,,0,[],,
 HARISH,Harish Boy,5,English,80.4,Hindi,123,98.9,91.5,49.7,Student,1,False,0,,0,[],,

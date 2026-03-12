@@ -1,4 +1,4 @@
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+﻿var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -92,12 +92,12 @@ let appState = {
     permissions: []
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Performance utilities, view loader registry and role constants are defined in:
-//   frontend/static/cb_perf.js          — loadPlotlyAndRender, cachedFetchAPI
-//   frontend/static/cb_view_registry.js — VIEW_LOADERS, TEACHER_ROLES, etc.
+//   frontend/static/cb_perf.js          â€” loadPlotlyAndRender, cachedFetchAPI
+//   frontend/static/cb_view_registry.js â€” VIEW_LOADERS, TEACHER_ROLES, etc.
 // Both files are loaded before this script in index.html.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function applyRoleTheme() {
     const role = appState.role || '';
@@ -141,6 +141,38 @@ function hasAnyPermission(codes) {
 }
 function isParentRole(role) {
     return role === 'Parent' || role === 'Parent_Guardian';
+}
+function showToast(message, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.style.position = 'fixed';
+        container.style.bottom = '20px';
+        container.style.right = '20px';
+        container.style.zIndex = '9999';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    const bgClass = type === 'error' ? 'bg-danger' :
+        type === 'success' ? 'bg-success' :
+            type === 'warning' ? 'bg-warning text-dark' : 'bg-info text-white';
+    toast.className = `toast align-items-center text-white border-0 ${bgClass}`;
+    toast.setAttribute('role', 'alert');
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s ease-in-out';
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.parentElement.parentElement.remove()"></button>
+        </div>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => toast.style.opacity = '1', 10);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
 }
 
 function showAccessDeniedView() {
@@ -196,6 +228,84 @@ function restoreAuthState() {
         return true;
     }
     return false;
+}
+
+function isPlatformOwnerAccount() {
+    const role = String(appState.role || '').trim();
+    const uid = String(appState.userId || '').trim().toLowerCase();
+    return !!(
+        appState.isSuperAdmin ||
+        role === 'Root_Super_Admin' ||
+        role === 'Super Admin' ||
+        role === 'Super_Admin' ||
+        uid === 'rootadmin' ||
+        uid === 'admin'
+    );
+}
+
+/**
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * RBAC Fix: refreshCurrentUserPermissions()
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * Re-fetches the current user's permissions LIVE from the backend DB at any
+ * time -- bypassing the stale localStorage snapshot that was taken at login.
+ *
+ * Called:
+ *   1. At the start of initializeDashboard() -- ensures fresh perms on every load
+ *   2. After handleSaveRole() succeeds -- propagates role changes immediately
+ *
+ * Why this fixes the bug:
+ *   At login, permissions are snapshotted into localStorage. When an admin
+ *   updates a role's permissions, the DB changes but localStorage stays stale.
+ *   This function always fetches the live DB-derived permissions and overwrites
+ *   both appState.permissions AND the localStorage snapshot, so hasPermission()
+ *   always reflects the current role definition -- no logout needed.
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ */
+async function refreshCurrentUserPermissions() {
+    if (!appState.isLoggedIn || !appState.userId) return;
+    // Super admins always have wildcard -- no need to fetch
+    if (appState.isSuperAdmin || appState.role === 'Root_Super_Admin') {
+        appState.permissions = ['*'];
+        return;
+    }
+    try {
+        const res = await fetchAPI('/auth/refresh-permissions');
+        if (!res.ok) {
+            console.warn('[RBAC] refresh-permissions returned', res.status, '-- keeping cached permissions');
+            return;
+        }
+        const data = await res.json();
+        const freshPerms = data.permissions || [];
+        const freshRoles = data.roles || appState.roles;
+        const freshIsSuper = data.is_super_admin || false;
+
+        // Update live appState
+        appState.permissions = freshPerms;
+        appState.roles = freshRoles;
+        if (freshIsSuper) {
+            appState.isSuperAdmin = true;
+            appState.permissions = ['*'];
+        }
+
+        // Also patch localStorage so the next restoreAuthState() sees fresh data
+        const stored = localStorage.getItem('classbridge_session');
+        if (stored) {
+            try {
+                const session = JSON.parse(stored);
+                session.permissions = freshPerms;
+                session.roles = freshRoles;
+                session.is_super_admin = freshIsSuper || session.is_super_admin;
+                localStorage.setItem('classbridge_session', JSON.stringify(session));
+            } catch (e) {
+                // Ignore parse errors -- appState is already updated above
+            }
+        }
+        console.log('[RBAC] Permissions refreshed for ' + appState.userId + ': ' + freshPerms.length + ' permission(s)');
+    } catch (e) {
+        console.warn('[RBAC] refreshCurrentUserPermissions failed (network?):', e.message);
+        // Non-fatal -- fall back to cached permissions
+    }
 }
 // --- LOCALIZATION & ACCESSIBILITY (FR-17, FR-16) ---
 var translations = window.translations || {
@@ -274,7 +384,7 @@ var translations = window.translations || {
         // Student Dashboard
         student_dashboard_title: "Student Dashboard",
         btn_log_activity: "Log Activity",
-        student_live_class: "🔴 Live Class in Progress!",
+        student_live_class: "ðŸ”´ Live Class in Progress!",
         btn_join_class: "Join Class",
         btn_join_whiteboard: "Join Whiteboard",
         student_key_metrics: "Student Key Metrics",
@@ -287,8 +397,8 @@ var translations = window.translations || {
         msg_no_courses: "You are not enrolled in any courses yet.",
         student_upcoming_assignments: "Upcoming Assignments & Projects",
         msg_loading_assignments: "Loading assignments...",
-        tab_progress_graph: "📈 Progress Graph",
-        tab_activity_history: "📜 Activity History",
+        tab_progress_graph: "ðŸ“ˆ Progress Graph",
+        tab_activity_history: "ðŸ“œ Activity History",
         // Parent Portal
         parent_portal_title: "Parent Portal",
         label_select_child: "Select Your Child",
@@ -335,7 +445,7 @@ var translations = window.translations || {
         modal_take_quiz: "Quiz",
         btn_submit_quiz: "Submit Quiz",
         // Modals - Add Student
-        modal_add_student: "➕ Add New Student",
+        modal_add_student: "âž• Add New Student",
         label_student_id: "Student ID",
         label_full_name: "Full Name",
         label_default_password: "Default Password",
@@ -356,7 +466,7 @@ var translations = window.translations || {
         label_questions_count: "Questions",
         btn_generate_quiz: "Generate Quiz",
         // Modals - Schedule Class
-        modal_schedule_class: "📅 Schedule Live Class",
+        modal_schedule_class: "ðŸ“… Schedule Live Class",
         label_date_time: "Date & Time",
         label_target_students: "Target Students",
         label_filter_group: "Filter by Group",
@@ -372,8 +482,8 @@ var translations = window.translations || {
         dashboard_staff: "Staff",
         dashboard_awards: "Awards",
         metric_change_teachers: "! 3% from last month",
-        metric_change_staff: "→ No change",
-        metric_change_awards: "↑ 15% from last month",
+        metric_change_staff: "â†’ No change",
+        metric_change_awards: "â†‘ 15% from last month",
         btn_schedule_class: "Schedule Class",
         btn_ai_quiz: "AI Quiz",
         btn_plan_lesson: "Plan Lesson",
@@ -409,7 +519,7 @@ var translations = window.translations || {
         label_feedback: "Feedback",
         btn_save: "Save",
         btn_reassign: "Reassign",
-        asg_modal_title: "📝 New Assignment",
+        asg_modal_title: "ðŸ“ New Assignment",
         label_title: "Title",
         label_description: "Description",
         label_class_grade: "Class (Grade)",
@@ -423,12 +533,12 @@ var translations = window.translations || {
         payslip_ytd: "Year-To-Date",
         payslip_net_pay_label: "Net Pay",
         payslip_latest: "Latest Pay Period",
-        payslip_latest_sub: "Net Pay • Sep 2024",
+        payslip_latest_sub: "Net Pay â€¢ Sep 2024",
         payslip_payment_method: "Payment Method",
-        payslip_account_masked: "Account •••• 2391",
+        payslip_account_masked: "Account â€¢â€¢â€¢â€¢ 2391",
         payslip_recent: "Recent Payslips",
         payslip_download_all: "Download All",
-        payslip_processed_paid: "Processed: Oct 01, 2024 • Status: Paid",
+        payslip_processed_paid: "Processed: Oct 01, 2024 â€¢ Status: Paid",
         payslip_view_details: "View Details",
         payslip_gross: "Gross: $5,000",
         payslip_deductions: "Deductions: $880",
@@ -558,33 +668,33 @@ var translations = window.translations || {
         feat_modern_title: "Built for the Modern Classroom",
         feat_quiz_gen: "Quiz Generator",
         feat_quiz_desc: "Upload a PDF chapter, and our AI generates 20 distinct questions with answer keys in seconds.",
-        link_try_generator: "Try Generator →",
+        link_try_generator: "Try Generator â†’",
         feat_student_insights: "Student Insights",
         feat_student_insights_desc: "Beyond grades. See who is trying hard but struggling, and who needs more challenging material.",
-        link_view_report: "View Sample Report →",
+        link_view_report: "View Sample Report â†’",
         feat_hybrid: "Hybrid Classroom",
         feat_hybrid_desc: "Seamlessly switch between in-person and remote teaching with built-in video logic.",
-        link_see_how: "See How →",
+        link_see_how: "See How â†’",
         cta_ready_transform: "Ready to transform your teaching?",
         btn_join_free: "Join Noble Nexus for Free"
     },
     es: {
         login_welcome: "Bienvenido a Noble Nexus",
-        login_subtitle: "Inicia sesión en el portal Noble Nexus",
+        login_subtitle: "Inicia sesiÃ³n en el portal Noble Nexus",
         label_username: "Usuario / ID de Estudiante",
-        label_password: "Contraseña",
-        link_forgot_password: "¿Olvidaste tu contraseña?",
-        btn_signin: "Iniciar Sesión",
+        label_password: "ContraseÃ±a",
+        link_forgot_password: "Â¿Olvidaste tu contraseÃ±a?",
+        btn_signin: "Iniciar SesiÃ³n",
         btn_signin_microsoft: "Entrar con Microsoft",
         text_or: "O",
-        text_new_user: "¿Nuevo usuario?",
-        link_signup: "Regístrate",
-        link_help: "¿Necesitas ayuda? Contacta soporte",
-        msg_enter_credentials: "Por favor ingrese usuario y contraseña.",
+        text_new_user: "Â¿Nuevo usuario?",
+        link_signup: "RegÃ­strate",
+        link_help: "Â¿Necesitas ayuda? Contacta soporte",
+        msg_enter_credentials: "Por favor ingrese usuario y contraseÃ±a.",
         msg_checking: "Verificando credenciales...",
         msg_welcome: "Bienvenido, {user_id}",
-        msg_login_failed: "Inicio de sesión fallido",
-        msg_network_error: "Error de red: {error}. ¿Está el servidor activo?",
+        msg_login_failed: "Inicio de sesiÃ³n fallido",
+        msg_network_error: "Error de red: {error}. Â¿EstÃ¡ el servidor activo?",
         msg_google_verify: "Verificando token de Google...",
         msg_microsoft_conn: "Conectando con Microsoft...",
         msg_microsoft_verify: "Verificando token de Microsoft...",
@@ -593,13 +703,13 @@ var translations = window.translations || {
         sidebar_my_courses: "Mis Cursos",
         sidebar_course_list: "Lista de Cursos",
         sidebar_assignments: "Tareas",
-        sidebar_exams: "Exámenes",
-        sidebar_upcoming_exams: "Próximos Exámenes",
+        sidebar_exams: "ExÃ¡menes",
+        sidebar_upcoming_exams: "PrÃ³ximos ExÃ¡menes",
         sidebar_results: "Resultados",
         sidebar_profile: "Perfil",
         sidebar_view_profile: "Ver Perfil",
         sidebar_settings: "Ajustes",
-        sidebar_communication: "Comunicación",
+        sidebar_communication: "ComunicaciÃ³n",
         sidebar_lms: "Cursos (LMS)",
         sidebar_ai_assistant: "Asistente IA",
         sidebar_timetable: "Horario",
@@ -610,22 +720,22 @@ var translations = window.translations || {
         sidebar_monthly_report: "Informe Mensual",
         sidebar_approve_leave: "Aprobar/Rechazar Permiso",
         sidebar_apply_leave: "Solicitar Permiso",
-        sidebar_assignment_group: "Asignación",
+        sidebar_assignment_group: "AsignaciÃ³n",
         sidebar_create_assignment: "Crear Tarea",
         sidebar_view_submitted: "Ver Entregas",
         sidebar_approve_reassign: "Aprobar / Reasignar",
         sidebar_enter_marks: "Ingresar Notas",
-        sidebar_online_test: "Prueba en Línea",
+        sidebar_online_test: "Prueba en LÃ­nea",
         sidebar_question_bank: "Banco de Preguntas",
         sidebar_create_test: "Crear/Editar Pruebas",
-        sidebar_assign_max_marks: "Asignar Notas Máx.",
+        sidebar_assign_max_marks: "Asignar Notas MÃ¡x.",
         sidebar_view_test_results: "Ver Resultados",
-        sidebar_progress_card: "Boletín",
+        sidebar_progress_card: "BoletÃ­n",
         sidebar_enter_progress: "Ingresar Progresos",
         sidebar_save_publish: "Guardar y Publicar",
-        sidebar_view_progress: "Ver Boletín",
-        sidebar_pay_slips: "Nóminas",
-        sidebar_view_payslips: "Ver Nóminas",
+        sidebar_view_progress: "Ver BoletÃ­n",
+        sidebar_pay_slips: "NÃ³minas",
+        sidebar_view_payslips: "Ver NÃ³minas",
         sidebar_students: "Estudiantes",
         sidebar_add_student: "Agregar Estudiante",
         sidebar_student_list: "Lista de Estudiantes",
@@ -636,28 +746,28 @@ var translations = window.translations || {
         sidebar_ai_copilot: "Copiloto IA",
         sidebar_roles_perms: "Roles y Permisos",
         sidebar_staff_faculty: "Personal y Facultad",
-        sidebar_system_settings: "Configuración del Sistema",
-        sidebar_academic_progress: "Progreso Académico",
+        sidebar_system_settings: "ConfiguraciÃ³n del Sistema",
+        sidebar_academic_progress: "Progreso AcadÃ©mico",
         sidebar_fees_payments: "Pagos y Tarifas",
         sidebar_education_assistant: "Asistente Educativo",
         // Student Dashboard
         student_dashboard_title: "Panel de Estudiante",
         btn_log_activity: "Registrar Actividad",
-        student_live_class: "🔴 ¡Clase en Vivo en Progreso!",
+        student_live_class: "ðŸ”´ Â¡Clase en Vivo en Progreso!",
         btn_join_class: "Unirse a Clase",
         btn_join_whiteboard: "Unirse a Pizarra",
-        student_key_metrics: "Métricas Clave del Estudiante",
-        student_upcoming_live: "Próximas Clases en Vivo",
+        student_key_metrics: "MÃ©tricas Clave del Estudiante",
+        student_upcoming_live: "PrÃ³ximas Clases en Vivo",
         msg_no_live_classes: "No hay clases en vivo programadas.",
-        live_class_session: "CLASE EN VIVO EN SESIÓN",
+        live_class_session: "CLASE EN VIVO EN SESIÃ“N",
         btn_join_now: "UNIRSE AHORA",
         student_level: "Nivel",
         student_my_courses: "Mis Cursos",
-        msg_no_courses: "Aún no estás inscrito en ningún curso.",
-        student_upcoming_assignments: "Próximas Tareas y Proyectos",
+        msg_no_courses: "AÃºn no estÃ¡s inscrito en ningÃºn curso.",
+        student_upcoming_assignments: "PrÃ³ximas Tareas y Proyectos",
         msg_loading_assignments: "Cargando tareas...",
-        tab_progress_graph: "📈 Gráfico de Progreso",
-        tab_activity_history: "📜 Historial de Actividad",
+        tab_progress_graph: "ðŸ“ˆ GrÃ¡fico de Progreso",
+        tab_activity_history: "ðŸ“œ Historial de Actividad",
         // Parent Portal
         parent_portal_title: "Portal de Padres",
         label_select_child: "Seleccione a su Hijo",
@@ -666,16 +776,16 @@ var translations = window.translations || {
         msg_enter_child_id: "Ingrese el ID de estudiante proporcionado por la escuela.",
         parent_overview_for: "Resumen para",
         parent_key_updates: "Actualizaciones Clave",
-        update_school_close: "La escuela cierra temprano mañana a las 2 PM.",
+        update_school_close: "La escuela cierra temprano maÃ±ana a las 2 PM.",
         update_report_cards: "Se han publicado las boletas de calificaciones.",
-        parent_academic_progress: "Progreso Académico",
+        parent_academic_progress: "Progreso AcadÃ©mico",
         parent_teacher_feedback: "Comentarios del Profesor",
         msg_loading_feedback: "Cargando comentarios...",
         parent_recent_marks: "Calificaciones Recientes",
         th_subject: "Asignatura",
         th_exam: "Examen",
-        th_score: "Calificación",
-        parent_performance_chart: "Gráfico de Rendimiento",
+        th_score: "CalificaciÃ³n",
+        parent_performance_chart: "GrÃ¡fico de Rendimiento",
         parent_report_cards: "Boletas de Calificaciones",
         term_1_report: "Boleta Trimestre 1",
         badge_download: "Descargar",
@@ -685,37 +795,37 @@ var translations = window.translations || {
         role_super_admin: "Super Administrador",
         // Modals - Upload Resource
         modal_upload_resource: "Subir Recurso",
-        label_res_title: "Título",
-        label_res_category: "Categoría",
-        opt_school_policy: "Política Escolar",
-        opt_exam_schedule: "Horario de Exámenes",
+        label_res_title: "TÃ­tulo",
+        label_res_category: "CategorÃ­a",
+        opt_school_policy: "PolÃ­tica Escolar",
+        opt_exam_schedule: "Horario de ExÃ¡menes",
         opt_form: "Formulario de Permiso/Admin",
         opt_other: "Otro",
-        label_res_desc: "Descripción",
+        label_res_desc: "DescripciÃ³n",
         label_res_file: "Archivo (PDF, Doc)",
-        text_max_size: "Tamaño máx 5MB",
+        text_max_size: "TamaÃ±o mÃ¡x 5MB",
         // Modals - Permission Edit
         modal_edit_permission: "Editar Permiso",
-        label_perm_code: "Código de Permiso",
-        label_perm_title: "Título de Permiso",
+        label_perm_code: "CÃ³digo de Permiso",
+        label_perm_title: "TÃ­tulo de Permiso",
         btn_cancel: "Cancelar",
         btn_update: "Actualizar",
         // Modals - Take Quiz
         modal_take_quiz: "Prueba",
         btn_submit_quiz: "Enviar Prueba",
         // Modals - Add Student
-        modal_add_student: "➕ Añadir Nuevo Estudiante",
+        modal_add_student: "âž• AÃ±adir Nuevo Estudiante",
         label_student_id: "ID de Estudiante",
         label_full_name: "Nombre Completo",
-        label_default_password: "Contraseña Predeterminada",
+        label_default_password: "ContraseÃ±a Predeterminada",
         label_grade: "Grado",
         // Modals - Access Card
         modal_access_card: "Tarjeta de Acceso Estudiantil",
         label_topic: "Tema",
-        ph_topic: "ej. Fotosíntesis",
+        ph_topic: "ej. FotosÃ­ntesis",
         // label_grade: "Grado", // Duplicated
         label_subject: "Asignatura",
-        label_duration: "Duración (Minutos)",
+        label_duration: "DuraciÃ³n (Minutos)",
         label_instructions: "Instrucciones Adicionales / Contexto",
         ph_instructions: "ej. Enfocarse en vocabulario...",
         label_upload_pdf: "Subir PDF de Contexto (Opcional)",
@@ -725,7 +835,7 @@ var translations = window.translations || {
         label_questions_count: "Preguntas",
         btn_generate_quiz: "Generar Prueba",
         // Modals - Schedule Class
-        modal_schedule_class: "📅 Programar Clase en Vivo",
+        modal_schedule_class: "ðŸ“… Programar Clase en Vivo",
         label_date_time: "Fecha y Hora",
         label_target_students: "Estudiantes Objetivo",
         label_filter_group: "Filtrar por Grupo",
@@ -741,36 +851,36 @@ var translations = window.translations || {
         dashboard_staff: "Personal",
         dashboard_awards: "Premios",
         metric_change_teachers: "! 3% del mes pasado",
-        metric_change_staff: "→ Sin cambios",
-        metric_change_awards: "↑ 15% del mes pasado",
+        metric_change_staff: "â†’ Sin cambios",
+        metric_change_awards: "â†‘ 15% del mes pasado",
         btn_schedule_class: "Programar Clase",
         btn_ai_quiz: "Prueba IA",
-        btn_plan_lesson: "Planificar Lección",
+        btn_plan_lesson: "Planificar LecciÃ³n",
         btn_whiteboard: "Pizarra",
         btn_export: "Exportar",
         btn_engagement_helper: "Ayudante de Compromiso",
         // Assignments & Payslips
         asg_active_title: "Asignaciones activas",
         asg_active_subtitle: "Crea, revisa entregas y sigue el progreso por clase.",
-        btn_create_assignment: "Crear asignación",
-        asg_review_title: "Cola de revisión",
+        btn_create_assignment: "Crear asignaciÃ³n",
+        asg_review_title: "Cola de revisiÃ³n",
         btn_refresh: "Actualizar",
         msg_loading_submissions: "Cargando entregas...",
         msg_failed_load_submissions: "No se pudieron cargar las entregas.",
-        asg_review_empty: "¡Todo al día! No hay entregas pendientes.",
+        asg_review_empty: "Â¡Todo al dÃ­a! No hay entregas pendientes.",
         marks_entry_title: "Registro de calificaciones",
-        marks_select_assignment: "Seleccionar asignación",
+        marks_select_assignment: "Seleccionar asignaciÃ³n",
         marks_load_submissions: "Cargar entregas",
-        marks_select_prompt: "Selecciona una asignación para ver entregas.",
-        msg_no_assignments: "Aún no hay asignaciones.",
+        marks_select_prompt: "Selecciona una asignaciÃ³n para ver entregas.",
+        msg_no_assignments: "AÃºn no hay asignaciones.",
         msg_failed_load_assignments: "No se pudieron cargar las asignaciones.",
         msg_assignment_requires_backend: "Las asignaciones requieren el backend. Abre http://127.0.0.1:8000.",
-        msg_fill_assignment_fields: "Por favor completa Título, Fecha de entrega y Clase (Grado).",
-        msg_create_assignment_failed: "No se pudo crear la asignación.",
-        msg_create_assignment_network_error: "Error de red al crear la asignación.",
+        msg_fill_assignment_fields: "Por favor completa TÃ­tulo, Fecha de entrega y Clase (Grado).",
+        msg_create_assignment_failed: "No se pudo crear la asignaciÃ³n.",
+        msg_create_assignment_network_error: "Error de red al crear la asignaciÃ³n.",
         msg_assignment_submit_required: "Escribe algo o proporciona un enlace.",
-        msg_assignment_submit_success: "¡Enviado con éxito!",
-        msg_assignment_submit_failed: "Falló el envío.",
+        msg_assignment_submit_success: "Â¡Enviado con Ã©xito!",
+        msg_assignment_submit_failed: "FallÃ³ el envÃ­o.",
         msg_assignment_submit_network_error: "Error de red.",
         btn_view_submissions: "Ver entregas",
         label_status: "Estado",
@@ -778,43 +888,43 @@ var translations = window.translations || {
         label_feedback: "Comentario",
         btn_save: "Guardar",
         btn_reassign: "Reasignar",
-        asg_modal_title: "📝 Nueva asignación",
-        label_title: "Título",
-        label_description: "Descripción",
+        asg_modal_title: "ðŸ“ Nueva asignaciÃ³n",
+        label_title: "TÃ­tulo",
+        label_description: "DescripciÃ³n",
         label_class_grade: "Clase (Grado)",
         label_select_grade: "Seleccionar grado",
         label_points: "Puntos",
-        label_section: "Sección",
-        label_select_section_optional: "Seleccionar sección (opcional)",
+        label_section: "SecciÃ³n",
+        label_select_section_optional: "Seleccionar secciÃ³n (opcional)",
         label_due_date: "Fecha de entrega",
         btn_create: "Crear",
-        payslip_title: "Mis nóminas",
-        payslip_ytd: "Acumulado del año",
+        payslip_title: "Mis nÃ³minas",
+        payslip_ytd: "Acumulado del aÃ±o",
         payslip_net_pay_label: "Pago neto",
-        payslip_latest: "Último periodo de pago",
-        payslip_latest_sub: "Pago neto • Sep 2024",
-        payslip_payment_method: "Método de pago",
-        payslip_account_masked: "Cuenta •••• 2391",
-        payslip_recent: "Nóminas recientes",
+        payslip_latest: "Ãšltimo periodo de pago",
+        payslip_latest_sub: "Pago neto â€¢ Sep 2024",
+        payslip_payment_method: "MÃ©todo de pago",
+        payslip_account_masked: "Cuenta â€¢â€¢â€¢â€¢ 2391",
+        payslip_recent: "NÃ³minas recientes",
         payslip_download_all: "Descargar todo",
-        payslip_processed_paid: "Procesado: Oct 01, 2024 • Estado: Pagado",
+        payslip_processed_paid: "Procesado: Oct 01, 2024 â€¢ Estado: Pagado",
         payslip_view_details: "Ver detalles",
         payslip_gross: "Bruto: $5,000",
         payslip_deductions: "Deducciones: $880",
         payslip_taxes: "Impuestos: $620",
-        payslip_print_title: "Imprimir nóminas",
-        payslip_generate_pdf: "Generar PDF de nómina",
+        payslip_print_title: "Imprimir nÃ³minas",
+        payslip_generate_pdf: "Generar PDF de nÃ³mina",
         payslip_pay_period: "Periodo de pago",
         payslip_delivery: "Entrega",
         payslip_download_pdf: "Descargar PDF",
         payslip_email_me: "Enviarme por correo",
         payslip_generate_btn: "Generar PDF",
-        payslip_preview: "Vista previa de nómina",
+        payslip_preview: "Vista previa de nÃ³mina",
         payslip_employee_id: "ID de empleado: T-1024",
         payslip_processed_date: "Procesado: Oct 01, 2024",
         payslip_earnings: "Ingresos",
         payslip_base_salary: "Salario base",
-        payslip_allowance: "Asignación",
+        payslip_allowance: "AsignaciÃ³n",
         payslip_deduction_label: "Deducciones",
         payslip_tax: "Impuesto",
         payslip_insurance: "Seguro",
@@ -822,7 +932,7 @@ var translations = window.translations || {
         pay_advance_amount: "Monto requerido",
         pay_advance_reason: "Motivo",
         pay_advance_repayment: "Reembolso preferido",
-        pay_advance_next_period: "Próximo periodo de pago",
+        pay_advance_next_period: "PrÃ³ximo periodo de pago",
         pay_advance_two_periods: "Dos periodos de pago",
         pay_advance_submit: "Enviar solicitud",
         pay_advance_recent: "Solicitudes recientes",
@@ -836,77 +946,77 @@ var translations = window.translations || {
         btn_start: "Comenzar",
         btn_end: "Terminar",
         dashboard_calendar: "Calendario",
-        dashboard_upcoming_events: "Próximos eventos",
-        dashboard_performance_dist: "Distribución de Rendimiento",
+        dashboard_upcoming_events: "PrÃ³ximos eventos",
+        dashboard_performance_dist: "DistribuciÃ³n de Rendimiento",
         dashboard_class_avg_score: "Puntaje Promedio de Actividad",
         // Headers
         header_messages: "Mensajes",
         header_notifications: "Notificaciones",
         header_my_profile: "Mi Perfil",
-        header_logout: "Cerrar Sesión",
-        ph_search: "Buscar aquí...",
+        header_logout: "Cerrar SesiÃ³n",
+        ph_search: "Buscar aquÃ­...",
         stat_active_students: "Estudiantes activos",
         nav_teachers: "Profesores",
         nav_students: "Estudiantes",
         nav_schools: "Escuelas",
         nav_resources: "Recursos",
-        btn_log_in: "Iniciar sesión",
+        btn_log_in: "Iniciar sesiÃ³n",
         text_back: "Volver",
-        login_not_a: "¿No eres",
+        login_not_a: "Â¿No eres",
         login_switch_role: "Cambiar rol",
         login_student_login: "Inicio de estudiante",
         login_teacher_portal: "Portal del profesor",
         login_parent_access: "Acceso para padres",
         login_principal_login: "Inicio de director",
-        login_super_admin: "Súper administrador",
-        login_root_admin_portal: "Portal de administrador raíz",
-        login_generic: "Iniciar sesión",
+        login_super_admin: "SÃºper administrador",
+        login_root_admin_portal: "Portal de administrador raÃ­z",
+        login_generic: "Iniciar sesiÃ³n",
         role_student: "Estudiante",
         role_teacher: "Profesor",
         role_parent: "Padre/Madre",
         role_others: "Otros",
         role_admin: "Administrador",
-        role_root_admin: "Administrador raíz",
+        role_root_admin: "Administrador raÃ­z",
         hero_heading: "Donde las aulas\nse convierten en comunidades",
         hero_subtitle: "Impulsando instituciones educativas mediante soluciones innovadoras",
         hero_get_started_as: "Comenzar como...",
-        feat_why_title: "¿Por qué Noble Nexus?",
+        feat_why_title: "Â¿Por quÃ© Noble Nexus?",
         feat_main_title: "Todo lo que necesitas para destacar",
-        feat_analytics_title: "Analítica inteligente",
-        feat_analytics_desc: "Sigue tendencias de rendimiento académico con visualizaciones claras impulsadas por IA que ayudan a mejorar más rápido.",
+        feat_analytics_title: "AnalÃ­tica inteligente",
+        feat_analytics_desc: "Sigue tendencias de rendimiento acadÃ©mico con visualizaciones claras impulsadas por IA que ayudan a mejorar mÃ¡s rÃ¡pido.",
         feat_live_title: "Aulas en vivo",
         feat_live_desc: "La videoconferencia integrada permite clases remotas fluidas directamente desde tu panel.",
-        feat_ai_title: "Guía con IA",
-        feat_ai_desc: "Disfruta rutas de aprendizaje personalizadas y retroalimentación automática para cada estudiante.",
+        feat_ai_title: "GuÃ­a con IA",
+        feat_ai_desc: "Disfruta rutas de aprendizaje personalizadas y retroalimentaciÃ³n automÃ¡tica para cada estudiante.",
         about_title: "Sobre ClassBridge",
-        about_main_title: "Impulsando el futuro de la educación",
-        about_desc: "ClassBridge está diseñado para cerrar la brecha entre la escuela tradicional y la tecnología moderna.",
+        about_main_title: "Impulsando el futuro de la educaciÃ³n",
+        about_desc: "ClassBridge estÃ¡ diseÃ±ado para cerrar la brecha entre la escuela tradicional y la tecnologÃ­a moderna.",
         about_teachers: "Para docentes",
-        about_teachers_desc: "Gestiona clases fácilmente con asistencia con IA, calificación automática y planeación inteligente.",
+        about_teachers_desc: "Gestiona clases fÃ¡cilmente con asistencia con IA, calificaciÃ³n automÃ¡tica y planeaciÃ³n inteligente.",
         about_students: "Para estudiantes",
         about_students_desc: "Accede a rutas personalizadas, sigue tu progreso en tiempo real y mantente motivado.",
         about_parents: "Para familias",
-        about_parents_desc: "Mantente al día con asistencia, rendimiento académico y eventos escolares.",
-        btn_discover_more: "Descubrir más",
-        stat_engagement: "Tasa de participación",
+        about_parents_desc: "Mantente al dÃ­a con asistencia, rendimiento acadÃ©mico y eventos escolares.",
+        btn_discover_more: "Descubrir mÃ¡s",
+        stat_engagement: "Tasa de participaciÃ³n",
         stat_ai_support: "Soporte de IA",
         footer_company: "Empresa",
         footer_about: "Sobre nosotros",
         footer_press: "Prensa",
         footer_careers: "Carreras",
-        footer_engineering: "Ingeniería",
+        footer_engineering: "IngenierÃ­a",
         footer_accessibility: "Accesibilidad",
         footer_resources: "Recursos",
         footer_big_ideas: "Grandes ideas",
-        footer_training: "Capacitación",
+        footer_training: "CapacitaciÃ³n",
         footer_remote_learning: "Aprendizaje remoto",
         footer_support: "Soporte",
         footer_help_center: "Centro de ayuda",
         footer_contact: "Contacto",
         footer_privacy: "Centro de privacidad",
-        footer_cookies: "Configuración de cookies",
-        footer_get_app: "Obtén la app",
-        footer_terms: "Términos",
+        footer_cookies: "ConfiguraciÃ³n de cookies",
+        footer_get_app: "ObtÃ©n la app",
+        footer_terms: "TÃ©rminos",
         text_scan_visit: "Escanea para visitar",
         text_product_by: "un producto de Noble Nexus",
         text_a_product_by: "Un producto de",
@@ -914,1096 +1024,1096 @@ var translations = window.translations || {
         feat_modern_title: "Creado para el aula moderna",
         feat_quiz_gen: "Generador de cuestionarios",
         feat_quiz_desc: "Sube un PDF y la IA crea preguntas con respuestas en segundos.",
-        link_try_generator: "Probar generador →",
-        feat_student_insights: "Información del estudiante",
-        feat_student_insights_desc: "Ve más allá de las notas y detecta necesidades de apoyo o reto.",
-        link_view_report: "Ver informe de ejemplo →",
-        feat_hybrid: "Aula híbrida",
-        feat_hybrid_desc: "Alterna sin fricción entre enseñanza presencial y remota.",
-        link_see_how: "Ver cómo →",
-        cta_ready_transform: "¿Listo para transformar tu enseñanza?",
-        btn_join_free: "Únete gratis a Noble Nexus"
+        link_try_generator: "Probar generador â†’",
+        feat_student_insights: "InformaciÃ³n del estudiante",
+        feat_student_insights_desc: "Ve mÃ¡s allÃ¡ de las notas y detecta necesidades de apoyo o reto.",
+        link_view_report: "Ver informe de ejemplo â†’",
+        feat_hybrid: "Aula hÃ­brida",
+        feat_hybrid_desc: "Alterna sin fricciÃ³n entre enseÃ±anza presencial y remota.",
+        link_see_how: "Ver cÃ³mo â†’",
+        cta_ready_transform: "Â¿Listo para transformar tu enseÃ±anza?",
+        btn_join_free: "Ãšnete gratis a Noble Nexus"
     },
     ar: {
-        login_welcome: "مرحباً بك في Noble Nexus",
-        login_subtitle: "بوابة تسجيل الدخول إلى Noble Nexus",
-        label_username: "اسم المستخدم / هوية الطالب",
-        label_password: "كلمة المرور",
-        link_forgot_password: "هل نسيت كلمة المرور؟",
-        btn_signin: "تسجيل الدخول",
-        btn_signin_microsoft: "تسجيل الدخول باستخدام Microsoft",
-        text_or: "أو",
-        text_new_user: "مستخدم جديد؟",
-        link_signup: "سجل الآن",
-        link_help: "تحتاج إلى مساعدة؟ اتصل بالدعم",
-        msg_enter_credentials: "يرجى إدخال اسم المستخدم وكلمة المرور.",
-        msg_checking: "جاري التحقق من بيانات الاعتماد...",
-        msg_welcome: "مرحباً، {user_id}",
-        msg_login_failed: "فشل تسجيل الدخول",
-        msg_network_error: "خطأ في الشبكة: {error}. هل الخادم يعمل؟",
-        msg_google_verify: "جارٍ التحقق من رمز Google...",
-        msg_microsoft_conn: "جارٍ الاتصال بـ Microsoft...",
-        msg_microsoft_verify: "جارٍ التحقق من رمز Microsoft...",
+        login_welcome: "Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ ÙÙŠ Noble Nexus",
+        login_subtitle: "Ø¨ÙˆØ§Ø¨Ø© ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¥Ù„Ù‰ Noble Nexus",
+        label_username: "Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… / Ù‡ÙˆÙŠØ© Ø§Ù„Ø·Ø§Ù„Ø¨",
+        label_password: "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+        link_forgot_password: "Ù‡Ù„ Ù†Ø³ÙŠØª ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±ØŸ",
+        btn_signin: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+        btn_signin_microsoft: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… Microsoft",
+        text_or: "Ø£Ùˆ",
+        text_new_user: "Ù…Ø³ØªØ®Ø¯Ù… Ø¬Ø¯ÙŠØ¯ØŸ",
+        link_signup: "Ø³Ø¬Ù„ Ø§Ù„Ø¢Ù†",
+        link_help: "ØªØ­ØªØ§Ø¬ Ø¥Ù„Ù‰ Ù…Ø³Ø§Ø¹Ø¯Ø©ØŸ Ø§ØªØµÙ„ Ø¨Ø§Ù„Ø¯Ø¹Ù…",
+        msg_enter_credentials: "ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… ÙˆÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±.",
+        msg_checking: "Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯...",
+        msg_welcome: "Ù…Ø±Ø­Ø¨Ø§Ù‹ØŒ {user_id}",
+        msg_login_failed: "ÙØ´Ù„ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+        msg_network_error: "Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø´Ø¨ÙƒØ©: {error}. Ù‡Ù„ Ø§Ù„Ø®Ø§Ø¯Ù… ÙŠØ¹Ù…Ù„ØŸ",
+        msg_google_verify: "Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø±Ù…Ø² Google...",
+        msg_microsoft_conn: "Ø¬Ø§Ø±Ù Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ù€ Microsoft...",
+        msg_microsoft_verify: "Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø±Ù…Ø² Microsoft...",
         // Sidebar & Dashboard
-        sidebar_dashboard: "لوحة القيادة",
-        sidebar_my_courses: "دوراتي",
-        sidebar_course_list: "قائمة الدورات",
-        sidebar_assignments: "الواجبات",
-        sidebar_exams: "الامتحانات",
-        sidebar_upcoming_exams: "الامتحانات القادمة",
-        sidebar_results: "النتائج",
-        sidebar_profile: "الملف الشخصي",
-        sidebar_view_profile: "عرض الملف الشخصي",
-        sidebar_settings: "الإعدادات",
-        sidebar_communication: "التواصل",
-        sidebar_lms: "الدورات (LMS)",
-        sidebar_ai_assistant: "مساعد الذكاء الاصطناعي",
-        sidebar_timetable: "الجدول الزمني",
-        sidebar_view_timetable: "عرض الجدول",
-        sidebar_attendance: "الحضور",
-        sidebar_take_attendance: "تسجيل الحضور",
-        sidebar_attendance_sheet: "ورقة الحضور",
-        sidebar_monthly_report: "تقرير شهري",
-        sidebar_approve_leave: "الموافقة على الإجازة",
-        sidebar_apply_leave: "طلب إجازة",
-        sidebar_assignment_group: "الواجب",
-        sidebar_create_assignment: "إنشاء واجب جديد",
-        sidebar_view_submitted: "عرض المقدمة",
-        sidebar_approve_reassign: "موافق/إعادة تعيين",
-        sidebar_enter_marks: "إدخال الدرجات",
-        sidebar_online_test: "اختبار عبر الإنترنت",
-        sidebar_question_bank: "بنك الأسئلة",
-        sidebar_create_test: "إنشاء وتعديل الاختبارات",
-        sidebar_assign_max_marks: "تعيين الدرجات القصوى",
-        sidebar_view_test_results: "عرض النتائج",
-        sidebar_progress_card: "بطاقة التقدم",
-        sidebar_enter_progress: "إدخال درجات التقدم",
-        sidebar_save_publish: "حفظ ونشر",
-        sidebar_view_progress: "عرض البطاقة",
-        sidebar_pay_slips: "قسائم الراتب",
-        sidebar_view_payslips: "عرض القسائم",
-        sidebar_students: "الطلاب",
-        sidebar_add_student: "إضافة طالب",
-        sidebar_student_list: "قائمة الطلاب",
-        sidebar_reports: "التقارير",
-        sidebar_attendance_report: "تقرير الحضور",
-        sidebar_performance_report: "تقرير الأداء",
-        sidebar_resource_library: "مكتبة الموارد",
-        sidebar_ai_copilot: "مساعد الذكاء الاصطناعي",
-        sidebar_roles_perms: "الأدوار والأذونات",
-        sidebar_staff_faculty: "الموظفون",
-        sidebar_system_settings: "إعدادات النظام",
-        sidebar_academic_progress: "التقدم الأكاديمي",
-        sidebar_fees_payments: "المصاريف",
-        sidebar_education_assistant: "المساعد التعليمي",
+        sidebar_dashboard: "Ù„ÙˆØ­Ø© Ø§Ù„Ù‚ÙŠØ§Ø¯Ø©",
+        sidebar_my_courses: "Ø¯ÙˆØ±Ø§ØªÙŠ",
+        sidebar_course_list: "Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¯ÙˆØ±Ø§Øª",
+        sidebar_assignments: "Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª",
+        sidebar_exams: "Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª",
+        sidebar_upcoming_exams: "Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©",
+        sidebar_results: "Ø§Ù„Ù†ØªØ§Ø¦Ø¬",
+        sidebar_profile: "Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ",
+        sidebar_view_profile: "Ø¹Ø±Ø¶ Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ",
+        sidebar_settings: "Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª",
+        sidebar_communication: "Ø§Ù„ØªÙˆØ§ØµÙ„",
+        sidebar_lms: "Ø§Ù„Ø¯ÙˆØ±Ø§Øª (LMS)",
+        sidebar_ai_assistant: "Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+        sidebar_timetable: "Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø²Ù…Ù†ÙŠ",
+        sidebar_view_timetable: "Ø¹Ø±Ø¶ Ø§Ù„Ø¬Ø¯ÙˆÙ„",
+        sidebar_attendance: "Ø§Ù„Ø­Ø¶ÙˆØ±",
+        sidebar_take_attendance: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø­Ø¶ÙˆØ±",
+        sidebar_attendance_sheet: "ÙˆØ±Ù‚Ø© Ø§Ù„Ø­Ø¶ÙˆØ±",
+        sidebar_monthly_report: "ØªÙ‚Ø±ÙŠØ± Ø´Ù‡Ø±ÙŠ",
+        sidebar_approve_leave: "Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø¥Ø¬Ø§Ø²Ø©",
+        sidebar_apply_leave: "Ø·Ù„Ø¨ Ø¥Ø¬Ø§Ø²Ø©",
+        sidebar_assignment_group: "Ø§Ù„ÙˆØ§Ø¬Ø¨",
+        sidebar_create_assignment: "Ø¥Ù†Ø´Ø§Ø¡ ÙˆØ§Ø¬Ø¨ Ø¬Ø¯ÙŠØ¯",
+        sidebar_view_submitted: "Ø¹Ø±Ø¶ Ø§Ù„Ù…Ù‚Ø¯Ù…Ø©",
+        sidebar_approve_reassign: "Ù…ÙˆØ§ÙÙ‚/Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ†",
+        sidebar_enter_marks: "Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø¯Ø±Ø¬Ø§Øª",
+        sidebar_online_test: "Ø§Ø®ØªØ¨Ø§Ø± Ø¹Ø¨Ø± Ø§Ù„Ø¥Ù†ØªØ±Ù†Øª",
+        sidebar_question_bank: "Ø¨Ù†Ùƒ Ø§Ù„Ø£Ø³Ø¦Ù„Ø©",
+        sidebar_create_test: "Ø¥Ù†Ø´Ø§Ø¡ ÙˆØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±Ø§Øª",
+        sidebar_assign_max_marks: "ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¯Ø±Ø¬Ø§Øª Ø§Ù„Ù‚ØµÙˆÙ‰",
+        sidebar_view_test_results: "Ø¹Ø±Ø¶ Ø§Ù„Ù†ØªØ§Ø¦Ø¬",
+        sidebar_progress_card: "Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„ØªÙ‚Ø¯Ù…",
+        sidebar_enter_progress: "Ø¥Ø¯Ø®Ø§Ù„ Ø¯Ø±Ø¬Ø§Øª Ø§Ù„ØªÙ‚Ø¯Ù…",
+        sidebar_save_publish: "Ø­ÙØ¸ ÙˆÙ†Ø´Ø±",
+        sidebar_view_progress: "Ø¹Ø±Ø¶ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø©",
+        sidebar_pay_slips: "Ù‚Ø³Ø§Ø¦Ù… Ø§Ù„Ø±Ø§ØªØ¨",
+        sidebar_view_payslips: "Ø¹Ø±Ø¶ Ø§Ù„Ù‚Ø³Ø§Ø¦Ù…",
+        sidebar_students: "Ø§Ù„Ø·Ù„Ø§Ø¨",
+        sidebar_add_student: "Ø¥Ø¶Ø§ÙØ© Ø·Ø§Ù„Ø¨",
+        sidebar_student_list: "Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø·Ù„Ø§Ø¨",
+        sidebar_reports: "Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±",
+        sidebar_attendance_report: "ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ø­Ø¶ÙˆØ±",
+        sidebar_performance_report: "ØªÙ‚Ø±ÙŠØ± Ø§Ù„Ø£Ø¯Ø§Ø¡",
+        sidebar_resource_library: "Ù…ÙƒØªØ¨Ø© Ø§Ù„Ù…ÙˆØ§Ø±Ø¯",
+        sidebar_ai_copilot: "Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+        sidebar_roles_perms: "Ø§Ù„Ø£Ø¯ÙˆØ§Ø± ÙˆØ§Ù„Ø£Ø°ÙˆÙ†Ø§Øª",
+        sidebar_staff_faculty: "Ø§Ù„Ù…ÙˆØ¸ÙÙˆÙ†",
+        sidebar_system_settings: "Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù†Ø¸Ø§Ù…",
+        sidebar_academic_progress: "Ø§Ù„ØªÙ‚Ø¯Ù… Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ",
+        sidebar_fees_payments: "Ø§Ù„Ù…ØµØ§Ø±ÙŠÙ",
+        sidebar_education_assistant: "Ø§Ù„Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„ØªØ¹Ù„ÙŠÙ…ÙŠ",
         // Student Dashboard
-        student_dashboard_title: "لوحة الطالب",
-        btn_log_activity: "تسجيل النشاط",
-        student_live_class: "🔴 فصل مباشر قيد التنفيذ!",
-        btn_join_class: "الانضمام للفصل",
-        btn_join_whiteboard: "الانضمام للسبورة",
-        student_key_metrics: "المقاييس الرئيسية للطالب",
-        student_upcoming_live: "الفصول المباشرة القادمة",
-        msg_no_live_classes: "لا توجد فصول مباشرة مجدولة.",
-        live_class_session: "فصل مباشر الآن",
-        btn_join_now: "انضم الآن",
-        student_level: "المستوى",
-        student_my_courses: "دوراتي",
-        msg_no_courses: "أنت غير مسجل في أي دورات بعد.",
-        student_upcoming_assignments: "الواجبات والمشاريع القادمة",
-        msg_loading_assignments: "جاري تحميل الواجبات...",
-        tab_progress_graph: "📈 رسم التقدم",
-        tab_activity_history: "📜 سجل النشاط",
+        student_dashboard_title: "Ù„ÙˆØ­Ø© Ø§Ù„Ø·Ø§Ù„Ø¨",
+        btn_log_activity: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù†Ø´Ø§Ø·",
+        student_live_class: "ðŸ”´ ÙØµÙ„ Ù…Ø¨Ø§Ø´Ø± Ù‚ÙŠØ¯ Ø§Ù„ØªÙ†ÙÙŠØ°!",
+        btn_join_class: "Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ù„Ù„ÙØµÙ„",
+        btn_join_whiteboard: "Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ù„Ù„Ø³Ø¨ÙˆØ±Ø©",
+        student_key_metrics: "Ø§Ù„Ù…Ù‚Ø§ÙŠÙŠØ³ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ù„Ù„Ø·Ø§Ù„Ø¨",
+        student_upcoming_live: "Ø§Ù„ÙØµÙˆÙ„ Ø§Ù„Ù…Ø¨Ø§Ø´Ø±Ø© Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©",
+        msg_no_live_classes: "Ù„Ø§ ØªÙˆØ¬Ø¯ ÙØµÙˆÙ„ Ù…Ø¨Ø§Ø´Ø±Ø© Ù…Ø¬Ø¯ÙˆÙ„Ø©.",
+        live_class_session: "ÙØµÙ„ Ù…Ø¨Ø§Ø´Ø± Ø§Ù„Ø¢Ù†",
+        btn_join_now: "Ø§Ù†Ø¶Ù… Ø§Ù„Ø¢Ù†",
+        student_level: "Ø§Ù„Ù…Ø³ØªÙˆÙ‰",
+        student_my_courses: "Ø¯ÙˆØ±Ø§ØªÙŠ",
+        msg_no_courses: "Ø£Ù†Øª ØºÙŠØ± Ù…Ø³Ø¬Ù„ ÙÙŠ Ø£ÙŠ Ø¯ÙˆØ±Ø§Øª Ø¨Ø¹Ø¯.",
+        student_upcoming_assignments: "Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª ÙˆØ§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹ Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©",
+        msg_loading_assignments: "Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª...",
+        tab_progress_graph: "ðŸ“ˆ Ø±Ø³Ù… Ø§Ù„ØªÙ‚Ø¯Ù…",
+        tab_activity_history: "ðŸ“œ Ø³Ø¬Ù„ Ø§Ù„Ù†Ø´Ø§Ø·",
         // Parent Portal
-        parent_portal_title: "بوابة أولياء الأمور",
-        label_select_child: "اختر طفلك",
-        ph_child_id: "أدخل معرف الطالب للطفل (مثل S001)",
-        btn_view_progress: "عرض التقدم",
-        msg_enter_child_id: "أدخل معرف الطالب المقدم من المدرسة.",
-        parent_overview_for: "نظرة عامة لـ",
-        parent_key_updates: "تحديثات رئيسية",
-        update_school_close: "تغلق المدرسة مبكراً غداً الساعة 2 ظهراً.",
-        update_report_cards: "تم نشر بطاقات التقرير.",
-        parent_academic_progress: "التقدم الأكاديمي",
-        parent_teacher_feedback: "ملاحظات المعلم",
-        msg_loading_feedback: "جاري تحميل الملاحظات...",
-        parent_recent_marks: "الدرجات الحديثة",
-        th_subject: "المادة",
-        th_exam: "الامتحان",
-        th_score: "الدرجة",
-        parent_performance_chart: "مخطط الأداء",
-        parent_report_cards: "بطاقات التقرير",
-        term_1_report: "تقرير الفصل الأول",
-        badge_download: "تحميل",
+        parent_portal_title: "Ø¨ÙˆØ§Ø¨Ø© Ø£ÙˆÙ„ÙŠØ§Ø¡ Ø§Ù„Ø£Ù…ÙˆØ±",
+        label_select_child: "Ø§Ø®ØªØ± Ø·ÙÙ„Ùƒ",
+        ph_child_id: "Ø£Ø¯Ø®Ù„ Ù…Ø¹Ø±Ù Ø§Ù„Ø·Ø§Ù„Ø¨ Ù„Ù„Ø·ÙÙ„ (Ù…Ø«Ù„ S001)",
+        btn_view_progress: "Ø¹Ø±Ø¶ Ø§Ù„ØªÙ‚Ø¯Ù…",
+        msg_enter_child_id: "Ø£Ø¯Ø®Ù„ Ù…Ø¹Ø±Ù Ø§Ù„Ø·Ø§Ù„Ø¨ Ø§Ù„Ù…Ù‚Ø¯Ù… Ù…Ù† Ø§Ù„Ù…Ø¯Ø±Ø³Ø©.",
+        parent_overview_for: "Ù†Ø¸Ø±Ø© Ø¹Ø§Ù…Ø© Ù„Ù€",
+        parent_key_updates: "ØªØ­Ø¯ÙŠØ«Ø§Øª Ø±Ø¦ÙŠØ³ÙŠØ©",
+        update_school_close: "ØªØºÙ„Ù‚ Ø§Ù„Ù…Ø¯Ø±Ø³Ø© Ù…Ø¨ÙƒØ±Ø§Ù‹ ØºØ¯Ø§Ù‹ Ø§Ù„Ø³Ø§Ø¹Ø© 2 Ø¸Ù‡Ø±Ø§Ù‹.",
+        update_report_cards: "ØªÙ… Ù†Ø´Ø± Ø¨Ø·Ø§Ù‚Ø§Øª Ø§Ù„ØªÙ‚Ø±ÙŠØ±.",
+        parent_academic_progress: "Ø§Ù„ØªÙ‚Ø¯Ù… Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ",
+        parent_teacher_feedback: "Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ù…Ø¹Ù„Ù…",
+        msg_loading_feedback: "Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª...",
+        parent_recent_marks: "Ø§Ù„Ø¯Ø±Ø¬Ø§Øª Ø§Ù„Ø­Ø¯ÙŠØ«Ø©",
+        th_subject: "Ø§Ù„Ù…Ø§Ø¯Ø©",
+        th_exam: "Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†",
+        th_score: "Ø§Ù„Ø¯Ø±Ø¬Ø©",
+        parent_performance_chart: "Ù…Ø®Ø·Ø· Ø§Ù„Ø£Ø¯Ø§Ø¡",
+        parent_report_cards: "Ø¨Ø·Ø§Ù‚Ø§Øª Ø§Ù„ØªÙ‚Ø±ÙŠØ±",
+        term_1_report: "ØªÙ‚Ø±ÙŠØ± Ø§Ù„ÙØµÙ„ Ø§Ù„Ø£ÙˆÙ„",
+        badge_download: "ØªØ­Ù…ÙŠÙ„",
         // Modals - Roles
-        modal_select_role: "تحديد الدور",
-        role_principal: "المدير",
-        role_super_admin: "المشرف العام",
+        modal_select_role: "ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¯ÙˆØ±",
+        role_principal: "Ø§Ù„Ù…Ø¯ÙŠØ±",
+        role_super_admin: "Ø§Ù„Ù…Ø´Ø±Ù Ø§Ù„Ø¹Ø§Ù…",
         // Modals - Upload Resource
-        modal_upload_resource: "رفع الموارد",
-        label_res_title: "العنوان",
-        label_res_category: "الفئة",
-        opt_school_policy: "سياسة المدرسة",
-        opt_exam_schedule: "جدول الامتحانات",
-        opt_form: "نموذج إجازة/إداري",
-        opt_other: "أخرى",
-        label_res_desc: "الوصف",
-        label_res_file: "ملف (PDF, Doc)",
-        text_max_size: "الحد الأقصى للحجم 5 ميجابايت",
+        modal_upload_resource: "Ø±ÙØ¹ Ø§Ù„Ù…ÙˆØ§Ø±Ø¯",
+        label_res_title: "Ø§Ù„Ø¹Ù†ÙˆØ§Ù†",
+        label_res_category: "Ø§Ù„ÙØ¦Ø©",
+        opt_school_policy: "Ø³ÙŠØ§Ø³Ø© Ø§Ù„Ù…Ø¯Ø±Ø³Ø©",
+        opt_exam_schedule: "Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø§Ù…ØªØ­Ø§Ù†Ø§Øª",
+        opt_form: "Ù†Ù…ÙˆØ°Ø¬ Ø¥Ø¬Ø§Ø²Ø©/Ø¥Ø¯Ø§Ø±ÙŠ",
+        opt_other: "Ø£Ø®Ø±Ù‰",
+        label_res_desc: "Ø§Ù„ÙˆØµÙ",
+        label_res_file: "Ù…Ù„Ù (PDF, Doc)",
+        text_max_size: "Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ù„Ø­Ø¬Ù… 5 Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª",
         // Modals - Permission Edit
-        modal_edit_permission: "تعديل الصلاحيات",
-        label_perm_code: "رمز الصلاحية",
-        label_perm_title: "عنوان الصلاحية",
-        btn_cancel: "إلغاء",
-        btn_update: "تحديث",
+        modal_edit_permission: "ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ§Øª",
+        label_perm_code: "Ø±Ù…Ø² Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©",
+        label_perm_title: "Ø¹Ù†ÙˆØ§Ù† Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©",
+        btn_cancel: "Ø¥Ù„ØºØ§Ø¡",
+        btn_update: "ØªØ­Ø¯ÙŠØ«",
         // Modals - Take Quiz
-        modal_take_quiz: "مسابقة",
-        btn_submit_quiz: "إرسال المسابقة",
+        modal_take_quiz: "Ù…Ø³Ø§Ø¨Ù‚Ø©",
+        btn_submit_quiz: "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù…Ø³Ø§Ø¨Ù‚Ø©",
         // Modals - Add Student
-        modal_add_student: "➕ إضافة طالب جديد",
-        label_student_id: "معرف الطالب",
-        label_full_name: "الاسم الكامل",
-        label_default_password: "كلمة المرور الافتراضية",
-        label_grade: "الصف",
+        modal_add_student: "âž• Ø¥Ø¶Ø§ÙØ© Ø·Ø§Ù„Ø¨ Ø¬Ø¯ÙŠØ¯",
+        label_student_id: "Ù…Ø¹Ø±Ù Ø§Ù„Ø·Ø§Ù„Ø¨",
+        label_full_name: "Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„",
+        label_default_password: "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠØ©",
+        label_grade: "Ø§Ù„ØµÙ",
         // Modals - Access Card
-        modal_access_card: "بطاقة دخول الطالب",
-        label_topic: "الموضوع",
-        ph_topic: "مثل: التمثيل الضوئي",
-        // label_grade: "الصف", // Duplicated
-        label_subject: "المادة",
-        label_duration: "المدة (دقائق)",
-        label_instructions: "تعليمات إضافية / سياق",
-        ph_instructions: "مثل: التركيز على المفردات...",
-        label_upload_pdf: "رفع ملف PDF للسياق (اختياري)",
-        btn_generate_plan: "إنشاء الخطة",
+        modal_access_card: "Ø¨Ø·Ø§Ù‚Ø© Ø¯Ø®ÙˆÙ„ Ø§Ù„Ø·Ø§Ù„Ø¨",
+        label_topic: "Ø§Ù„Ù…ÙˆØ¶ÙˆØ¹",
+        ph_topic: "Ù…Ø«Ù„: Ø§Ù„ØªÙ…Ø«ÙŠÙ„ Ø§Ù„Ø¶ÙˆØ¦ÙŠ",
+        // label_grade: "Ø§Ù„ØµÙ", // Duplicated
+        label_subject: "Ø§Ù„Ù…Ø§Ø¯Ø©",
+        label_duration: "Ø§Ù„Ù…Ø¯Ø© (Ø¯Ù‚Ø§Ø¦Ù‚)",
+        label_instructions: "ØªØ¹Ù„ÙŠÙ…Ø§Øª Ø¥Ø¶Ø§ÙÙŠØ© / Ø³ÙŠØ§Ù‚",
+        ph_instructions: "Ù…Ø«Ù„: Ø§Ù„ØªØ±ÙƒÙŠØ² Ø¹Ù„Ù‰ Ø§Ù„Ù…ÙØ±Ø¯Ø§Øª...",
+        label_upload_pdf: "Ø±ÙØ¹ Ù…Ù„Ù PDF Ù„Ù„Ø³ÙŠØ§Ù‚ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)",
+        btn_generate_plan: "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø®Ø·Ø©",
         // Modals - Quiz
-        modal_ai_quiz: "مولد الاختبارات الذكي",
-        label_questions_count: "الأسئلة",
-        btn_generate_quiz: "إنشاء الاختبار",
+        modal_ai_quiz: "Ù…ÙˆÙ„Ø¯ Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±Ø§Øª Ø§Ù„Ø°ÙƒÙŠ",
+        label_questions_count: "Ø§Ù„Ø£Ø³Ø¦Ù„Ø©",
+        btn_generate_quiz: "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±",
         // Modals - Schedule Class
-        modal_schedule_class: "📅 جدولة فصل مباشر",
-        label_date_time: "التاريخ والوقت",
-        label_target_students: "الطلاب المستهدفون",
-        label_filter_group: "تصفية حسب المجموعة",
-        opt_all_students: "-- كل الطلاب --",
-        label_select_all: "تحديد الكل",
-        label_meet_link: "رابط Google Meet",
+        modal_schedule_class: "ðŸ“… Ø¬Ø¯ÙˆÙ„Ø© ÙØµÙ„ Ù…Ø¨Ø§Ø´Ø±",
+        label_date_time: "Ø§Ù„ØªØ§Ø±ÙŠØ® ÙˆØ§Ù„ÙˆÙ‚Øª",
+        label_target_students: "Ø§Ù„Ø·Ù„Ø§Ø¨ Ø§Ù„Ù…Ø³ØªÙ‡Ø¯ÙÙˆÙ†",
+        label_filter_group: "ØªØµÙÙŠØ© Ø­Ø³Ø¨ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©",
+        opt_all_students: "-- ÙƒÙ„ Ø§Ù„Ø·Ù„Ø§Ø¨ --",
+        label_select_all: "ØªØ­Ø¯ÙŠØ¯ Ø§Ù„ÙƒÙ„",
+        label_meet_link: "Ø±Ø§Ø¨Ø· Google Meet",
         ph_meet_link_long: "https://meet.google.com/...",
-        help_meet_link: "انسخ والصق رابطًا من Google Meet أو Zoom.",
-        btn_schedule: "جدولة",
+        help_meet_link: "Ø§Ù†Ø³Ø® ÙˆØ§Ù„ØµÙ‚ Ø±Ø§Ø¨Ø·Ù‹Ø§ Ù…Ù† Google Meet Ø£Ùˆ Zoom.",
+        btn_schedule: "Ø¬Ø¯ÙˆÙ„Ø©",
         // Dashboard Metrics & Content
-        dashboard_students: "الطلاب",
-        dashboard_teachers: "المعلمين",
-        dashboard_staff: "الموظفين",
-        dashboard_awards: "الجوائز",
-        metric_change_teachers: "! 3٪ من الشهر الماضي",
-        metric_change_staff: "→ لا تغيير",
-        metric_change_awards: "↑ 15٪ من الشهر الماضي",
-        btn_schedule_class: "جدول الحصص",
-        btn_ai_quiz: "مسابقة الذكاء الاصطناعي",
-        btn_plan_lesson: "تخطيط الدرس",
-        btn_whiteboard: "السبورة البيضاء",
-        btn_export: "تصدير",
-        btn_engagement_helper: "مساعد التفاعل",
+        dashboard_students: "Ø§Ù„Ø·Ù„Ø§Ø¨",
+        dashboard_teachers: "Ø§Ù„Ù…Ø¹Ù„Ù…ÙŠÙ†",
+        dashboard_staff: "Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†",
+        dashboard_awards: "Ø§Ù„Ø¬ÙˆØ§Ø¦Ø²",
+        metric_change_teachers: "! 3Ùª Ù…Ù† Ø§Ù„Ø´Ù‡Ø± Ø§Ù„Ù…Ø§Ø¶ÙŠ",
+        metric_change_staff: "â†’ Ù„Ø§ ØªØºÙŠÙŠØ±",
+        metric_change_awards: "â†‘ 15Ùª Ù…Ù† Ø§Ù„Ø´Ù‡Ø± Ø§Ù„Ù…Ø§Ø¶ÙŠ",
+        btn_schedule_class: "Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø­ØµØµ",
+        btn_ai_quiz: "Ù…Ø³Ø§Ø¨Ù‚Ø© Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+        btn_plan_lesson: "ØªØ®Ø·ÙŠØ· Ø§Ù„Ø¯Ø±Ø³",
+        btn_whiteboard: "Ø§Ù„Ø³Ø¨ÙˆØ±Ø© Ø§Ù„Ø¨ÙŠØ¶Ø§Ø¡",
+        btn_export: "ØªØµØ¯ÙŠØ±",
+        btn_engagement_helper: "Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„ØªÙØ§Ø¹Ù„",
         // Assignments & Payslips
-        asg_active_title: "الواجبات النشطة",
-        asg_active_subtitle: "أنشئ الواجبات وراجع التسليمات وتابع التقدم حسب الصف.",
-        btn_create_assignment: "إنشاء واجب",
-        asg_review_title: "قائمة المراجعة",
-        btn_refresh: "تحديث",
-        msg_loading_submissions: "جارٍ تحميل التسليمات...",
-        msg_failed_load_submissions: "فشل تحميل التسليمات.",
-        asg_review_empty: "لا توجد تسليمات للمراجعة.",
-        marks_entry_title: "إدخال الدرجات",
-        marks_select_assignment: "اختر الواجب",
-        marks_load_submissions: "تحميل التسليمات",
-        marks_select_prompt: "اختر واجبًا لعرض التسليمات.",
-        msg_no_assignments: "لا توجد واجبات بعد.",
-        msg_failed_load_assignments: "فشل تحميل الواجبات.",
-        msg_assignment_requires_backend: "الواجبات تتطلب الخادم. افتح http://127.0.0.1:8000.",
-        msg_fill_assignment_fields: "يرجى إدخال العنوان وتاريخ الاستحقاق والصف.",
-        msg_create_assignment_failed: "فشل إنشاء الواجب.",
-        msg_create_assignment_network_error: "خطأ في الشبكة أثناء إنشاء الواجب.",
-        msg_assignment_submit_required: "يرجى كتابة شيء أو إضافة رابط.",
-        msg_assignment_submit_success: "تم الإرسال بنجاح!",
-        msg_assignment_submit_failed: "فشل الإرسال.",
-        msg_assignment_submit_network_error: "خطأ في الشبكة.",
-        btn_view_submissions: "عرض التسليمات",
-        label_status: "الحالة",
-        status_submitted: "تم التسليم",
-        label_feedback: "ملاحظات",
-        btn_save: "حفظ",
-        btn_reassign: "إعادة تعيين",
-        asg_modal_title: "📝 واجب جديد",
-        label_title: "العنوان",
-        label_description: "الوصف",
-        label_class_grade: "الصف (الدرجة)",
-        label_select_grade: "اختر الدرجة",
-        label_points: "النقاط",
-        label_section: "الشعبة",
-        label_select_section_optional: "اختر الشعبة (اختياري)",
-        label_due_date: "تاريخ الاستحقاق",
-        btn_create: "إنشاء",
-        payslip_title: "قسائم الرواتب",
-        payslip_ytd: "منذ بداية السنة",
-        payslip_net_pay_label: "صافي الراتب",
-        payslip_latest: "آخر فترة دفع",
-        payslip_latest_sub: "صافي الراتب • Sep 2024",
-        payslip_payment_method: "طريقة الدفع",
-        payslip_account_masked: "الحساب •••• 2391",
-        payslip_recent: "القسائم الأخيرة",
-        payslip_download_all: "تنزيل الكل",
-        payslip_processed_paid: "تمت المعالجة: Oct 01, 2024 • الحالة: مدفوع",
-        payslip_view_details: "عرض التفاصيل",
-        payslip_gross: "الإجمالي: $5,000",
-        payslip_deductions: "الخصومات: $880",
-        payslip_taxes: "الضرائب: $620",
-        payslip_print_title: "طباعة القسائم",
-        payslip_generate_pdf: "إنشاء PDF للقسيمة",
-        payslip_pay_period: "فترة الدفع",
-        payslip_delivery: "التسليم",
-        payslip_download_pdf: "تنزيل PDF",
-        payslip_email_me: "أرسلها إلى بريدي",
-        payslip_generate_btn: "إنشاء PDF",
-        payslip_preview: "معاينة القسيمة",
-        payslip_employee_id: "معرّف الموظف: T-1024",
-        payslip_processed_date: "تمت المعالجة: Oct 01, 2024",
-        payslip_earnings: "المستحقات",
-        payslip_base_salary: "الراتب الأساسي",
-        payslip_allowance: "البدلات",
-        payslip_deduction_label: "الخصومات",
-        payslip_tax: "الضريبة",
-        payslip_insurance: "التأمين",
-        pay_advance_title: "طلب سلفة راتب",
-        pay_advance_amount: "المبلغ المطلوب",
-        pay_advance_reason: "السبب",
-        pay_advance_repayment: "طريقة السداد",
-        pay_advance_next_period: "الفترة القادمة",
-        pay_advance_two_periods: "فترتان",
-        pay_advance_submit: "إرسال الطلب",
-        pay_advance_recent: "الطلبات الأخيرة",
-        pay_advance_label: "سلفة",
-        pay_advance_submitted: "تم الإرسال: Aug 12, 2024",
-        pay_advance_pending: "قيد الانتظار",
-        pay_advance_approved: "موافق عليه",
-        dashboard_live_controls: "ضوابط الفصل المباشر",
-        dashboard_now: "الآن",
-        ph_meet_link: "رابط Google Meet",
-        btn_start: "يبدأ",
-        btn_end: "إنهاء",
-        dashboard_calendar: "التقويم",
-        dashboard_upcoming_events: "الأحداث القادمة",
-        dashboard_performance_dist: "توزيع الأداء",
-        dashboard_class_avg_score: "متوسط ​​درجة النشاط",
+        asg_active_title: "Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª Ø§Ù„Ù†Ø´Ø·Ø©",
+        asg_active_subtitle: "Ø£Ù†Ø´Ø¦ Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª ÙˆØ±Ø§Ø¬Ø¹ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª ÙˆØªØ§Ø¨Ø¹ Ø§Ù„ØªÙ‚Ø¯Ù… Ø­Ø³Ø¨ Ø§Ù„ØµÙ.",
+        btn_create_assignment: "Ø¥Ù†Ø´Ø§Ø¡ ÙˆØ§Ø¬Ø¨",
+        asg_review_title: "Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©",
+        btn_refresh: "ØªØ­Ø¯ÙŠØ«",
+        msg_loading_submissions: "Ø¬Ø§Ø±Ù ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª...",
+        msg_failed_load_submissions: "ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª.",
+        asg_review_empty: "Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØ³Ù„ÙŠÙ…Ø§Øª Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©.",
+        marks_entry_title: "Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø¯Ø±Ø¬Ø§Øª",
+        marks_select_assignment: "Ø§Ø®ØªØ± Ø§Ù„ÙˆØ§Ø¬Ø¨",
+        marks_load_submissions: "ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª",
+        marks_select_prompt: "Ø§Ø®ØªØ± ÙˆØ§Ø¬Ø¨Ù‹Ø§ Ù„Ø¹Ø±Ø¶ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª.",
+        msg_no_assignments: "Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ§Ø¬Ø¨Ø§Øª Ø¨Ø¹Ø¯.",
+        msg_failed_load_assignments: "ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª.",
+        msg_assignment_requires_backend: "Ø§Ù„ÙˆØ§Ø¬Ø¨Ø§Øª ØªØªØ·Ù„Ø¨ Ø§Ù„Ø®Ø§Ø¯Ù…. Ø§ÙØªØ­ http://127.0.0.1:8000.",
+        msg_fill_assignment_fields: "ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø¹Ù†ÙˆØ§Ù† ÙˆØªØ§Ø±ÙŠØ® Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ ÙˆØ§Ù„ØµÙ.",
+        msg_create_assignment_failed: "ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙˆØ§Ø¬Ø¨.",
+        msg_create_assignment_network_error: "Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø´Ø¨ÙƒØ© Ø£Ø«Ù†Ø§Ø¡ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙˆØ§Ø¬Ø¨.",
+        msg_assignment_submit_required: "ÙŠØ±Ø¬Ù‰ ÙƒØªØ§Ø¨Ø© Ø´ÙŠØ¡ Ø£Ùˆ Ø¥Ø¶Ø§ÙØ© Ø±Ø§Ø¨Ø·.",
+        msg_assignment_submit_success: "ØªÙ… Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ø¨Ù†Ø¬Ø§Ø­!",
+        msg_assignment_submit_failed: "ÙØ´Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„.",
+        msg_assignment_submit_network_error: "Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø´Ø¨ÙƒØ©.",
+        btn_view_submissions: "Ø¹Ø±Ø¶ Ø§Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª",
+        label_status: "Ø§Ù„Ø­Ø§Ù„Ø©",
+        status_submitted: "ØªÙ… Ø§Ù„ØªØ³Ù„ÙŠÙ…",
+        label_feedback: "Ù…Ù„Ø§Ø­Ø¸Ø§Øª",
+        btn_save: "Ø­ÙØ¸",
+        btn_reassign: "Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ†",
+        asg_modal_title: "ðŸ“ ÙˆØ§Ø¬Ø¨ Ø¬Ø¯ÙŠØ¯",
+        label_title: "Ø§Ù„Ø¹Ù†ÙˆØ§Ù†",
+        label_description: "Ø§Ù„ÙˆØµÙ",
+        label_class_grade: "Ø§Ù„ØµÙ (Ø§Ù„Ø¯Ø±Ø¬Ø©)",
+        label_select_grade: "Ø§Ø®ØªØ± Ø§Ù„Ø¯Ø±Ø¬Ø©",
+        label_points: "Ø§Ù„Ù†Ù‚Ø§Ø·",
+        label_section: "Ø§Ù„Ø´Ø¹Ø¨Ø©",
+        label_select_section_optional: "Ø§Ø®ØªØ± Ø§Ù„Ø´Ø¹Ø¨Ø© (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)",
+        label_due_date: "ØªØ§Ø±ÙŠØ® Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚",
+        btn_create: "Ø¥Ù†Ø´Ø§Ø¡",
+        payslip_title: "Ù‚Ø³Ø§Ø¦Ù… Ø§Ù„Ø±ÙˆØ§ØªØ¨",
+        payslip_ytd: "Ù…Ù†Ø° Ø¨Ø¯Ø§ÙŠØ© Ø§Ù„Ø³Ù†Ø©",
+        payslip_net_pay_label: "ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨",
+        payslip_latest: "Ø¢Ø®Ø± ÙØªØ±Ø© Ø¯ÙØ¹",
+        payslip_latest_sub: "ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ â€¢ Sep 2024",
+        payslip_payment_method: "Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹",
+        payslip_account_masked: "Ø§Ù„Ø­Ø³Ø§Ø¨ â€¢â€¢â€¢â€¢ 2391",
+        payslip_recent: "Ø§Ù„Ù‚Ø³Ø§Ø¦Ù… Ø§Ù„Ø£Ø®ÙŠØ±Ø©",
+        payslip_download_all: "ØªÙ†Ø²ÙŠÙ„ Ø§Ù„ÙƒÙ„",
+        payslip_processed_paid: "ØªÙ…Øª Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©: Oct 01, 2024 â€¢ Ø§Ù„Ø­Ø§Ù„Ø©: Ù…Ø¯ÙÙˆØ¹",
+        payslip_view_details: "Ø¹Ø±Ø¶ Ø§Ù„ØªÙØ§ØµÙŠÙ„",
+        payslip_gross: "Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ: $5,000",
+        payslip_deductions: "Ø§Ù„Ø®ØµÙˆÙ…Ø§Øª: $880",
+        payslip_taxes: "Ø§Ù„Ø¶Ø±Ø§Ø¦Ø¨: $620",
+        payslip_print_title: "Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„Ù‚Ø³Ø§Ø¦Ù…",
+        payslip_generate_pdf: "Ø¥Ù†Ø´Ø§Ø¡ PDF Ù„Ù„Ù‚Ø³ÙŠÙ…Ø©",
+        payslip_pay_period: "ÙØªØ±Ø© Ø§Ù„Ø¯ÙØ¹",
+        payslip_delivery: "Ø§Ù„ØªØ³Ù„ÙŠÙ…",
+        payslip_download_pdf: "ØªÙ†Ø²ÙŠÙ„ PDF",
+        payslip_email_me: "Ø£Ø±Ø³Ù„Ù‡Ø§ Ø¥Ù„Ù‰ Ø¨Ø±ÙŠØ¯ÙŠ",
+        payslip_generate_btn: "Ø¥Ù†Ø´Ø§Ø¡ PDF",
+        payslip_preview: "Ù…Ø¹Ø§ÙŠÙ†Ø© Ø§Ù„Ù‚Ø³ÙŠÙ…Ø©",
+        payslip_employee_id: "Ù…Ø¹Ø±Ù‘Ù Ø§Ù„Ù…ÙˆØ¸Ù: T-1024",
+        payslip_processed_date: "ØªÙ…Øª Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©: Oct 01, 2024",
+        payslip_earnings: "Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø§Øª",
+        payslip_base_salary: "Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ",
+        payslip_allowance: "Ø§Ù„Ø¨Ø¯Ù„Ø§Øª",
+        payslip_deduction_label: "Ø§Ù„Ø®ØµÙˆÙ…Ø§Øª",
+        payslip_tax: "Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©",
+        payslip_insurance: "Ø§Ù„ØªØ£Ù…ÙŠÙ†",
+        pay_advance_title: "Ø·Ù„Ø¨ Ø³Ù„ÙØ© Ø±Ø§ØªØ¨",
+        pay_advance_amount: "Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø·Ù„ÙˆØ¨",
+        pay_advance_reason: "Ø§Ù„Ø³Ø¨Ø¨",
+        pay_advance_repayment: "Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø³Ø¯Ø§Ø¯",
+        pay_advance_next_period: "Ø§Ù„ÙØªØ±Ø© Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©",
+        pay_advance_two_periods: "ÙØªØ±ØªØ§Ù†",
+        pay_advance_submit: "Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨",
+        pay_advance_recent: "Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø£Ø®ÙŠØ±Ø©",
+        pay_advance_label: "Ø³Ù„ÙØ©",
+        pay_advance_submitted: "ØªÙ… Ø§Ù„Ø¥Ø±Ø³Ø§Ù„: Aug 12, 2024",
+        pay_advance_pending: "Ù‚ÙŠØ¯ Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±",
+        pay_advance_approved: "Ù…ÙˆØ§ÙÙ‚ Ø¹Ù„ÙŠÙ‡",
+        dashboard_live_controls: "Ø¶ÙˆØ§Ø¨Ø· Ø§Ù„ÙØµÙ„ Ø§Ù„Ù…Ø¨Ø§Ø´Ø±",
+        dashboard_now: "Ø§Ù„Ø¢Ù†",
+        ph_meet_link: "Ø±Ø§Ø¨Ø· Google Meet",
+        btn_start: "ÙŠØ¨Ø¯Ø£",
+        btn_end: "Ø¥Ù†Ù‡Ø§Ø¡",
+        dashboard_calendar: "Ø§Ù„ØªÙ‚ÙˆÙŠÙ…",
+        dashboard_upcoming_events: "Ø§Ù„Ø£Ø­Ø¯Ø§Ø« Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©",
+        dashboard_performance_dist: "ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ø£Ø¯Ø§Ø¡",
+        dashboard_class_avg_score: "Ù…ØªÙˆØ³Ø· â€‹â€‹Ø¯Ø±Ø¬Ø© Ø§Ù„Ù†Ø´Ø§Ø·",
         // Headers
-        header_messages: "الرسائل",
-        header_notifications: "إشعارات",
-        header_my_profile: "ملفي الشخصي",
-        header_logout: "تسجيل الخروج",
-        ph_search: "بحث...",
-        stat_active_students: "الطلاب النشطون",
-        nav_teachers: "المعلمون",
-        nav_students: "الطلاب",
-        nav_schools: "المدارس",
-        nav_resources: "الموارد",
-        btn_log_in: "تسجيل الدخول",
-        text_back: "رجوع",
-        login_not_a: "لست",
-        login_switch_role: "تبديل الدور",
-        login_student_login: "دخول الطالب",
-        login_teacher_portal: "بوابة المعلم",
-        login_parent_access: "بوابة ولي الأمر",
-        login_principal_login: "دخول المدير",
-        login_super_admin: "مشرف عام",
-        login_root_admin_portal: "بوابة المشرف الجذر",
-        login_generic: "دخول",
-        role_student: "طالب",
-        role_teacher: "معلم",
-        role_parent: "ولي أمر",
-        role_others: "أخرى",
-        role_admin: "مسؤول",
-        role_root_admin: "مسؤول جذر",
-        hero_heading: "حيث تتحول الفصول\nإلى مجتمعات",
-        hero_subtitle: "تمكين المؤسسات التعليمية من خلال حلول مبتكرة",
-        hero_get_started_as: "ابدأ كـ...",
-        feat_why_title: "لماذا Noble Nexus؟",
-        feat_main_title: "كل ما تحتاجه للتميّز",
-        feat_analytics_title: "تحليلات ذكية",
-        feat_analytics_desc: "تتبّع الأداء الأكاديمي عبر لوحات واضحة مدعومة بالذكاء الاصطناعي.",
-        feat_live_title: "فصول مباشرة",
-        feat_live_desc: "مؤتمرات فيديو مدمجة للتعلّم عن بعد بسلاسة من لوحة التحكم.",
-        feat_ai_title: "إرشاد بالذكاء الاصطناعي",
-        feat_ai_desc: "مسارات تعلّم مخصصة وتغذية راجعة تلقائية لكل طالب.",
-        about_title: "حول ClassBridge",
-        about_main_title: "تمكين مستقبل التعليم",
-        about_desc: "صُمم ClassBridge لردم الفجوة بين التعليم التقليدي والتقنية الحديثة.",
-        about_teachers: "للمعلمين",
-        about_teachers_desc: "إدارة الصفوف بسهولة مع حضور ذكي وتصحيح تلقائي وتخطيط دروس ذكي.",
-        about_students: "للطلاب",
-        about_students_desc: "وصول إلى مسارات تعلم مخصصة وتتبع التقدم بشكل لحظي.",
-        about_parents: "لأولياء الأمور",
-        about_parents_desc: "ابقَ على اطلاع بالحضور والأداء الأكاديمي وفعاليات المدرسة.",
-        btn_discover_more: "اكتشف المزيد",
-        stat_engagement: "معدل التفاعل",
-        stat_ai_support: "دعم الذكاء الاصطناعي",
-        footer_company: "الشركة",
-        footer_about: "من نحن",
-        footer_press: "الصحافة",
-        footer_careers: "الوظائف",
-        footer_engineering: "الهندسة",
-        footer_accessibility: "إمكانية الوصول",
-        footer_resources: "الموارد",
-        footer_big_ideas: "أفكار كبيرة",
-        footer_training: "التدريب",
-        footer_remote_learning: "التعلم عن بُعد",
-        footer_support: "الدعم",
-        footer_help_center: "مركز المساعدة",
-        footer_contact: "اتصل بنا",
-        footer_privacy: "مركز الخصوصية",
-        footer_cookies: "إعدادات ملفات تعريف الارتباط",
-        footer_get_app: "احصل على التطبيق",
-        footer_terms: "الشروط",
-        text_scan_visit: "امسح للزيارة",
-        text_product_by: "منتج من Noble Nexus",
-        text_a_product_by: "منتج من",
-        footer_noble_nexus_plus: "نوبل نيكسس بلس",
-        feat_modern_title: "مصمم للفصل الحديث",
-        feat_quiz_gen: "مولد الاختبارات",
-        feat_quiz_desc: "ارفع PDF وسيقوم الذكاء الاصطناعي بإنشاء أسئلة وإجابات خلال ثوانٍ.",
-        link_try_generator: "جرّب المولد ←",
-        feat_student_insights: "رؤى الطالب",
-        feat_student_insights_desc: "تجاوز الدرجات لفهم من يحتاج دعمًا أو تحديًا أكبر.",
-        link_view_report: "عرض تقرير نموذجي ←",
-        feat_hybrid: "فصل هجين",
-        feat_hybrid_desc: "انتقال سلس بين التعليم الحضوري والتعليم عن بعد.",
-        link_see_how: "شاهد كيف ←",
-        cta_ready_transform: "هل أنت جاهز لتحويل أسلوب التدريس؟",
-        btn_join_free: "انضم إلى Noble Nexus مجانًا"
+        header_messages: "Ø§Ù„Ø±Ø³Ø§Ø¦Ù„",
+        header_notifications: "Ø¥Ø´Ø¹Ø§Ø±Ø§Øª",
+        header_my_profile: "Ù…Ù„ÙÙŠ Ø§Ù„Ø´Ø®ØµÙŠ",
+        header_logout: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬",
+        ph_search: "Ø¨Ø­Ø«...",
+        stat_active_students: "Ø§Ù„Ø·Ù„Ø§Ø¨ Ø§Ù„Ù†Ø´Ø·ÙˆÙ†",
+        nav_teachers: "Ø§Ù„Ù…Ø¹Ù„Ù…ÙˆÙ†",
+        nav_students: "Ø§Ù„Ø·Ù„Ø§Ø¨",
+        nav_schools: "Ø§Ù„Ù…Ø¯Ø§Ø±Ø³",
+        nav_resources: "Ø§Ù„Ù…ÙˆØ§Ø±Ø¯",
+        btn_log_in: "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+        text_back: "Ø±Ø¬ÙˆØ¹",
+        login_not_a: "Ù„Ø³Øª",
+        login_switch_role: "ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„Ø¯ÙˆØ±",
+        login_student_login: "Ø¯Ø®ÙˆÙ„ Ø§Ù„Ø·Ø§Ù„Ø¨",
+        login_teacher_portal: "Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ù…Ø¹Ù„Ù…",
+        login_parent_access: "Ø¨ÙˆØ§Ø¨Ø© ÙˆÙ„ÙŠ Ø§Ù„Ø£Ù…Ø±",
+        login_principal_login: "Ø¯Ø®ÙˆÙ„ Ø§Ù„Ù…Ø¯ÙŠØ±",
+        login_super_admin: "Ù…Ø´Ø±Ù Ø¹Ø§Ù…",
+        login_root_admin_portal: "Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„Ù…Ø´Ø±Ù Ø§Ù„Ø¬Ø°Ø±",
+        login_generic: "Ø¯Ø®ÙˆÙ„",
+        role_student: "Ø·Ø§Ù„Ø¨",
+        role_teacher: "Ù…Ø¹Ù„Ù…",
+        role_parent: "ÙˆÙ„ÙŠ Ø£Ù…Ø±",
+        role_others: "Ø£Ø®Ø±Ù‰",
+        role_admin: "Ù…Ø³Ø¤ÙˆÙ„",
+        role_root_admin: "Ù…Ø³Ø¤ÙˆÙ„ Ø¬Ø°Ø±",
+        hero_heading: "Ø­ÙŠØ« ØªØªØ­ÙˆÙ„ Ø§Ù„ÙØµÙˆÙ„\nØ¥Ù„Ù‰ Ù…Ø¬ØªÙ…Ø¹Ø§Øª",
+        hero_subtitle: "ØªÙ…ÙƒÙŠÙ† Ø§Ù„Ù…Ø¤Ø³Ø³Ø§Øª Ø§Ù„ØªØ¹Ù„ÙŠÙ…ÙŠØ© Ù…Ù† Ø®Ù„Ø§Ù„ Ø­Ù„ÙˆÙ„ Ù…Ø¨ØªÙƒØ±Ø©",
+        hero_get_started_as: "Ø§Ø¨Ø¯Ø£ ÙƒÙ€...",
+        feat_why_title: "Ù„Ù…Ø§Ø°Ø§ Noble NexusØŸ",
+        feat_main_title: "ÙƒÙ„ Ù…Ø§ ØªØ­ØªØ§Ø¬Ù‡ Ù„Ù„ØªÙ…ÙŠÙ‘Ø²",
+        feat_analytics_title: "ØªØ­Ù„ÙŠÙ„Ø§Øª Ø°ÙƒÙŠØ©",
+        feat_analytics_desc: "ØªØªØ¨Ù‘Ø¹ Ø§Ù„Ø£Ø¯Ø§Ø¡ Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ Ø¹Ø¨Ø± Ù„ÙˆØ­Ø§Øª ÙˆØ§Ø¶Ø­Ø© Ù…Ø¯Ø¹ÙˆÙ…Ø© Ø¨Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ.",
+        feat_live_title: "ÙØµÙˆÙ„ Ù…Ø¨Ø§Ø´Ø±Ø©",
+        feat_live_desc: "Ù…Ø¤ØªÙ…Ø±Ø§Øª ÙÙŠØ¯ÙŠÙˆ Ù…Ø¯Ù…Ø¬Ø© Ù„Ù„ØªØ¹Ù„Ù‘Ù… Ø¹Ù† Ø¨Ø¹Ø¯ Ø¨Ø³Ù„Ø§Ø³Ø© Ù…Ù† Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ….",
+        feat_ai_title: "Ø¥Ø±Ø´Ø§Ø¯ Ø¨Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+        feat_ai_desc: "Ù…Ø³Ø§Ø±Ø§Øª ØªØ¹Ù„Ù‘Ù… Ù…Ø®ØµØµØ© ÙˆØªØºØ°ÙŠØ© Ø±Ø§Ø¬Ø¹Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ© Ù„ÙƒÙ„ Ø·Ø§Ù„Ø¨.",
+        about_title: "Ø­ÙˆÙ„ ClassBridge",
+        about_main_title: "ØªÙ…ÙƒÙŠÙ† Ù…Ø³ØªÙ‚Ø¨Ù„ Ø§Ù„ØªØ¹Ù„ÙŠÙ…",
+        about_desc: "ØµÙÙ…Ù… ClassBridge Ù„Ø±Ø¯Ù… Ø§Ù„ÙØ¬ÙˆØ© Ø¨ÙŠÙ† Ø§Ù„ØªØ¹Ù„ÙŠÙ… Ø§Ù„ØªÙ‚Ù„ÙŠØ¯ÙŠ ÙˆØ§Ù„ØªÙ‚Ù†ÙŠØ© Ø§Ù„Ø­Ø¯ÙŠØ«Ø©.",
+        about_teachers: "Ù„Ù„Ù…Ø¹Ù„Ù…ÙŠÙ†",
+        about_teachers_desc: "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ØµÙÙˆÙ Ø¨Ø³Ù‡ÙˆÙ„Ø© Ù…Ø¹ Ø­Ø¶ÙˆØ± Ø°ÙƒÙŠ ÙˆØªØµØ­ÙŠØ­ ØªÙ„Ù‚Ø§Ø¦ÙŠ ÙˆØªØ®Ø·ÙŠØ· Ø¯Ø±ÙˆØ³ Ø°ÙƒÙŠ.",
+        about_students: "Ù„Ù„Ø·Ù„Ø§Ø¨",
+        about_students_desc: "ÙˆØµÙˆÙ„ Ø¥Ù„Ù‰ Ù…Ø³Ø§Ø±Ø§Øª ØªØ¹Ù„Ù… Ù…Ø®ØµØµØ© ÙˆØªØªØ¨Ø¹ Ø§Ù„ØªÙ‚Ø¯Ù… Ø¨Ø´ÙƒÙ„ Ù„Ø­Ø¸ÙŠ.",
+        about_parents: "Ù„Ø£ÙˆÙ„ÙŠØ§Ø¡ Ø§Ù„Ø£Ù…ÙˆØ±",
+        about_parents_desc: "Ø§Ø¨Ù‚ÙŽ Ø¹Ù„Ù‰ Ø§Ø·Ù„Ø§Ø¹ Ø¨Ø§Ù„Ø­Ø¶ÙˆØ± ÙˆØ§Ù„Ø£Ø¯Ø§Ø¡ Ø§Ù„Ø£ÙƒØ§Ø¯ÙŠÙ…ÙŠ ÙˆÙØ¹Ø§Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø¯Ø±Ø³Ø©.",
+        btn_discover_more: "Ø§ÙƒØªØ´Ù Ø§Ù„Ù…Ø²ÙŠØ¯",
+        stat_engagement: "Ù…Ø¹Ø¯Ù„ Ø§Ù„ØªÙØ§Ø¹Ù„",
+        stat_ai_support: "Ø¯Ø¹Ù… Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ",
+        footer_company: "Ø§Ù„Ø´Ø±ÙƒØ©",
+        footer_about: "Ù…Ù† Ù†Ø­Ù†",
+        footer_press: "Ø§Ù„ØµØ­Ø§ÙØ©",
+        footer_careers: "Ø§Ù„ÙˆØ¸Ø§Ø¦Ù",
+        footer_engineering: "Ø§Ù„Ù‡Ù†Ø¯Ø³Ø©",
+        footer_accessibility: "Ø¥Ù…ÙƒØ§Ù†ÙŠØ© Ø§Ù„ÙˆØµÙˆÙ„",
+        footer_resources: "Ø§Ù„Ù…ÙˆØ§Ø±Ø¯",
+        footer_big_ideas: "Ø£ÙÙƒØ§Ø± ÙƒØ¨ÙŠØ±Ø©",
+        footer_training: "Ø§Ù„ØªØ¯Ø±ÙŠØ¨",
+        footer_remote_learning: "Ø§Ù„ØªØ¹Ù„Ù… Ø¹Ù† Ø¨ÙØ¹Ø¯",
+        footer_support: "Ø§Ù„Ø¯Ø¹Ù…",
+        footer_help_center: "Ù…Ø±ÙƒØ² Ø§Ù„Ù…Ø³Ø§Ø¹Ø¯Ø©",
+        footer_contact: "Ø§ØªØµÙ„ Ø¨Ù†Ø§",
+        footer_privacy: "Ù…Ø±ÙƒØ² Ø§Ù„Ø®ØµÙˆØµÙŠØ©",
+        footer_cookies: "Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ù…Ù„ÙØ§Øª ØªØ¹Ø±ÙŠÙ Ø§Ù„Ø§Ø±ØªØ¨Ø§Ø·",
+        footer_get_app: "Ø§Ø­ØµÙ„ Ø¹Ù„Ù‰ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚",
+        footer_terms: "Ø§Ù„Ø´Ø±ÙˆØ·",
+        text_scan_visit: "Ø§Ù…Ø³Ø­ Ù„Ù„Ø²ÙŠØ§Ø±Ø©",
+        text_product_by: "Ù…Ù†ØªØ¬ Ù…Ù† Noble Nexus",
+        text_a_product_by: "Ù…Ù†ØªØ¬ Ù…Ù†",
+        footer_noble_nexus_plus: "Ù†ÙˆØ¨Ù„ Ù†ÙŠÙƒØ³Ø³ Ø¨Ù„Ø³",
+        feat_modern_title: "Ù…ØµÙ…Ù… Ù„Ù„ÙØµÙ„ Ø§Ù„Ø­Ø¯ÙŠØ«",
+        feat_quiz_gen: "Ù…ÙˆÙ„Ø¯ Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±Ø§Øª",
+        feat_quiz_desc: "Ø§Ø±ÙØ¹ PDF ÙˆØ³ÙŠÙ‚ÙˆÙ… Ø§Ù„Ø°ÙƒØ§Ø¡ Ø§Ù„Ø§ØµØ·Ù†Ø§Ø¹ÙŠ Ø¨Ø¥Ù†Ø´Ø§Ø¡ Ø£Ø³Ø¦Ù„Ø© ÙˆØ¥Ø¬Ø§Ø¨Ø§Øª Ø®Ù„Ø§Ù„ Ø«ÙˆØ§Ù†Ù.",
+        link_try_generator: "Ø¬Ø±Ù‘Ø¨ Ø§Ù„Ù…ÙˆÙ„Ø¯ â†",
+        feat_student_insights: "Ø±Ø¤Ù‰ Ø§Ù„Ø·Ø§Ù„Ø¨",
+        feat_student_insights_desc: "ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø¯Ø±Ø¬Ø§Øª Ù„ÙÙ‡Ù… Ù…Ù† ÙŠØ­ØªØ§Ø¬ Ø¯Ø¹Ù…Ù‹Ø§ Ø£Ùˆ ØªØ­Ø¯ÙŠÙ‹Ø§ Ø£ÙƒØ¨Ø±.",
+        link_view_report: "Ø¹Ø±Ø¶ ØªÙ‚Ø±ÙŠØ± Ù†Ù…ÙˆØ°Ø¬ÙŠ â†",
+        feat_hybrid: "ÙØµÙ„ Ù‡Ø¬ÙŠÙ†",
+        feat_hybrid_desc: "Ø§Ù†ØªÙ‚Ø§Ù„ Ø³Ù„Ø³ Ø¨ÙŠÙ† Ø§Ù„ØªØ¹Ù„ÙŠÙ… Ø§Ù„Ø­Ø¶ÙˆØ±ÙŠ ÙˆØ§Ù„ØªØ¹Ù„ÙŠÙ… Ø¹Ù† Ø¨Ø¹Ø¯.",
+        link_see_how: "Ø´Ø§Ù‡Ø¯ ÙƒÙŠÙ â†",
+        cta_ready_transform: "Ù‡Ù„ Ø£Ù†Øª Ø¬Ø§Ù‡Ø² Ù„ØªØ­ÙˆÙŠÙ„ Ø£Ø³Ù„ÙˆØ¨ Ø§Ù„ØªØ¯Ø±ÙŠØ³ØŸ",
+        btn_join_free: "Ø§Ù†Ø¶Ù… Ø¥Ù„Ù‰ Noble Nexus Ù…Ø¬Ø§Ù†Ù‹Ø§"
     },
     hi: {
-        login_welcome: "Noble Nexus में आपका स्वागत है",
-        login_subtitle: "Noble Nexus में साइन इन करें",
-        label_username: "उपयोगकर्ता नाम / छात्र आईडी",
-        label_password: "पासवर्ड",
-        link_forgot_password: "पासवर्ड भूल गए?",
-        btn_signin: "साइन इन करें",
-        btn_signin_microsoft: "Microsoft के साथ साइन इन करें",
-        text_or: "या",
-        text_new_user: "नया उपयोगकर्ता?",
-        link_signup: "साइन अप करें",
-        link_help: "मदद चाहिए? संपर्क करें",
-        msg_enter_credentials: "कृपया उपयोगकर्ता नाम और पासवर्ड दर्ज करें।",
-        msg_checking: "क्रेडेंशियल्स की जाँच की जा रही है...",
-        msg_welcome: "स्वागत है, {user_id}",
-        msg_login_failed: "लॉगिन विफल",
-        msg_network_error: "नेटवर्क त्रुटि: {error}",
-        msg_google_verify: "Google टोकन सत्यापित किया जा रहा है...",
-        msg_microsoft_conn: "Microsoft से कनेक्ट हो रहा है...",
-        msg_microsoft_verify: "Microsoft टोकन सत्यापित किया जा रहा है...",
+        login_welcome: "Noble Nexus à¤®à¥‡à¤‚ à¤†à¤ªà¤•à¤¾ à¤¸à¥à¤µà¤¾à¤—à¤¤ à¤¹à¥ˆ",
+        login_subtitle: "Noble Nexus à¤®à¥‡à¤‚ à¤¸à¤¾à¤‡à¤¨ à¤‡à¤¨ à¤•à¤°à¥‡à¤‚",
+        label_username: "à¤‰à¤ªà¤¯à¥‹à¤—à¤•à¤°à¥à¤¤à¤¾ à¤¨à¤¾à¤® / à¤›à¤¾à¤¤à¥à¤° à¤†à¤ˆà¤¡à¥€",
+        label_password: "à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡",
+        link_forgot_password: "à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤­à¥‚à¤² à¤—à¤?",
+        btn_signin: "à¤¸à¤¾à¤‡à¤¨ à¤‡à¤¨ à¤•à¤°à¥‡à¤‚",
+        btn_signin_microsoft: "Microsoft à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¸à¤¾à¤‡à¤¨ à¤‡à¤¨ à¤•à¤°à¥‡à¤‚",
+        text_or: "à¤¯à¤¾",
+        text_new_user: "à¤¨à¤¯à¤¾ à¤‰à¤ªà¤¯à¥‹à¤—à¤•à¤°à¥à¤¤à¤¾?",
+        link_signup: "à¤¸à¤¾à¤‡à¤¨ à¤…à¤ª à¤•à¤°à¥‡à¤‚",
+        link_help: "à¤®à¤¦à¤¦ à¤šà¤¾à¤¹à¤¿à¤? à¤¸à¤‚à¤ªà¤°à¥à¤• à¤•à¤°à¥‡à¤‚",
+        msg_enter_credentials: "à¤•à¥ƒà¤ªà¤¯à¤¾ à¤‰à¤ªà¤¯à¥‹à¤—à¤•à¤°à¥à¤¤à¤¾ à¤¨à¤¾à¤® à¤”à¤° à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚à¥¤",
+        msg_checking: "à¤•à¥à¤°à¥‡à¤¡à¥‡à¤‚à¤¶à¤¿à¤¯à¤²à¥à¤¸ à¤•à¥€ à¤œà¤¾à¤à¤š à¤•à¥€ à¤œà¤¾ à¤°à¤¹à¥€ à¤¹à¥ˆ...",
+        msg_welcome: "à¤¸à¥à¤µà¤¾à¤—à¤¤ à¤¹à¥ˆ, {user_id}",
+        msg_login_failed: "à¤²à¥‰à¤—à¤¿à¤¨ à¤µà¤¿à¤«à¤²",
+        msg_network_error: "à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤• à¤¤à¥à¤°à¥à¤Ÿà¤¿: {error}",
+        msg_google_verify: "Google à¤Ÿà¥‹à¤•à¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        msg_microsoft_conn: "Microsoft à¤¸à¥‡ à¤•à¤¨à¥‡à¤•à¥à¤Ÿ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        msg_microsoft_verify: "Microsoft à¤Ÿà¥‹à¤•à¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
         // Sidebar & Dashboard
-        sidebar_dashboard: "डैशबोर्ड",
-        sidebar_my_courses: "मेरे पाठ्यक्रम",
-        sidebar_course_list: "पाठ्यक्रम सूची",
-        sidebar_assignments: "असाइनमेंट",
-        sidebar_exams: "परीक्षाएँ",
-        sidebar_upcoming_exams: "आगामी परीक्षाएँ",
-        sidebar_results: "परिणाम",
-        sidebar_profile: "प्रोफ़ाइल",
-        sidebar_view_profile: "प्रोफ़ाइल देखें",
-        sidebar_settings: "सेटिंग्स",
-        sidebar_communication: "संचार",
-        sidebar_lms: "पाठ्यक्रम (LMS)",
-        sidebar_ai_assistant: "AI सहायक",
-        sidebar_timetable: "समय सारिणी",
-        sidebar_view_timetable: "समय सारिणी देखें",
-        sidebar_attendance: "उपस्थिति",
-        sidebar_take_attendance: "उपस्थिति लें",
-        sidebar_attendance_sheet: "उपस्थिति पत्रक",
-        sidebar_monthly_report: "माहवार रिपोर्ट",
-        sidebar_approve_leave: "छुट्टी मंजूर/अस्वीकार",
-        sidebar_apply_leave: "छुट्टी आवेदन",
-        sidebar_assignment_group: "असाइनमेंट",
-        sidebar_create_assignment: "नया असाइनमेंट",
-        sidebar_view_submitted: "प्रस्तुत देखें",
-        sidebar_approve_reassign: "मंजूर / पुनः सौंपें",
-        sidebar_enter_marks: "अंक दर्ज करें",
-        sidebar_online_test: "ऑनलाइन टेस्ट",
-        sidebar_question_bank: "प्रश्न बैंक",
-        sidebar_create_test: "टेस्ट बनाएं",
-        sidebar_assign_max_marks: "अंक सौंपें",
-        sidebar_view_test_results: "परिणाम देखें",
-        sidebar_progress_card: "प्रगति कार्ड",
-        sidebar_enter_progress: "प्रगति अंक दर्ज",
-        sidebar_save_publish: "सहेजें और प्रकाशित",
-        sidebar_view_progress: "प्रगति कार्ड देखें",
-        sidebar_pay_slips: "वेतन पर्ची",
-        sidebar_view_payslips: "वेतन पर्ची देखें",
-        sidebar_students: "छात्र",
-        sidebar_add_student: "छात्र जोड़ें",
-        sidebar_student_list: "छात्र सूची",
-        sidebar_reports: "रिपोर्ट",
-        sidebar_attendance_report: "उपस्थिति रिपोर्ट",
-        sidebar_performance_report: "प्रदर्शन रिपोर्ट",
-        sidebar_resource_library: "संसाधन पुस्तकालय",
-        sidebar_ai_copilot: "AI सह-पायलट",
-        sidebar_roles_perms: "भूमिकाएँ",
-        sidebar_staff_faculty: "कर्मचारी",
-        sidebar_system_settings: "सिस्टम सेटिंग्स",
-        sidebar_academic_progress: "शैक्षणिक प्रगति",
-        sidebar_fees_payments: "शुल्क और भुगतान",
-        sidebar_education_assistant: "शिक्षा सहायक",
+        sidebar_dashboard: "à¤¡à¥ˆà¤¶à¤¬à¥‹à¤°à¥à¤¡",
+        sidebar_my_courses: "à¤®à¥‡à¤°à¥‡ à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤®",
+        sidebar_course_list: "à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤® à¤¸à¥‚à¤šà¥€",
+        sidebar_assignments: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ",
+        sidebar_exams: "à¤ªà¤°à¥€à¤•à¥à¤·à¤¾à¤à¤",
+        sidebar_upcoming_exams: "à¤†à¤—à¤¾à¤®à¥€ à¤ªà¤°à¥€à¤•à¥à¤·à¤¾à¤à¤",
+        sidebar_results: "à¤ªà¤°à¤¿à¤£à¤¾à¤®",
+        sidebar_profile: "à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤²",
+        sidebar_view_profile: "à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤² à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_settings: "à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸",
+        sidebar_communication: "à¤¸à¤‚à¤šà¤¾à¤°",
+        sidebar_lms: "à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤® (LMS)",
+        sidebar_ai_assistant: "AI à¤¸à¤¹à¤¾à¤¯à¤•",
+        sidebar_timetable: "à¤¸à¤®à¤¯ à¤¸à¤¾à¤°à¤¿à¤£à¥€",
+        sidebar_view_timetable: "à¤¸à¤®à¤¯ à¤¸à¤¾à¤°à¤¿à¤£à¥€ à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_attendance: "à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿",
+        sidebar_take_attendance: "à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤²à¥‡à¤‚",
+        sidebar_attendance_sheet: "à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤ªà¤¤à¥à¤°à¤•",
+        sidebar_monthly_report: "à¤®à¤¾à¤¹à¤µà¤¾à¤° à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ",
+        sidebar_approve_leave: "à¤›à¥à¤Ÿà¥à¤Ÿà¥€ à¤®à¤‚à¤œà¥‚à¤°/à¤…à¤¸à¥à¤µà¥€à¤•à¤¾à¤°",
+        sidebar_apply_leave: "à¤›à¥à¤Ÿà¥à¤Ÿà¥€ à¤†à¤µà¥‡à¤¦à¤¨",
+        sidebar_assignment_group: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ",
+        sidebar_create_assignment: "à¤¨à¤¯à¤¾ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ",
+        sidebar_view_submitted: "à¤ªà¥à¤°à¤¸à¥à¤¤à¥à¤¤ à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_approve_reassign: "à¤®à¤‚à¤œà¥‚à¤° / à¤ªà¥à¤¨à¤ƒ à¤¸à¥Œà¤‚à¤ªà¥‡à¤‚",
+        sidebar_enter_marks: "à¤…à¤‚à¤• à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚",
+        sidebar_online_test: "à¤‘à¤¨à¤²à¤¾à¤‡à¤¨ à¤Ÿà¥‡à¤¸à¥à¤Ÿ",
+        sidebar_question_bank: "à¤ªà¥à¤°à¤¶à¥à¤¨ à¤¬à¥ˆà¤‚à¤•",
+        sidebar_create_test: "à¤Ÿà¥‡à¤¸à¥à¤Ÿ à¤¬à¤¨à¤¾à¤à¤‚",
+        sidebar_assign_max_marks: "à¤…à¤‚à¤• à¤¸à¥Œà¤‚à¤ªà¥‡à¤‚",
+        sidebar_view_test_results: "à¤ªà¤°à¤¿à¤£à¤¾à¤® à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_progress_card: "à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤•à¤¾à¤°à¥à¤¡",
+        sidebar_enter_progress: "à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤…à¤‚à¤• à¤¦à¤°à¥à¤œ",
+        sidebar_save_publish: "à¤¸à¤¹à¥‡à¤œà¥‡à¤‚ à¤”à¤° à¤ªà¥à¤°à¤•à¤¾à¤¶à¤¿à¤¤",
+        sidebar_view_progress: "à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤•à¤¾à¤°à¥à¤¡ à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_pay_slips: "à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¥€",
+        sidebar_view_payslips: "à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¥€ à¤¦à¥‡à¤–à¥‡à¤‚",
+        sidebar_students: "à¤›à¤¾à¤¤à¥à¤°",
+        sidebar_add_student: "à¤›à¤¾à¤¤à¥à¤° à¤œà¥‹à¤¡à¤¼à¥‡à¤‚",
+        sidebar_student_list: "à¤›à¤¾à¤¤à¥à¤° à¤¸à¥‚à¤šà¥€",
+        sidebar_reports: "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ",
+        sidebar_attendance_report: "à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ",
+        sidebar_performance_report: "à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¨ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ",
+        sidebar_resource_library: "à¤¸à¤‚à¤¸à¤¾à¤§à¤¨ à¤ªà¥à¤¸à¥à¤¤à¤•à¤¾à¤²à¤¯",
+        sidebar_ai_copilot: "AI à¤¸à¤¹-à¤ªà¤¾à¤¯à¤²à¤Ÿ",
+        sidebar_roles_perms: "à¤­à¥‚à¤®à¤¿à¤•à¤¾à¤à¤",
+        sidebar_staff_faculty: "à¤•à¤°à¥à¤®à¤šà¤¾à¤°à¥€",
+        sidebar_system_settings: "à¤¸à¤¿à¤¸à¥à¤Ÿà¤® à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸",
+        sidebar_academic_progress: "à¤¶à¥ˆà¤•à¥à¤·à¤£à¤¿à¤• à¤ªà¥à¤°à¤—à¤¤à¤¿",
+        sidebar_fees_payments: "à¤¶à¥à¤²à¥à¤• à¤”à¤° à¤­à¥à¤—à¤¤à¤¾à¤¨",
+        sidebar_education_assistant: "à¤¶à¤¿à¤•à¥à¤·à¤¾ à¤¸à¤¹à¤¾à¤¯à¤•",
         // Student Dashboard
-        student_dashboard_title: "छात्र डैशबोर्ड",
-        btn_log_activity: "गतिविधि दर्ज करें",
-        student_live_class: "🔴 लाइव क्लास चल रही है!",
-        btn_join_class: "क्लास में शामिल हों",
-        btn_join_whiteboard: "व्हाइटबोर्ड में शामिल हों",
-        student_key_metrics: "छात्र प्रमुख मेट्रिक्स",
-        student_upcoming_live: "आगामी लाइव क्लासेज",
-        msg_no_live_classes: "कोई लाइव क्लास निर्धारित नहीं है।",
-        live_class_session: "लाइव क्लास सत्र में",
-        btn_join_now: "अभी शामिल हों",
-        student_level: "स्तर",
-        student_my_courses: "मेरे पाठ्यक्रम",
-        msg_no_courses: "आप अभी किसी पाठ्यक्रम में नामांकित नहीं हैं।",
-        student_upcoming_assignments: "आगामी असाइनमेंट और परियोजनाएं",
-        msg_loading_assignments: "असाइनमेंट लोड हो रहे हैं...",
-        tab_progress_graph: "📈 प्रगति ग्राफ",
-        tab_activity_history: "📜 गतिविधि इतिहास",
+        student_dashboard_title: "à¤›à¤¾à¤¤à¥à¤° à¤¡à¥ˆà¤¶à¤¬à¥‹à¤°à¥à¤¡",
+        btn_log_activity: "à¤—à¤¤à¤¿à¤µà¤¿à¤§à¤¿ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚",
+        student_live_class: "ðŸ”´ à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸ à¤šà¤² à¤°à¤¹à¥€ à¤¹à¥ˆ!",
+        btn_join_class: "à¤•à¥à¤²à¤¾à¤¸ à¤®à¥‡à¤‚ à¤¶à¤¾à¤®à¤¿à¤² à¤¹à¥‹à¤‚",
+        btn_join_whiteboard: "à¤µà¥à¤¹à¤¾à¤‡à¤Ÿà¤¬à¥‹à¤°à¥à¤¡ à¤®à¥‡à¤‚ à¤¶à¤¾à¤®à¤¿à¤² à¤¹à¥‹à¤‚",
+        student_key_metrics: "à¤›à¤¾à¤¤à¥à¤° à¤ªà¥à¤°à¤®à¥à¤– à¤®à¥‡à¤Ÿà¥à¤°à¤¿à¤•à¥à¤¸",
+        student_upcoming_live: "à¤†à¤—à¤¾à¤®à¥€ à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸à¥‡à¤œ",
+        msg_no_live_classes: "à¤•à¥‹à¤ˆ à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸ à¤¨à¤¿à¤°à¥à¤§à¤¾à¤°à¤¿à¤¤ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤",
+        live_class_session: "à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸ à¤¸à¤¤à¥à¤° à¤®à¥‡à¤‚",
+        btn_join_now: "à¤…à¤­à¥€ à¤¶à¤¾à¤®à¤¿à¤² à¤¹à¥‹à¤‚",
+        student_level: "à¤¸à¥à¤¤à¤°",
+        student_my_courses: "à¤®à¥‡à¤°à¥‡ à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤®",
+        msg_no_courses: "à¤†à¤ª à¤…à¤­à¥€ à¤•à¤¿à¤¸à¥€ à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤® à¤®à¥‡à¤‚ à¤¨à¤¾à¤®à¤¾à¤‚à¤•à¤¿à¤¤ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¤‚à¥¤",
+        student_upcoming_assignments: "à¤†à¤—à¤¾à¤®à¥€ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤”à¤° à¤ªà¤°à¤¿à¤¯à¥‹à¤œà¤¨à¤¾à¤à¤‚",
+        msg_loading_assignments: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚...",
+        tab_progress_graph: "ðŸ“ˆ à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤—à¥à¤°à¤¾à¤«",
+        tab_activity_history: "ðŸ“œ à¤—à¤¤à¤¿à¤µà¤¿à¤§à¤¿ à¤‡à¤¤à¤¿à¤¹à¤¾à¤¸",
         // Parent Portal
-        parent_portal_title: "अभिभावक पोर्टल",
-        label_select_child: "अपने बच्चे का चयन करें",
-        ph_child_id: "बच्चे का छात्र आईडी दर्ज करें (उदा. S001)",
-        btn_view_progress: "प्रगति देखें",
-        msg_enter_child_id: "स्कूल द्वारा प्रदान किया गया छात्र आईडी दर्ज करें।",
-        parent_overview_for: "के लिए अवलोकन",
-        parent_key_updates: "महत्वपूर्ण अपडेट",
-        update_school_close: "स्कूल कल दोपहर 2 बजे जल्दी बंद हो जाएगा।",
-        update_report_cards: "रिपोर्ट कार्ड प्रकाशित किए गए हैं।",
-        parent_academic_progress: "शैक्षणिक प्रगति",
-        parent_teacher_feedback: "शिक्षक की प्रतिक्रिया",
-        msg_loading_feedback: "प्रतिक्रिया लोड हो रही है...",
-        parent_recent_marks: "हालिया अंक",
-        th_subject: "विषय",
-        th_exam: "परीक्षा",
-        th_score: "अंक",
-        parent_performance_chart: "प्रदर्शन चार्ट",
-        parent_report_cards: "रिपोर्ट कार्ड",
-        term_1_report: "टर्म 1 रिपोर्ट",
-        badge_download: "डाउनलोड",
+        parent_portal_title: "à¤…à¤­à¤¿à¤­à¤¾à¤µà¤• à¤ªà¥‹à¤°à¥à¤Ÿà¤²",
+        label_select_child: "à¤…à¤ªà¤¨à¥‡ à¤¬à¤šà¥à¤šà¥‡ à¤•à¤¾ à¤šà¤¯à¤¨ à¤•à¤°à¥‡à¤‚",
+        ph_child_id: "à¤¬à¤šà¥à¤šà¥‡ à¤•à¤¾ à¤›à¤¾à¤¤à¥à¤° à¤†à¤ˆà¤¡à¥€ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚ (à¤‰à¤¦à¤¾. S001)",
+        btn_view_progress: "à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤¦à¥‡à¤–à¥‡à¤‚",
+        msg_enter_child_id: "à¤¸à¥à¤•à¥‚à¤² à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤ªà¥à¤°à¤¦à¤¾à¤¨ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤›à¤¾à¤¤à¥à¤° à¤†à¤ˆà¤¡à¥€ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚à¥¤",
+        parent_overview_for: "à¤•à¥‡ à¤²à¤¿à¤ à¤…à¤µà¤²à¥‹à¤•à¤¨",
+        parent_key_updates: "à¤®à¤¹à¤¤à¥à¤µà¤ªà¥‚à¤°à¥à¤£ à¤…à¤ªà¤¡à¥‡à¤Ÿ",
+        update_school_close: "à¤¸à¥à¤•à¥‚à¤² à¤•à¤² à¤¦à¥‹à¤ªà¤¹à¤° 2 à¤¬à¤œà¥‡ à¤œà¤²à¥à¤¦à¥€ à¤¬à¤‚à¤¦ à¤¹à¥‹ à¤œà¤¾à¤à¤—à¤¾à¥¤",
+        update_report_cards: "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤¾à¤°à¥à¤¡ à¤ªà¥à¤°à¤•à¤¾à¤¶à¤¿à¤¤ à¤•à¤¿à¤ à¤—à¤ à¤¹à¥ˆà¤‚à¥¤",
+        parent_academic_progress: "à¤¶à¥ˆà¤•à¥à¤·à¤£à¤¿à¤• à¤ªà¥à¤°à¤—à¤¤à¤¿",
+        parent_teacher_feedback: "à¤¶à¤¿à¤•à¥à¤·à¤• à¤•à¥€ à¤ªà¥à¤°à¤¤à¤¿à¤•à¥à¤°à¤¿à¤¯à¤¾",
+        msg_loading_feedback: "à¤ªà¥à¤°à¤¤à¤¿à¤•à¥à¤°à¤¿à¤¯à¤¾ à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¥€ à¤¹à¥ˆ...",
+        parent_recent_marks: "à¤¹à¤¾à¤²à¤¿à¤¯à¤¾ à¤…à¤‚à¤•",
+        th_subject: "à¤µà¤¿à¤·à¤¯",
+        th_exam: "à¤ªà¤°à¥€à¤•à¥à¤·à¤¾",
+        th_score: "à¤…à¤‚à¤•",
+        parent_performance_chart: "à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¨ à¤šà¤¾à¤°à¥à¤Ÿ",
+        parent_report_cards: "à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤•à¤¾à¤°à¥à¤¡",
+        term_1_report: "à¤Ÿà¤°à¥à¤® 1 à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ",
+        badge_download: "à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡",
         // Modals - Roles
-        modal_select_role: "भूमिका चुनें",
-        role_principal: "प्रधानाचार्य",
-        role_super_admin: "सुपर एडमिन",
+        modal_select_role: "à¤­à¥‚à¤®à¤¿à¤•à¤¾ à¤šà¥à¤¨à¥‡à¤‚",
+        role_principal: "à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤šà¤¾à¤°à¥à¤¯",
+        role_super_admin: "à¤¸à¥à¤ªà¤° à¤à¤¡à¤®à¤¿à¤¨",
         // Modals - Upload Resource
-        modal_upload_resource: "संसाधन अपलोड करें",
-        label_res_title: "शीर्षक",
-        label_res_category: "श्रेणी",
-        opt_school_policy: "स्कूल नीति",
-        opt_exam_schedule: "परीक्षा अनुसूची",
-        opt_form: "छुट्टी/एडमिन फॉर्म",
-        opt_other: "अन्य",
-        label_res_desc: "विवरण",
-        label_res_file: "फ़ाइल (PDF, Doc)",
-        text_max_size: "अधिकतम आकार 5MB",
+        modal_upload_resource: "à¤¸à¤‚à¤¸à¤¾à¤§à¤¨ à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚",
+        label_res_title: "à¤¶à¥€à¤°à¥à¤·à¤•",
+        label_res_category: "à¤¶à¥à¤°à¥‡à¤£à¥€",
+        opt_school_policy: "à¤¸à¥à¤•à¥‚à¤² à¤¨à¥€à¤¤à¤¿",
+        opt_exam_schedule: "à¤ªà¤°à¥€à¤•à¥à¤·à¤¾ à¤…à¤¨à¥à¤¸à¥‚à¤šà¥€",
+        opt_form: "à¤›à¥à¤Ÿà¥à¤Ÿà¥€/à¤à¤¡à¤®à¤¿à¤¨ à¤«à¥‰à¤°à¥à¤®",
+        opt_other: "à¤…à¤¨à¥à¤¯",
+        label_res_desc: "à¤µà¤¿à¤µà¤°à¤£",
+        label_res_file: "à¤«à¤¼à¤¾à¤‡à¤² (PDF, Doc)",
+        text_max_size: "à¤…à¤§à¤¿à¤•à¤¤à¤® à¤†à¤•à¤¾à¤° 5MB",
         // Modals - Permission Edit
-        modal_edit_permission: "अनुमति संपादित करें",
-        label_perm_code: "अनुमति कोड",
-        label_perm_title: "अनुमति शीर्षक",
-        btn_cancel: "रद्द करें",
-        btn_update: "अपडेट करें",
+        modal_edit_permission: "à¤…à¤¨à¥à¤®à¤¤à¤¿ à¤¸à¤‚à¤ªà¤¾à¤¦à¤¿à¤¤ à¤•à¤°à¥‡à¤‚",
+        label_perm_code: "à¤…à¤¨à¥à¤®à¤¤à¤¿ à¤•à¥‹à¤¡",
+        label_perm_title: "à¤…à¤¨à¥à¤®à¤¤à¤¿ à¤¶à¥€à¤°à¥à¤·à¤•",
+        btn_cancel: "à¤°à¤¦à¥à¤¦ à¤•à¤°à¥‡à¤‚",
+        btn_update: "à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¤°à¥‡à¤‚",
         // Modals - Take Quiz
-        modal_take_quiz: "प्रश्नोत्तरी",
-        btn_submit_quiz: "प्रश्नोत्तरी जमा करें",
+        modal_take_quiz: "à¤ªà¥à¤°à¤¶à¥à¤¨à¥‹à¤¤à¥à¤¤à¤°à¥€",
+        btn_submit_quiz: "à¤ªà¥à¤°à¤¶à¥à¤¨à¥‹à¤¤à¥à¤¤à¤°à¥€ à¤œà¤®à¤¾ à¤•à¤°à¥‡à¤‚",
         // Modals - Add Student
-        modal_add_student: "➕ नया छात्र जोड़ें",
-        label_student_id: "छात्र आईडी",
-        label_full_name: "पूरा नाम",
-        label_default_password: "डिफ़ॉल्ट पासवर्ड",
-        label_grade: "कक्षा",
+        modal_add_student: "âž• à¤¨à¤¯à¤¾ à¤›à¤¾à¤¤à¥à¤° à¤œà¥‹à¤¡à¤¼à¥‡à¤‚",
+        label_student_id: "à¤›à¤¾à¤¤à¥à¤° à¤†à¤ˆà¤¡à¥€",
+        label_full_name: "à¤ªà¥‚à¤°à¤¾ à¤¨à¤¾à¤®",
+        label_default_password: "à¤¡à¤¿à¤«à¤¼à¥‰à¤²à¥à¤Ÿ à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡",
+        label_grade: "à¤•à¤•à¥à¤·à¤¾",
         // Modals - Access Card
-        modal_access_card: "छात्र एक्सेस कार्ड",
-        label_topic: "विषय",
-        ph_topic: "उदाहरण: प्रकाश संश्लेषण",
-        // label_grade: "कक्षा", // Duplicated
-        label_subject: "विषय",
-        label_duration: "अवधि (मिनट)",
-        label_instructions: "अतिरिक्त निर्देश / संदर्भ",
-        ph_instructions: "उदा. शब्दावली पर ध्यान दें...",
-        label_upload_pdf: "पीडीएफ संदर्भ अपलोड करें (वैकल्पिक)",
-        btn_generate_plan: "पाठ योजना बनाएं",
+        modal_access_card: "à¤›à¤¾à¤¤à¥à¤° à¤à¤•à¥à¤¸à¥‡à¤¸ à¤•à¤¾à¤°à¥à¤¡",
+        label_topic: "à¤µà¤¿à¤·à¤¯",
+        ph_topic: "à¤‰à¤¦à¤¾à¤¹à¤°à¤£: à¤ªà¥à¤°à¤•à¤¾à¤¶ à¤¸à¤‚à¤¶à¥à¤²à¥‡à¤·à¤£",
+        // label_grade: "à¤•à¤•à¥à¤·à¤¾", // Duplicated
+        label_subject: "à¤µà¤¿à¤·à¤¯",
+        label_duration: "à¤…à¤µà¤§à¤¿ (à¤®à¤¿à¤¨à¤Ÿ)",
+        label_instructions: "à¤…à¤¤à¤¿à¤°à¤¿à¤•à¥à¤¤ à¤¨à¤¿à¤°à¥à¤¦à¥‡à¤¶ / à¤¸à¤‚à¤¦à¤°à¥à¤­",
+        ph_instructions: "à¤‰à¤¦à¤¾. à¤¶à¤¬à¥à¤¦à¤¾à¤µà¤²à¥€ à¤ªà¤° à¤§à¥à¤¯à¤¾à¤¨ à¤¦à¥‡à¤‚...",
+        label_upload_pdf: "à¤ªà¥€à¤¡à¥€à¤à¤« à¤¸à¤‚à¤¦à¤°à¥à¤­ à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚ (à¤µà¥ˆà¤•à¤²à¥à¤ªà¤¿à¤•)",
+        btn_generate_plan: "à¤ªà¤¾à¤  à¤¯à¥‹à¤œà¤¨à¤¾ à¤¬à¤¨à¤¾à¤à¤‚",
         // Modals - Quiz
-        modal_ai_quiz: "AI क्विज़ जेनरेटर",
-        label_questions_count: "प्रश्न",
-        btn_generate_quiz: "क्विज़ बनाएं",
+        modal_ai_quiz: "AI à¤•à¥à¤µà¤¿à¤œà¤¼ à¤œà¥‡à¤¨à¤°à¥‡à¤Ÿà¤°",
+        label_questions_count: "à¤ªà¥à¤°à¤¶à¥à¤¨",
+        btn_generate_quiz: "à¤•à¥à¤µà¤¿à¤œà¤¼ à¤¬à¤¨à¤¾à¤à¤‚",
         // Modals - Schedule Class
-        modal_schedule_class: "📅 लाइव क्लास शेड्यूल करें",
-        label_date_time: "दिनांक और समय",
-        label_target_students: "लक्षित छात्र",
-        label_filter_group: "समूह द्वारा फ़िल्टर करें",
-        opt_all_students: "-- सभी छात्र --",
-        label_select_all: "सभी चुनें",
-        label_meet_link: "गूगल मीट लिंक",
+        modal_schedule_class: "ðŸ“… à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸ à¤¶à¥‡à¤¡à¥à¤¯à¥‚à¤² à¤•à¤°à¥‡à¤‚",
+        label_date_time: "à¤¦à¤¿à¤¨à¤¾à¤‚à¤• à¤”à¤° à¤¸à¤®à¤¯",
+        label_target_students: "à¤²à¤•à¥à¤·à¤¿à¤¤ à¤›à¤¾à¤¤à¥à¤°",
+        label_filter_group: "à¤¸à¤®à¥‚à¤¹ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤«à¤¼à¤¿à¤²à¥à¤Ÿà¤° à¤•à¤°à¥‡à¤‚",
+        opt_all_students: "-- à¤¸à¤­à¥€ à¤›à¤¾à¤¤à¥à¤° --",
+        label_select_all: "à¤¸à¤­à¥€ à¤šà¥à¤¨à¥‡à¤‚",
+        label_meet_link: "à¤—à¥‚à¤—à¤² à¤®à¥€à¤Ÿ à¤²à¤¿à¤‚à¤•",
         ph_meet_link_long: "https://meet.google.com/...",
-        help_meet_link: "गूगल मीट या ज़ूम से लिंक कॉपी करके पेस्ट करें।",
-        btn_schedule: "शेड्यूल करें",
+        help_meet_link: "à¤—à¥‚à¤—à¤² à¤®à¥€à¤Ÿ à¤¯à¤¾ à¤œà¤¼à¥‚à¤® à¤¸à¥‡ à¤²à¤¿à¤‚à¤• à¤•à¥‰à¤ªà¥€ à¤•à¤°à¤•à¥‡ à¤ªà¥‡à¤¸à¥à¤Ÿ à¤•à¤°à¥‡à¤‚à¥¤",
+        btn_schedule: "à¤¶à¥‡à¤¡à¥à¤¯à¥‚à¤² à¤•à¤°à¥‡à¤‚",
         // Dashboard Metrics & Content
-        dashboard_students: "छात्र",
-        dashboard_teachers: "शिक्षक",
-        dashboard_staff: "कर्मचारी",
-        dashboard_awards: "पुरस्कार",
-        metric_change_teachers: "! पिछले महीने से 3%",
-        metric_change_staff: "→ कोई बदलाव नहीं",
-        metric_change_awards: "↑ पिछले महीने से 15%",
-        btn_schedule_class: "कक्षा शेड्यूल करें",
-        btn_ai_quiz: "AI क्विज़",
-        btn_plan_lesson: "पाठ योजना",
-        btn_whiteboard: "व्हाइटबोर्ड",
-        btn_export: "निर्यात",
-        btn_engagement_helper: "एंगेजमेंट हेल्पर",
+        dashboard_students: "à¤›à¤¾à¤¤à¥à¤°",
+        dashboard_teachers: "à¤¶à¤¿à¤•à¥à¤·à¤•",
+        dashboard_staff: "à¤•à¤°à¥à¤®à¤šà¤¾à¤°à¥€",
+        dashboard_awards: "à¤ªà¥à¤°à¤¸à¥à¤•à¤¾à¤°",
+        metric_change_teachers: "! à¤ªà¤¿à¤›à¤²à¥‡ à¤®à¤¹à¥€à¤¨à¥‡ à¤¸à¥‡ 3%",
+        metric_change_staff: "â†’ à¤•à¥‹à¤ˆ à¤¬à¤¦à¤²à¤¾à¤µ à¤¨à¤¹à¥€à¤‚",
+        metric_change_awards: "â†‘ à¤ªà¤¿à¤›à¤²à¥‡ à¤®à¤¹à¥€à¤¨à¥‡ à¤¸à¥‡ 15%",
+        btn_schedule_class: "à¤•à¤•à¥à¤·à¤¾ à¤¶à¥‡à¤¡à¥à¤¯à¥‚à¤² à¤•à¤°à¥‡à¤‚",
+        btn_ai_quiz: "AI à¤•à¥à¤µà¤¿à¤œà¤¼",
+        btn_plan_lesson: "à¤ªà¤¾à¤  à¤¯à¥‹à¤œà¤¨à¤¾",
+        btn_whiteboard: "à¤µà¥à¤¹à¤¾à¤‡à¤Ÿà¤¬à¥‹à¤°à¥à¤¡",
+        btn_export: "à¤¨à¤¿à¤°à¥à¤¯à¤¾à¤¤",
+        btn_engagement_helper: "à¤à¤‚à¤—à¥‡à¤œà¤®à¥‡à¤‚à¤Ÿ à¤¹à¥‡à¤²à¥à¤ªà¤°",
         // Assignments & Payslips
-        asg_active_title: "सक्रिय असाइनमेंट",
-        asg_active_subtitle: "असाइनमेंट बनाएँ, सबमिशन देखें और कक्षा अनुसार प्रगति ट्रैक करें।",
-        btn_create_assignment: "असाइनमेंट बनाएँ",
-        asg_review_title: "समीक्षा कतार",
-        btn_refresh: "रिफ्रेश",
-        msg_loading_submissions: "सबमिशन लोड हो रहे हैं...",
-        msg_failed_load_submissions: "सबमिशन लोड नहीं हो सके।",
-        asg_review_empty: "कोई सबमिशन लंबित नहीं है।",
-        marks_entry_title: "अंक प्रविष्टि",
-        marks_select_assignment: "असाइनमेंट चुनें",
-        marks_load_submissions: "सबमिशन लोड करें",
-        marks_select_prompt: "सबमिशन देखने के लिए असाइनमेंट चुनें।",
-        msg_no_assignments: "अभी कोई असाइनमेंट नहीं है।",
-        msg_failed_load_assignments: "असाइनमेंट लोड नहीं हो सके।",
-        msg_assignment_requires_backend: "असाइनमेंट के लिए बैकएंड आवश्यक है। http://127.0.0.1:8000 पर खोलें।",
-        msg_fill_assignment_fields: "कृपया शीर्षक, अंतिम तिथि और कक्षा (ग्रेड) भरें।",
-        msg_create_assignment_failed: "असाइनमेंट नहीं बन सका।",
-        msg_create_assignment_network_error: "असाइनमेंट बनाते समय नेटवर्क त्रुटि।",
-        msg_assignment_submit_required: "कृपया कुछ लिखें या लिंक दें।",
-        msg_assignment_submit_success: "सफलतापूर्वक सबमिट हुआ!",
-        msg_assignment_submit_failed: "सबमिशन असफल।",
-        msg_assignment_submit_network_error: "नेटवर्क त्रुटि।",
-        btn_view_submissions: "सबमिशन देखें",
-        label_status: "स्थिति",
-        status_submitted: "सबमिट",
-        label_feedback: "फ़ीडबैक",
-        btn_save: "सहेजें",
-        btn_reassign: "पुनः असाइन",
-        asg_modal_title: "📝 नया असाइनमेंट",
-        label_title: "शीर्षक",
-        label_description: "विवरण",
-        label_class_grade: "कक्षा (ग्रेड)",
-        label_select_grade: "ग्रेड चुनें",
-        label_points: "अंक",
-        label_section: "सेक्शन",
-        label_select_section_optional: "सेक्शन चुनें (वैकल्पिक)",
-        label_due_date: "अंतिम तिथि",
-        btn_create: "बनाएँ",
-        payslip_title: "मेरे वेतन पर्चे",
-        payslip_ytd: "वर्ष-से-तारीख",
-        payslip_net_pay_label: "नेट पे",
-        payslip_latest: "हाल की भुगतान अवधि",
-        payslip_latest_sub: "नेट पे • Sep 2024",
-        payslip_payment_method: "भुगतान का तरीका",
-        payslip_account_masked: "खाता •••• 2391",
-        payslip_recent: "हाल के वेतन पर्चे",
-        payslip_download_all: "सभी डाउनलोड करें",
-        payslip_processed_paid: "प्रोसेस्ड: Oct 01, 2024 • स्थिति: भुगतान",
-        payslip_view_details: "विवरण देखें",
-        payslip_gross: "ग्रॉस: $5,000",
-        payslip_deductions: "कटौती: $880",
-        payslip_taxes: "कर: $620",
-        payslip_print_title: "वेतन पर्चे प्रिंट करें",
-        payslip_generate_pdf: "वेतन पर्चा PDF बनाएं",
-        payslip_pay_period: "भुगतान अवधि",
-        payslip_delivery: "डिलीवरी",
-        payslip_download_pdf: "PDF डाउनलोड करें",
-        payslip_email_me: "मुझे ईमेल करें",
-        payslip_generate_btn: "PDF बनाएं",
-        payslip_preview: "वेतन पर्चा पूर्वावलोकन",
-        payslip_employee_id: "कर्मचारी आईडी: T-1024",
-        payslip_processed_date: "प्रोसेस्ड: Oct 01, 2024",
-        payslip_earnings: "कमाई",
-        payslip_base_salary: "मूल वेतन",
-        payslip_allowance: "भत्ता",
-        payslip_deduction_label: "कटौतियाँ",
-        payslip_tax: "कर",
-        payslip_insurance: "बीमा",
-        pay_advance_title: "वेतन अग्रिम के लिए आवेदन करें",
-        pay_advance_amount: "आवश्यक राशि",
-        pay_advance_reason: "कारण",
-        pay_advance_repayment: "पसंदीदा वापसी",
-        pay_advance_next_period: "अगली भुगतान अवधि",
-        pay_advance_two_periods: "दो भुगतान अवधि",
-        pay_advance_submit: "अनुरोध भेजें",
-        pay_advance_recent: "हाल के अनुरोध",
-        pay_advance_label: "अग्रिम",
-        pay_advance_submitted: "जमा: Aug 12, 2024",
-        pay_advance_pending: "लंबित",
-        pay_advance_approved: "स्वीकृत",
-        dashboard_live_controls: "लाइव क्लास नियंत्रण",
-        dashboard_now: "अभी",
-        ph_meet_link: "Google मीट लिंक",
-        btn_start: "शुरू",
-        btn_end: "समाप्त",
-        dashboard_calendar: "कैलेंडर",
-        dashboard_upcoming_events: "आगामी कार्यक्रम",
-        dashboard_performance_dist: "प्रदर्शन वितरण",
-        dashboard_class_avg_score: "कक्षा औसत गतिविधि स्कोर",
+        asg_active_title: "à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ",
+        asg_active_subtitle: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¬à¤¨à¤¾à¤à¤, à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤¦à¥‡à¤–à¥‡à¤‚ à¤”à¤° à¤•à¤•à¥à¤·à¤¾ à¤…à¤¨à¥à¤¸à¤¾à¤° à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤°à¥‡à¤‚à¥¤",
+        btn_create_assignment: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¬à¤¨à¤¾à¤à¤",
+        asg_review_title: "à¤¸à¤®à¥€à¤•à¥à¤·à¤¾ à¤•à¤¤à¤¾à¤°",
+        btn_refresh: "à¤°à¤¿à¤«à¥à¤°à¥‡à¤¶",
+        msg_loading_submissions: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚...",
+        msg_failed_load_submissions: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤²à¥‹à¤¡ à¤¨à¤¹à¥€à¤‚ à¤¹à¥‹ à¤¸à¤•à¥‡à¥¤",
+        asg_review_empty: "à¤•à¥‹à¤ˆ à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤²à¤‚à¤¬à¤¿à¤¤ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤",
+        marks_entry_title: "à¤…à¤‚à¤• à¤ªà¥à¤°à¤µà¤¿à¤·à¥à¤Ÿà¤¿",
+        marks_select_assignment: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤šà¥à¤¨à¥‡à¤‚",
+        marks_load_submissions: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚",
+        marks_select_prompt: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤¦à¥‡à¤–à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤šà¥à¤¨à¥‡à¤‚à¥¤",
+        msg_no_assignments: "à¤…à¤­à¥€ à¤•à¥‹à¤ˆ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤",
+        msg_failed_load_assignments: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤²à¥‹à¤¡ à¤¨à¤¹à¥€à¤‚ à¤¹à¥‹ à¤¸à¤•à¥‡à¥¤",
+        msg_assignment_requires_backend: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤•à¥‡ à¤²à¤¿à¤ à¤¬à¥ˆà¤•à¤à¤‚à¤¡ à¤†à¤µà¤¶à¥à¤¯à¤• à¤¹à¥ˆà¥¤ http://127.0.0.1:8000 à¤ªà¤° à¤–à¥‹à¤²à¥‡à¤‚à¥¤",
+        msg_fill_assignment_fields: "à¤•à¥ƒà¤ªà¤¯à¤¾ à¤¶à¥€à¤°à¥à¤·à¤•, à¤…à¤‚à¤¤à¤¿à¤® à¤¤à¤¿à¤¥à¤¿ à¤”à¤° à¤•à¤•à¥à¤·à¤¾ (à¤—à¥à¤°à¥‡à¤¡) à¤­à¤°à¥‡à¤‚à¥¤",
+        msg_create_assignment_failed: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¨à¤¹à¥€à¤‚ à¤¬à¤¨ à¤¸à¤•à¤¾à¥¤",
+        msg_create_assignment_network_error: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¬à¤¨à¤¾à¤¤à¥‡ à¤¸à¤®à¤¯ à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤• à¤¤à¥à¤°à¥à¤Ÿà¤¿à¥¤",
+        msg_assignment_submit_required: "à¤•à¥ƒà¤ªà¤¯à¤¾ à¤•à¥à¤› à¤²à¤¿à¤–à¥‡à¤‚ à¤¯à¤¾ à¤²à¤¿à¤‚à¤• à¤¦à¥‡à¤‚à¥¤",
+        msg_assignment_submit_success: "à¤¸à¤«à¤²à¤¤à¤¾à¤ªà¥‚à¤°à¥à¤µà¤• à¤¸à¤¬à¤®à¤¿à¤Ÿ à¤¹à¥à¤†!",
+        msg_assignment_submit_failed: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤…à¤¸à¤«à¤²à¥¤",
+        msg_assignment_submit_network_error: "à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤• à¤¤à¥à¤°à¥à¤Ÿà¤¿à¥¤",
+        btn_view_submissions: "à¤¸à¤¬à¤®à¤¿à¤¶à¤¨ à¤¦à¥‡à¤–à¥‡à¤‚",
+        label_status: "à¤¸à¥à¤¥à¤¿à¤¤à¤¿",
+        status_submitted: "à¤¸à¤¬à¤®à¤¿à¤Ÿ",
+        label_feedback: "à¤«à¤¼à¥€à¤¡à¤¬à¥ˆà¤•",
+        btn_save: "à¤¸à¤¹à¥‡à¤œà¥‡à¤‚",
+        btn_reassign: "à¤ªà¥à¤¨à¤ƒ à¤…à¤¸à¤¾à¤‡à¤¨",
+        asg_modal_title: "ðŸ“ à¤¨à¤¯à¤¾ à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ",
+        label_title: "à¤¶à¥€à¤°à¥à¤·à¤•",
+        label_description: "à¤µà¤¿à¤µà¤°à¤£",
+        label_class_grade: "à¤•à¤•à¥à¤·à¤¾ (à¤—à¥à¤°à¥‡à¤¡)",
+        label_select_grade: "à¤—à¥à¤°à¥‡à¤¡ à¤šà¥à¤¨à¥‡à¤‚",
+        label_points: "à¤…à¤‚à¤•",
+        label_section: "à¤¸à¥‡à¤•à¥à¤¶à¤¨",
+        label_select_section_optional: "à¤¸à¥‡à¤•à¥à¤¶à¤¨ à¤šà¥à¤¨à¥‡à¤‚ (à¤µà¥ˆà¤•à¤²à¥à¤ªà¤¿à¤•)",
+        label_due_date: "à¤…à¤‚à¤¤à¤¿à¤® à¤¤à¤¿à¤¥à¤¿",
+        btn_create: "à¤¬à¤¨à¤¾à¤à¤",
+        payslip_title: "à¤®à¥‡à¤°à¥‡ à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¥‡",
+        payslip_ytd: "à¤µà¤°à¥à¤·-à¤¸à¥‡-à¤¤à¤¾à¤°à¥€à¤–",
+        payslip_net_pay_label: "à¤¨à¥‡à¤Ÿ à¤ªà¥‡",
+        payslip_latest: "à¤¹à¤¾à¤² à¤•à¥€ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤…à¤µà¤§à¤¿",
+        payslip_latest_sub: "à¤¨à¥‡à¤Ÿ à¤ªà¥‡ â€¢ Sep 2024",
+        payslip_payment_method: "à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤•à¤¾ à¤¤à¤°à¥€à¤•à¤¾",
+        payslip_account_masked: "à¤–à¤¾à¤¤à¤¾ â€¢â€¢â€¢â€¢ 2391",
+        payslip_recent: "à¤¹à¤¾à¤² à¤•à¥‡ à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¥‡",
+        payslip_download_all: "à¤¸à¤­à¥€ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚",
+        payslip_processed_paid: "à¤ªà¥à¤°à¥‹à¤¸à¥‡à¤¸à¥à¤¡: Oct 01, 2024 â€¢ à¤¸à¥à¤¥à¤¿à¤¤à¤¿: à¤­à¥à¤—à¤¤à¤¾à¤¨",
+        payslip_view_details: "à¤µà¤¿à¤µà¤°à¤£ à¤¦à¥‡à¤–à¥‡à¤‚",
+        payslip_gross: "à¤—à¥à¤°à¥‰à¤¸: $5,000",
+        payslip_deductions: "à¤•à¤Ÿà¥Œà¤¤à¥€: $880",
+        payslip_taxes: "à¤•à¤°: $620",
+        payslip_print_title: "à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¥‡ à¤ªà¥à¤°à¤¿à¤‚à¤Ÿ à¤•à¤°à¥‡à¤‚",
+        payslip_generate_pdf: "à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¤¾ PDF à¤¬à¤¨à¤¾à¤à¤‚",
+        payslip_pay_period: "à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤…à¤µà¤§à¤¿",
+        payslip_delivery: "à¤¡à¤¿à¤²à¥€à¤µà¤°à¥€",
+        payslip_download_pdf: "PDF à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚",
+        payslip_email_me: "à¤®à¥à¤à¥‡ à¤ˆà¤®à¥‡à¤² à¤•à¤°à¥‡à¤‚",
+        payslip_generate_btn: "PDF à¤¬à¤¨à¤¾à¤à¤‚",
+        payslip_preview: "à¤µà¥‡à¤¤à¤¨ à¤ªà¤°à¥à¤šà¤¾ à¤ªà¥‚à¤°à¥à¤µà¤¾à¤µà¤²à¥‹à¤•à¤¨",
+        payslip_employee_id: "à¤•à¤°à¥à¤®à¤šà¤¾à¤°à¥€ à¤†à¤ˆà¤¡à¥€: T-1024",
+        payslip_processed_date: "à¤ªà¥à¤°à¥‹à¤¸à¥‡à¤¸à¥à¤¡: Oct 01, 2024",
+        payslip_earnings: "à¤•à¤®à¤¾à¤ˆ",
+        payslip_base_salary: "à¤®à¥‚à¤² à¤µà¥‡à¤¤à¤¨",
+        payslip_allowance: "à¤­à¤¤à¥à¤¤à¤¾",
+        payslip_deduction_label: "à¤•à¤Ÿà¥Œà¤¤à¤¿à¤¯à¤¾à¤",
+        payslip_tax: "à¤•à¤°",
+        payslip_insurance: "à¤¬à¥€à¤®à¤¾",
+        pay_advance_title: "à¤µà¥‡à¤¤à¤¨ à¤…à¤—à¥à¤°à¤¿à¤® à¤•à¥‡ à¤²à¤¿à¤ à¤†à¤µà¥‡à¤¦à¤¨ à¤•à¤°à¥‡à¤‚",
+        pay_advance_amount: "à¤†à¤µà¤¶à¥à¤¯à¤• à¤°à¤¾à¤¶à¤¿",
+        pay_advance_reason: "à¤•à¤¾à¤°à¤£",
+        pay_advance_repayment: "à¤ªà¤¸à¤‚à¤¦à¥€à¤¦à¤¾ à¤µà¤¾à¤ªà¤¸à¥€",
+        pay_advance_next_period: "à¤…à¤—à¤²à¥€ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤…à¤µà¤§à¤¿",
+        pay_advance_two_periods: "à¤¦à¥‹ à¤­à¥à¤—à¤¤à¤¾à¤¨ à¤…à¤µà¤§à¤¿",
+        pay_advance_submit: "à¤…à¤¨à¥à¤°à¥‹à¤§ à¤­à¥‡à¤œà¥‡à¤‚",
+        pay_advance_recent: "à¤¹à¤¾à¤² à¤•à¥‡ à¤…à¤¨à¥à¤°à¥‹à¤§",
+        pay_advance_label: "à¤…à¤—à¥à¤°à¤¿à¤®",
+        pay_advance_submitted: "à¤œà¤®à¤¾: Aug 12, 2024",
+        pay_advance_pending: "à¤²à¤‚à¤¬à¤¿à¤¤",
+        pay_advance_approved: "à¤¸à¥à¤µà¥€à¤•à¥ƒà¤¤",
+        dashboard_live_controls: "à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸ à¤¨à¤¿à¤¯à¤‚à¤¤à¥à¤°à¤£",
+        dashboard_now: "à¤…à¤­à¥€",
+        ph_meet_link: "Google à¤®à¥€à¤Ÿ à¤²à¤¿à¤‚à¤•",
+        btn_start: "à¤¶à¥à¤°à¥‚",
+        btn_end: "à¤¸à¤®à¤¾à¤ªà¥à¤¤",
+        dashboard_calendar: "à¤•à¥ˆà¤²à¥‡à¤‚à¤¡à¤°",
+        dashboard_upcoming_events: "à¤†à¤—à¤¾à¤®à¥€ à¤•à¤¾à¤°à¥à¤¯à¤•à¥à¤°à¤®",
+        dashboard_performance_dist: "à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¨ à¤µà¤¿à¤¤à¤°à¤£",
+        dashboard_class_avg_score: "à¤•à¤•à¥à¤·à¤¾ à¤”à¤¸à¤¤ à¤—à¤¤à¤¿à¤µà¤¿à¤§à¤¿ à¤¸à¥à¤•à¥‹à¤°",
         // Headers
-        header_messages: "संदेश",
-        header_notifications: "सूचनाएं",
-        header_my_profile: "मेरी प्रोफ़ाइल",
-        header_logout: "लॉग आउट",
-        ph_search: "यहाँ खोजें...",
+        header_messages: "à¤¸à¤‚à¤¦à¥‡à¤¶",
+        header_notifications: "à¤¸à¥‚à¤šà¤¨à¤¾à¤à¤‚",
+        header_my_profile: "à¤®à¥‡à¤°à¥€ à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤²",
+        header_logout: "à¤²à¥‰à¤— à¤†à¤‰à¤Ÿ",
+        ph_search: "à¤¯à¤¹à¤¾à¤ à¤–à¥‹à¤œà¥‡à¤‚...",
         // New Added Keys
-        header_view_all_messages: "सभी संदेश देखें",
-        header_mark_read: "सभी को पढ़ा हुआ चिह्नित करें",
-        notif_sys_maint: "सिस्टम रखरखाव",
-        notif_sys_maint_desc: "आज रात 12 बजे के लिए अनुसूचित।",
-        notif_assign_sub: "असाइनमेंट सबमिट किया गया",
-        notif_assign_sub_desc: "एलिस स्मिथ ने \"मैथ एचडब्ल्यू\" सबमिट किया।",
-        login_journey_title: "आपकी सीखने की यात्रा जारी है",
-        login_journey_desc: "अपने पाठ्यक्रमों, लाइव कक्षाओं और व्यक्तिगत एआई अंतर्दृष्टि तक पहुंचने के लिए लॉग इन करें।",
-        stat_pass_rate: "उत्तीर्ण दर",
-        stat_access: "पहुँच",
-        stat_students: "छात्र",
-        footer_company: "कंपनी",
-        footer_about: "हमारे बारे में",
-        footer_press: "प्रेस",
-        footer_careers: "करियर",
-        footer_engineering: "इंजीनियरिंग",
-        footer_accessibility: "पहुँच-योग्यता",
-        footer_resources: "संसाधन",
-        footer_big_ideas: "बड़े विचार",
-        footer_training: "प्रशिक्षण",
-        footer_remote_learning: "दूरस्थ शिक्षा",
-        footer_support: "सहायता",
-        footer_help_center: "सहायता केंद्र",
-        footer_contact: "संपर्क करें",
-        footer_privacy: "गोपनीयता केंद्र",
-        footer_cookies: "कुकी सेटिंग्स",
-        footer_get_app: "ऐप प्राप्त करें",
-        footer_terms: "शर्तें",
-        text_scan_visit: "विजिट करने के लिए स्कैन करें",
-        text_product_by: "Noble Nexus का एक उत्पाद",
-        text_a_product_by: "एक उत्पाद",
-        footer_noble_nexus_plus: "नोबल नेक्सस प्लस",
+        header_view_all_messages: "à¤¸à¤­à¥€ à¤¸à¤‚à¤¦à¥‡à¤¶ à¤¦à¥‡à¤–à¥‡à¤‚",
+        header_mark_read: "à¤¸à¤­à¥€ à¤•à¥‹ à¤ªà¤¢à¤¼à¤¾ à¤¹à¥à¤† à¤šà¤¿à¤¹à¥à¤¨à¤¿à¤¤ à¤•à¤°à¥‡à¤‚",
+        notif_sys_maint: "à¤¸à¤¿à¤¸à¥à¤Ÿà¤® à¤°à¤–à¤°à¤–à¤¾à¤µ",
+        notif_sys_maint_desc: "à¤†à¤œ à¤°à¤¾à¤¤ 12 à¤¬à¤œà¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤…à¤¨à¥à¤¸à¥‚à¤šà¤¿à¤¤à¥¤",
+        notif_assign_sub: "à¤…à¤¸à¤¾à¤‡à¤¨à¤®à¥‡à¤‚à¤Ÿ à¤¸à¤¬à¤®à¤¿à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾",
+        notif_assign_sub_desc: "à¤à¤²à¤¿à¤¸ à¤¸à¥à¤®à¤¿à¤¥ à¤¨à¥‡ \"à¤®à¥ˆà¤¥ à¤à¤šà¤¡à¤¬à¥à¤²à¥à¤¯à¥‚\" à¤¸à¤¬à¤®à¤¿à¤Ÿ à¤•à¤¿à¤¯à¤¾à¥¤",
+        login_journey_title: "à¤†à¤ªà¤•à¥€ à¤¸à¥€à¤–à¤¨à¥‡ à¤•à¥€ à¤¯à¤¾à¤¤à¥à¤°à¤¾ à¤œà¤¾à¤°à¥€ à¤¹à¥ˆ",
+        login_journey_desc: "à¤…à¤ªà¤¨à¥‡ à¤ªà¤¾à¤ à¥à¤¯à¤•à¥à¤°à¤®à¥‹à¤‚, à¤²à¤¾à¤‡à¤µ à¤•à¤•à¥à¤·à¤¾à¤“à¤‚ à¤”à¤° à¤µà¥à¤¯à¤•à¥à¤¤à¤¿à¤—à¤¤ à¤à¤†à¤ˆ à¤…à¤‚à¤¤à¤°à¥à¤¦à¥ƒà¤·à¥à¤Ÿà¤¿ à¤¤à¤• à¤ªà¤¹à¥à¤‚à¤šà¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤²à¥‰à¤— à¤‡à¤¨ à¤•à¤°à¥‡à¤‚à¥¤",
+        stat_pass_rate: "à¤‰à¤¤à¥à¤¤à¥€à¤°à¥à¤£ à¤¦à¤°",
+        stat_access: "à¤ªà¤¹à¥à¤à¤š",
+        stat_students: "à¤›à¤¾à¤¤à¥à¤°",
+        footer_company: "à¤•à¤‚à¤ªà¤¨à¥€",
+        footer_about: "à¤¹à¤®à¤¾à¤°à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚",
+        footer_press: "à¤ªà¥à¤°à¥‡à¤¸",
+        footer_careers: "à¤•à¤°à¤¿à¤¯à¤°",
+        footer_engineering: "à¤‡à¤‚à¤œà¥€à¤¨à¤¿à¤¯à¤°à¤¿à¤‚à¤—",
+        footer_accessibility: "à¤ªà¤¹à¥à¤à¤š-à¤¯à¥‹à¤—à¥à¤¯à¤¤à¤¾",
+        footer_resources: "à¤¸à¤‚à¤¸à¤¾à¤§à¤¨",
+        footer_big_ideas: "à¤¬à¤¡à¤¼à¥‡ à¤µà¤¿à¤šà¤¾à¤°",
+        footer_training: "à¤ªà¥à¤°à¤¶à¤¿à¤•à¥à¤·à¤£",
+        footer_remote_learning: "à¤¦à¥‚à¤°à¤¸à¥à¤¥ à¤¶à¤¿à¤•à¥à¤·à¤¾",
+        footer_support: "à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾",
+        footer_help_center: "à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾ à¤•à¥‡à¤‚à¤¦à¥à¤°",
+        footer_contact: "à¤¸à¤‚à¤ªà¤°à¥à¤• à¤•à¤°à¥‡à¤‚",
+        footer_privacy: "à¤—à¥‹à¤ªà¤¨à¥€à¤¯à¤¤à¤¾ à¤•à¥‡à¤‚à¤¦à¥à¤°",
+        footer_cookies: "à¤•à¥à¤•à¥€ à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸",
+        footer_get_app: "à¤à¤ª à¤ªà¥à¤°à¤¾à¤ªà¥à¤¤ à¤•à¤°à¥‡à¤‚",
+        footer_terms: "à¤¶à¤°à¥à¤¤à¥‡à¤‚",
+        text_scan_visit: "à¤µà¤¿à¤œà¤¿à¤Ÿ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¸à¥à¤•à¥ˆà¤¨ à¤•à¤°à¥‡à¤‚",
+        text_product_by: "Noble Nexus à¤•à¤¾ à¤à¤• à¤‰à¤¤à¥à¤ªà¤¾à¤¦",
+        text_a_product_by: "à¤à¤• à¤‰à¤¤à¥à¤ªà¤¾à¤¦",
+        footer_noble_nexus_plus: "à¤¨à¥‹à¤¬à¤² à¤¨à¥‡à¤•à¥à¤¸à¤¸ à¤ªà¥à¤²à¤¸",
         // Landing Page Mock Data (Hindi)
-        feat_why_title: "नोबल नेक्सस क्यों?",
-        feat_main_title: "उत्कृष्टता के लिए आपको जो कुछ भी चाहिए",
-        feat_analytics_title: "स्मार्ट एनालिटिक्स",
-        feat_analytics_desc: "स्पष्ट, एआई-संचालित विज़ुअलाइज़ेशन के साथ शैक्षणिक प्रदर्शन के रुझानों को ट्रैक करें जो छात्रों को तेजी से सुधारने में मदद करते हैं।",
-        feat_live_title: "लाइव क्लासरूम",
-        feat_live_desc: "एकीकृत वीडियो कॉन्फ्रेंसिंग आपके डैशबोर्ड से सीधे निर्बाध दूरस्थ शिक्षण सत्रों की अनुमति देती है।",
-        feat_ai_title: "एआई मार्गदर्शन",
-        feat_ai_desc: "प्रत्येक छात्र की अनूठी यात्रा के लिए डिज़ाइन किए गए व्यक्तिगत शिक्षण पथ और स्वचालित प्रतिक्रिया का अनुभव करें।",
-        about_title: "क्लासब्रिज के बारे में",
-        about_main_title: "शिक्षा के भविष्य को सशक्त बनाना",
-        about_desc: "क्लासब्रिज को पारंपरिक स्कूली शिक्षा और आधुनिक तकनीक के बीच की खाई को पाटने के लिए डिज़ाइन किया गया है। हम एक एकीकृत पारिस्थितिकी तंत्र प्रदान करते हैं जहां सीखना नवाचार से मिलता है:",
-        about_teachers: "शिक्षकों के लिए",
-        about_teachers_desc: "एआई-संचालित उपस्थिति, स्वचालित ग्रेडिंग और स्मार्ट पाठ योजना उपकरणों के साथ कक्षाओं का प्रबंधन आसानी से करें।",
-        about_students: "छात्रों के लिए",
-        about_students_desc: "व्यक्तिगत शिक्षण पथों तक पहुंचें, वास्तविक समय की प्रगति को ट्रैक करें, और गेमिफाइड शिक्षा लक्ष्यों के साथ जुड़े रहें।",
-        about_parents: "माता-पिता के लिए",
-        about_parents_desc: "उपस्थिति, शैक्षणिक प्रदर्शन और स्कूल कार्यक्रमों पर त्वरित अपडेट के साथ सूचित रहें।",
-        btn_discover_more: "और अधिक खोजें",
-        stat_engagement: "जुड़ाव दर",
-        stat_ai_support: "एआई सहायता",
-        stat_active_students: "सक्रिय छात्र",
-        nav_teachers: "शिक्षक",
-        nav_students: "छात्र",
-        nav_schools: "स्कूल",
-        nav_resources: "संसाधन",
-        btn_log_in: "लॉग इन",
-        text_back: "वापस",
-        login_not_a: "क्या आप",
-        login_switch_role: "भूमिका बदलें",
-        login_student_login: "छात्र लॉगिन",
-        login_teacher_portal: "शिक्षक पोर्टल",
-        login_parent_access: "अभिभावक प्रवेश",
-        login_principal_login: "प्रधानाचार्य लॉगिन",
-        login_super_admin: "सुपर एडमिन",
-        login_root_admin_portal: "रूट एडमिन पोर्टल",
-        login_generic: "लॉगिन",
-        role_student: "छात्र",
-        role_teacher: "शिक्षक",
-        role_parent: "अभिभावक",
-        role_others: "अन्य",
-        role_admin: "एडमिन",
-        role_root_admin: "रूट एडमिन",
-        hero_heading: "जहां कक्षाएं\nसमुदाय बनती हैं",
-        hero_subtitle: "नवाचारी समाधानों के माध्यम से शैक्षणिक संस्थानों को सशक्त बनाना",
-        hero_get_started_as: "इस रूप में शुरू करें...",
-        feat_modern_title: "आधुनिक कक्षा के लिए निर्मित",
-        feat_quiz_gen: "क्विज़ जेनरेटर",
-        feat_quiz_desc: "एक पीडीएफ अध्याय अपलोड करें, और हमारा एआई सेकंड में उत्तर कुंजी के साथ 20 अलग-अलग प्रश्न तैयार करता है।",
-        link_try_generator: "जेनरेटर आज़माएं →",
-        feat_student_insights: "छात्र अंतर्दृष्टि",
-        feat_student_insights_desc: "ग्रेड से परे। देखें कि कौन कड़ी मेहनत कर रहा है लेकिन संघर्ष कर रहा है, और किसे अधिक चुनौतीपूर्ण सामग्री की आवश्यकता है।",
-        link_view_report: "नमूना रिपोर्ट देखें →",
-        feat_hybrid: "हाइब्रिड क्लासरूम",
-        feat_hybrid_desc: "वीडियो लॉजिक के साथ इन-पर्सन और रिमोट शिक्षण के बीच निर्बाध रूप से स्विच करें।",
-        link_see_how: "देखें कैसे →",
-        cta_ready_transform: "क्या आप अपने शिक्षण को बदलने के लिए तैयार हैं?",
-        btn_join_free: "मुफ्त में नोबल नेक्सस से जुड़ें"
+        feat_why_title: "à¤¨à¥‹à¤¬à¤² à¤¨à¥‡à¤•à¥à¤¸à¤¸ à¤•à¥à¤¯à¥‹à¤‚?",
+        feat_main_title: "à¤‰à¤¤à¥à¤•à¥ƒà¤·à¥à¤Ÿà¤¤à¤¾ à¤•à¥‡ à¤²à¤¿à¤ à¤†à¤ªà¤•à¥‹ à¤œà¥‹ à¤•à¥à¤› à¤­à¥€ à¤šà¤¾à¤¹à¤¿à¤",
+        feat_analytics_title: "à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤à¤¨à¤¾à¤²à¤¿à¤Ÿà¤¿à¤•à¥à¤¸",
+        feat_analytics_desc: "à¤¸à¥à¤ªà¤·à¥à¤Ÿ, à¤à¤†à¤ˆ-à¤¸à¤‚à¤šà¤¾à¤²à¤¿à¤¤ à¤µà¤¿à¤œà¤¼à¥à¤…à¤²à¤¾à¤‡à¤œà¤¼à¥‡à¤¶à¤¨ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¶à¥ˆà¤•à¥à¤·à¤£à¤¿à¤• à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¨ à¤•à¥‡ à¤°à¥à¤à¤¾à¤¨à¥‹à¤‚ à¤•à¥‹ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤°à¥‡à¤‚ à¤œà¥‹ à¤›à¤¾à¤¤à¥à¤°à¥‹à¤‚ à¤•à¥‹ à¤¤à¥‡à¤œà¥€ à¤¸à¥‡ à¤¸à¥à¤§à¤¾à¤°à¤¨à¥‡ à¤®à¥‡à¤‚ à¤®à¤¦à¤¦ à¤•à¤°à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤",
+        feat_live_title: "à¤²à¤¾à¤‡à¤µ à¤•à¥à¤²à¤¾à¤¸à¤°à¥‚à¤®",
+        feat_live_desc: "à¤à¤•à¥€à¤•à¥ƒà¤¤ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ à¤•à¥‰à¤¨à¥à¤«à¥à¤°à¥‡à¤‚à¤¸à¤¿à¤‚à¤— à¤†à¤ªà¤•à¥‡ à¤¡à¥ˆà¤¶à¤¬à¥‹à¤°à¥à¤¡ à¤¸à¥‡ à¤¸à¥€à¤§à¥‡ à¤¨à¤¿à¤°à¥à¤¬à¤¾à¤§ à¤¦à¥‚à¤°à¤¸à¥à¤¥ à¤¶à¤¿à¤•à¥à¤·à¤£ à¤¸à¤¤à¥à¤°à¥‹à¤‚ à¤•à¥€ à¤…à¤¨à¥à¤®à¤¤à¤¿ à¤¦à¥‡à¤¤à¥€ à¤¹à¥ˆà¥¤",
+        feat_ai_title: "à¤à¤†à¤ˆ à¤®à¤¾à¤°à¥à¤—à¤¦à¤°à¥à¤¶à¤¨",
+        feat_ai_desc: "à¤ªà¥à¤°à¤¤à¥à¤¯à¥‡à¤• à¤›à¤¾à¤¤à¥à¤° à¤•à¥€ à¤…à¤¨à¥‚à¤ à¥€ à¤¯à¤¾à¤¤à¥à¤°à¤¾ à¤•à¥‡ à¤²à¤¿à¤ à¤¡à¤¿à¤œà¤¼à¤¾à¤‡à¤¨ à¤•à¤¿à¤ à¤—à¤ à¤µà¥à¤¯à¤•à¥à¤¤à¤¿à¤—à¤¤ à¤¶à¤¿à¤•à¥à¤·à¤£ à¤ªà¤¥ à¤”à¤° à¤¸à¥à¤µà¤šà¤¾à¤²à¤¿à¤¤ à¤ªà¥à¤°à¤¤à¤¿à¤•à¥à¤°à¤¿à¤¯à¤¾ à¤•à¤¾ à¤…à¤¨à¥à¤­à¤µ à¤•à¤°à¥‡à¤‚à¥¤",
+        about_title: "à¤•à¥à¤²à¤¾à¤¸à¤¬à¥à¤°à¤¿à¤œ à¤•à¥‡ à¤¬à¤¾à¤°à¥‡ à¤®à¥‡à¤‚",
+        about_main_title: "à¤¶à¤¿à¤•à¥à¤·à¤¾ à¤•à¥‡ à¤­à¤µà¤¿à¤·à¥à¤¯ à¤•à¥‹ à¤¸à¤¶à¤•à¥à¤¤ à¤¬à¤¨à¤¾à¤¨à¤¾",
+        about_desc: "à¤•à¥à¤²à¤¾à¤¸à¤¬à¥à¤°à¤¿à¤œ à¤•à¥‹ à¤ªà¤¾à¤°à¤‚à¤ªà¤°à¤¿à¤• à¤¸à¥à¤•à¥‚à¤²à¥€ à¤¶à¤¿à¤•à¥à¤·à¤¾ à¤”à¤° à¤†à¤§à¥à¤¨à¤¿à¤• à¤¤à¤•à¤¨à¥€à¤• à¤•à¥‡ à¤¬à¥€à¤š à¤•à¥€ à¤–à¤¾à¤ˆ à¤•à¥‹ à¤ªà¤¾à¤Ÿà¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¡à¤¿à¤œà¤¼à¤¾à¤‡à¤¨ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤ à¤¹à¤® à¤à¤• à¤à¤•à¥€à¤•à¥ƒà¤¤ à¤ªà¤¾à¤°à¤¿à¤¸à¥à¤¥à¤¿à¤¤à¤¿à¤•à¥€ à¤¤à¤‚à¤¤à¥à¤° à¤ªà¥à¤°à¤¦à¤¾à¤¨ à¤•à¤°à¤¤à¥‡ à¤¹à¥ˆà¤‚ à¤œà¤¹à¤¾à¤‚ à¤¸à¥€à¤–à¤¨à¤¾ à¤¨à¤µà¤¾à¤šà¤¾à¤° à¤¸à¥‡ à¤®à¤¿à¤²à¤¤à¤¾ à¤¹à¥ˆ:",
+        about_teachers: "à¤¶à¤¿à¤•à¥à¤·à¤•à¥‹à¤‚ à¤•à¥‡ à¤²à¤¿à¤",
+        about_teachers_desc: "à¤à¤†à¤ˆ-à¤¸à¤‚à¤šà¤¾à¤²à¤¿à¤¤ à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿, à¤¸à¥à¤µà¤šà¤¾à¤²à¤¿à¤¤ à¤—à¥à¤°à¥‡à¤¡à¤¿à¤‚à¤— à¤”à¤° à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¤¾à¤  à¤¯à¥‹à¤œà¤¨à¤¾ à¤‰à¤ªà¤•à¤°à¤£à¥‹à¤‚ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤•à¤•à¥à¤·à¤¾à¤“à¤‚ à¤•à¤¾ à¤ªà¥à¤°à¤¬à¤‚à¤§à¤¨ à¤†à¤¸à¤¾à¤¨à¥€ à¤¸à¥‡ à¤•à¤°à¥‡à¤‚à¥¤",
+        about_students: "à¤›à¤¾à¤¤à¥à¤°à¥‹à¤‚ à¤•à¥‡ à¤²à¤¿à¤",
+        about_students_desc: "à¤µà¥à¤¯à¤•à¥à¤¤à¤¿à¤—à¤¤ à¤¶à¤¿à¤•à¥à¤·à¤£ à¤ªà¤¥à¥‹à¤‚ à¤¤à¤• à¤ªà¤¹à¥à¤‚à¤šà¥‡à¤‚, à¤µà¤¾à¤¸à¥à¤¤à¤µà¤¿à¤• à¤¸à¤®à¤¯ à¤•à¥€ à¤ªà¥à¤°à¤—à¤¤à¤¿ à¤•à¥‹ à¤Ÿà¥à¤°à¥ˆà¤• à¤•à¤°à¥‡à¤‚, à¤”à¤° à¤—à¥‡à¤®à¤¿à¤«à¤¾à¤‡à¤¡ à¤¶à¤¿à¤•à¥à¤·à¤¾ à¤²à¤•à¥à¤·à¥à¤¯à¥‹à¤‚ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤œà¥à¤¡à¤¼à¥‡ à¤°à¤¹à¥‡à¤‚à¥¤",
+        about_parents: "à¤®à¤¾à¤¤à¤¾-à¤ªà¤¿à¤¤à¤¾ à¤•à¥‡ à¤²à¤¿à¤",
+        about_parents_desc: "à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿, à¤¶à¥ˆà¤•à¥à¤·à¤£à¤¿à¤• à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¨ à¤”à¤° à¤¸à¥à¤•à¥‚à¤² à¤•à¤¾à¤°à¥à¤¯à¤•à¥à¤°à¤®à¥‹à¤‚ à¤ªà¤° à¤¤à¥à¤µà¤°à¤¿à¤¤ à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤¸à¥‚à¤šà¤¿à¤¤ à¤°à¤¹à¥‡à¤‚à¥¤",
+        btn_discover_more: "à¤”à¤° à¤…à¤§à¤¿à¤• à¤–à¥‹à¤œà¥‡à¤‚",
+        stat_engagement: "à¤œà¥à¤¡à¤¼à¤¾à¤µ à¤¦à¤°",
+        stat_ai_support: "à¤à¤†à¤ˆ à¤¸à¤¹à¤¾à¤¯à¤¤à¤¾",
+        stat_active_students: "à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤›à¤¾à¤¤à¥à¤°",
+        nav_teachers: "à¤¶à¤¿à¤•à¥à¤·à¤•",
+        nav_students: "à¤›à¤¾à¤¤à¥à¤°",
+        nav_schools: "à¤¸à¥à¤•à¥‚à¤²",
+        nav_resources: "à¤¸à¤‚à¤¸à¤¾à¤§à¤¨",
+        btn_log_in: "à¤²à¥‰à¤— à¤‡à¤¨",
+        text_back: "à¤µà¤¾à¤ªà¤¸",
+        login_not_a: "à¤•à¥à¤¯à¤¾ à¤†à¤ª",
+        login_switch_role: "à¤­à¥‚à¤®à¤¿à¤•à¤¾ à¤¬à¤¦à¤²à¥‡à¤‚",
+        login_student_login: "à¤›à¤¾à¤¤à¥à¤° à¤²à¥‰à¤—à¤¿à¤¨",
+        login_teacher_portal: "à¤¶à¤¿à¤•à¥à¤·à¤• à¤ªà¥‹à¤°à¥à¤Ÿà¤²",
+        login_parent_access: "à¤…à¤­à¤¿à¤­à¤¾à¤µà¤• à¤ªà¥à¤°à¤µà¥‡à¤¶",
+        login_principal_login: "à¤ªà¥à¤°à¤§à¤¾à¤¨à¤¾à¤šà¤¾à¤°à¥à¤¯ à¤²à¥‰à¤—à¤¿à¤¨",
+        login_super_admin: "à¤¸à¥à¤ªà¤° à¤à¤¡à¤®à¤¿à¤¨",
+        login_root_admin_portal: "à¤°à¥‚à¤Ÿ à¤à¤¡à¤®à¤¿à¤¨ à¤ªà¥‹à¤°à¥à¤Ÿà¤²",
+        login_generic: "à¤²à¥‰à¤—à¤¿à¤¨",
+        role_student: "à¤›à¤¾à¤¤à¥à¤°",
+        role_teacher: "à¤¶à¤¿à¤•à¥à¤·à¤•",
+        role_parent: "à¤…à¤­à¤¿à¤­à¤¾à¤µà¤•",
+        role_others: "à¤…à¤¨à¥à¤¯",
+        role_admin: "à¤à¤¡à¤®à¤¿à¤¨",
+        role_root_admin: "à¤°à¥‚à¤Ÿ à¤à¤¡à¤®à¤¿à¤¨",
+        hero_heading: "à¤œà¤¹à¤¾à¤‚ à¤•à¤•à¥à¤·à¤¾à¤à¤‚\nà¤¸à¤®à¥à¤¦à¤¾à¤¯ à¤¬à¤¨à¤¤à¥€ à¤¹à¥ˆà¤‚",
+        hero_subtitle: "à¤¨à¤µà¤¾à¤šà¤¾à¤°à¥€ à¤¸à¤®à¤¾à¤§à¤¾à¤¨à¥‹à¤‚ à¤•à¥‡ à¤®à¤¾à¤§à¥à¤¯à¤® à¤¸à¥‡ à¤¶à¥ˆà¤•à¥à¤·à¤£à¤¿à¤• à¤¸à¤‚à¤¸à¥à¤¥à¤¾à¤¨à¥‹à¤‚ à¤•à¥‹ à¤¸à¤¶à¤•à¥à¤¤ à¤¬à¤¨à¤¾à¤¨à¤¾",
+        hero_get_started_as: "à¤‡à¤¸ à¤°à¥‚à¤ª à¤®à¥‡à¤‚ à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚...",
+        feat_modern_title: "à¤†à¤§à¥à¤¨à¤¿à¤• à¤•à¤•à¥à¤·à¤¾ à¤•à¥‡ à¤²à¤¿à¤ à¤¨à¤¿à¤°à¥à¤®à¤¿à¤¤",
+        feat_quiz_gen: "à¤•à¥à¤µà¤¿à¤œà¤¼ à¤œà¥‡à¤¨à¤°à¥‡à¤Ÿà¤°",
+        feat_quiz_desc: "à¤à¤• à¤ªà¥€à¤¡à¥€à¤à¤« à¤…à¤§à¥à¤¯à¤¾à¤¯ à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚, à¤”à¤° à¤¹à¤®à¤¾à¤°à¤¾ à¤à¤†à¤ˆ à¤¸à¥‡à¤•à¤‚à¤¡ à¤®à¥‡à¤‚ à¤‰à¤¤à¥à¤¤à¤° à¤•à¥à¤‚à¤œà¥€ à¤•à¥‡ à¤¸à¤¾à¤¥ 20 à¤…à¤²à¤—-à¤…à¤²à¤— à¤ªà¥à¤°à¤¶à¥à¤¨ à¤¤à¥ˆà¤¯à¤¾à¤° à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤",
+        link_try_generator: "à¤œà¥‡à¤¨à¤°à¥‡à¤Ÿà¤° à¤†à¤œà¤¼à¤®à¤¾à¤à¤‚ â†’",
+        feat_student_insights: "à¤›à¤¾à¤¤à¥à¤° à¤…à¤‚à¤¤à¤°à¥à¤¦à¥ƒà¤·à¥à¤Ÿà¤¿",
+        feat_student_insights_desc: "à¤—à¥à¤°à¥‡à¤¡ à¤¸à¥‡ à¤ªà¤°à¥‡à¥¤ à¤¦à¥‡à¤–à¥‡à¤‚ à¤•à¤¿ à¤•à¥Œà¤¨ à¤•à¤¡à¤¼à¥€ à¤®à¥‡à¤¹à¤¨à¤¤ à¤•à¤° à¤°à¤¹à¤¾ à¤¹à¥ˆ à¤²à¥‡à¤•à¤¿à¤¨ à¤¸à¤‚à¤˜à¤°à¥à¤· à¤•à¤° à¤°à¤¹à¤¾ à¤¹à¥ˆ, à¤”à¤° à¤•à¤¿à¤¸à¥‡ à¤…à¤§à¤¿à¤• à¤šà¥à¤¨à¥Œà¤¤à¥€à¤ªà¥‚à¤°à¥à¤£ à¤¸à¤¾à¤®à¤—à¥à¤°à¥€ à¤•à¥€ à¤†à¤µà¤¶à¥à¤¯à¤•à¤¤à¤¾ à¤¹à¥ˆà¥¤",
+        link_view_report: "à¤¨à¤®à¥‚à¤¨à¤¾ à¤°à¤¿à¤ªà¥‹à¤°à¥à¤Ÿ à¤¦à¥‡à¤–à¥‡à¤‚ â†’",
+        feat_hybrid: "à¤¹à¤¾à¤‡à¤¬à¥à¤°à¤¿à¤¡ à¤•à¥à¤²à¤¾à¤¸à¤°à¥‚à¤®",
+        feat_hybrid_desc: "à¤µà¥€à¤¡à¤¿à¤¯à¥‹ à¤²à¥‰à¤œà¤¿à¤• à¤•à¥‡ à¤¸à¤¾à¤¥ à¤‡à¤¨-à¤ªà¤°à¥à¤¸à¤¨ à¤”à¤° à¤°à¤¿à¤®à¥‹à¤Ÿ à¤¶à¤¿à¤•à¥à¤·à¤£ à¤•à¥‡ à¤¬à¥€à¤š à¤¨à¤¿à¤°à¥à¤¬à¤¾à¤§ à¤°à¥‚à¤ª à¤¸à¥‡ à¤¸à¥à¤µà¤¿à¤š à¤•à¤°à¥‡à¤‚à¥¤",
+        link_see_how: "à¤¦à¥‡à¤–à¥‡à¤‚ à¤•à¥ˆà¤¸à¥‡ â†’",
+        cta_ready_transform: "à¤•à¥à¤¯à¤¾ à¤†à¤ª à¤…à¤ªà¤¨à¥‡ à¤¶à¤¿à¤•à¥à¤·à¤£ à¤•à¥‹ à¤¬à¤¦à¤²à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥ˆà¤‚?",
+        btn_join_free: "à¤®à¥à¤«à¥à¤¤ à¤®à¥‡à¤‚ à¤¨à¥‹à¤¬à¤² à¤¨à¥‡à¤•à¥à¤¸à¤¸ à¤¸à¥‡ à¤œà¥à¤¡à¤¼à¥‡à¤‚"
     },
     ja: {
-        login_welcome: "Noble Nexusへようこそ",
-        login_subtitle: "Noble Nexusポータルにサインイン",
-        label_username: "ユーザー名 / 学生ID",
-        label_password: "パスワード",
-        link_forgot_password: "パスワードをお忘れですか？",
-        btn_signin: "サインイン",
-        btn_signin_microsoft: "Microsoftでサインイン",
-        text_or: "または",
-        text_new_user: "新規ユーザーですか？",
-        link_signup: "サインアップ",
-        link_help: "助けが必要ですか？",
-        msg_enter_credentials: "ユーザー名とパスワードを入力してください。",
-        msg_checking: "認証情報を確認中...",
-        msg_welcome: "ようこそ、{user_id}",
-        msg_login_failed: "ログインに失敗しました",
-        msg_network_error: "ネットワークエラー: {error}",
-        msg_google_verify: "Googleトークンを確認中...",
-        msg_microsoft_conn: "Microsoftに接続中...",
-        msg_microsoft_verify: "Microsoftトークンを確認中...",
+        login_welcome: "Noble Nexusã¸ã‚ˆã†ã“ã",
+        login_subtitle: "Noble Nexusãƒãƒ¼ã‚¿ãƒ«ã«ã‚µã‚¤ãƒ³ã‚¤ãƒ³",
+        label_username: "ãƒ¦ãƒ¼ã‚¶ãƒ¼å / å­¦ç”ŸID",
+        label_password: "ãƒ‘ã‚¹ãƒ¯ãƒ¼ãƒ‰",
+        link_forgot_password: "ãƒ‘ã‚¹ãƒ¯ãƒ¼ãƒ‰ã‚’ãŠå¿˜ã‚Œã§ã™ã‹ï¼Ÿ",
+        btn_signin: "ã‚µã‚¤ãƒ³ã‚¤ãƒ³",
+        btn_signin_microsoft: "Microsoftã§ã‚µã‚¤ãƒ³ã‚¤ãƒ³",
+        text_or: "ã¾ãŸã¯",
+        text_new_user: "æ–°è¦ãƒ¦ãƒ¼ã‚¶ãƒ¼ã§ã™ã‹ï¼Ÿ",
+        link_signup: "ã‚µã‚¤ãƒ³ã‚¢ãƒƒãƒ—",
+        link_help: "åŠ©ã‘ãŒå¿…è¦ã§ã™ã‹ï¼Ÿ",
+        msg_enter_credentials: "ãƒ¦ãƒ¼ã‚¶ãƒ¼åã¨ãƒ‘ã‚¹ãƒ¯ãƒ¼ãƒ‰ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚",
+        msg_checking: "èªè¨¼æƒ…å ±ã‚’ç¢ºèªä¸­...",
+        msg_welcome: "ã‚ˆã†ã“ãã€{user_id}",
+        msg_login_failed: "ãƒ­ã‚°ã‚¤ãƒ³ã«å¤±æ•—ã—ã¾ã—ãŸ",
+        msg_network_error: "ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯ã‚¨ãƒ©ãƒ¼: {error}",
+        msg_google_verify: "Googleãƒˆãƒ¼ã‚¯ãƒ³ã‚’ç¢ºèªä¸­...",
+        msg_microsoft_conn: "Microsoftã«æŽ¥ç¶šä¸­...",
+        msg_microsoft_verify: "Microsoftãƒˆãƒ¼ã‚¯ãƒ³ã‚’ç¢ºèªä¸­...",
         // Sidebar & Dashboard
-        sidebar_dashboard: "ダッシュボード",
-        sidebar_my_courses: "マイコース",
-        sidebar_course_list: "コース一覧",
-        sidebar_assignments: "課題",
-        sidebar_exams: "試験",
-        sidebar_upcoming_exams: "今後の試験",
-        sidebar_results: "成績",
-        sidebar_profile: "プロフィール",
-        sidebar_view_profile: "プロフィールを見る",
-        sidebar_settings: "設定",
-        sidebar_communication: "連絡",
-        sidebar_lms: "コース (LMS)",
-        sidebar_ai_assistant: "AIアシスタント",
-        sidebar_timetable: "時間割",
-        sidebar_view_timetable: "時間割を見る",
-        sidebar_attendance: "出席",
-        sidebar_take_attendance: "出席を取る",
-        sidebar_attendance_sheet: "クラス出席表",
-        sidebar_monthly_report: "月次レポート",
-        sidebar_approve_leave: "休暇承認",
-        sidebar_apply_leave: "休暇申請",
-        sidebar_assignment_group: "課題",
-        sidebar_create_assignment: "課題作成",
-        sidebar_view_submitted: "提出物",
-        sidebar_approve_reassign: "承認/再割当",
-        sidebar_enter_marks: "成績入力",
-        sidebar_online_test: "オンラインテスト",
-        sidebar_question_bank: "問題バンク",
-        sidebar_create_test: "テスト作成",
-        sidebar_assign_max_marks: "配点設定",
-        sidebar_view_test_results: "結果を見る",
-        sidebar_progress_card: "成績表",
-        sidebar_enter_progress: "成績入力",
-        sidebar_save_publish: "保存して公開",
-        sidebar_view_progress: "成績表を見る",
-        sidebar_pay_slips: "給与明細",
-        sidebar_view_payslips: "明細を見る",
-        sidebar_students: "生徒",
-        sidebar_add_student: "生徒を追加",
-        sidebar_student_list: "生徒一覧",
-        sidebar_reports: "レポート",
-        sidebar_attendance_report: "出席レポート",
-        sidebar_performance_report: "成績レポート",
-        sidebar_resource_library: "ライブラリ",
-        sidebar_ai_copilot: "AIコパイロット",
-        sidebar_roles_perms: "ロールと権限",
-        sidebar_staff_faculty: "教職員",
-        sidebar_system_settings: "システム設定",
-        sidebar_academic_progress: "学業成績",
-        sidebar_fees_payments: "学費と支払い",
-        sidebar_education_assistant: "教育アシスタント",
+        sidebar_dashboard: "ãƒ€ãƒƒã‚·ãƒ¥ãƒœãƒ¼ãƒ‰",
+        sidebar_my_courses: "ãƒžã‚¤ã‚³ãƒ¼ã‚¹",
+        sidebar_course_list: "ã‚³ãƒ¼ã‚¹ä¸€è¦§",
+        sidebar_assignments: "èª²é¡Œ",
+        sidebar_exams: "è©¦é¨“",
+        sidebar_upcoming_exams: "ä»Šå¾Œã®è©¦é¨“",
+        sidebar_results: "æˆç¸¾",
+        sidebar_profile: "ãƒ—ãƒ­ãƒ•ã‚£ãƒ¼ãƒ«",
+        sidebar_view_profile: "ãƒ—ãƒ­ãƒ•ã‚£ãƒ¼ãƒ«ã‚’è¦‹ã‚‹",
+        sidebar_settings: "è¨­å®š",
+        sidebar_communication: "é€£çµ¡",
+        sidebar_lms: "ã‚³ãƒ¼ã‚¹ (LMS)",
+        sidebar_ai_assistant: "AIã‚¢ã‚·ã‚¹ã‚¿ãƒ³ãƒˆ",
+        sidebar_timetable: "æ™‚é–“å‰²",
+        sidebar_view_timetable: "æ™‚é–“å‰²ã‚’è¦‹ã‚‹",
+        sidebar_attendance: "å‡ºå¸­",
+        sidebar_take_attendance: "å‡ºå¸­ã‚’å–ã‚‹",
+        sidebar_attendance_sheet: "ã‚¯ãƒ©ã‚¹å‡ºå¸­è¡¨",
+        sidebar_monthly_report: "æœˆæ¬¡ãƒ¬ãƒãƒ¼ãƒˆ",
+        sidebar_approve_leave: "ä¼‘æš‡æ‰¿èª",
+        sidebar_apply_leave: "ä¼‘æš‡ç”³è«‹",
+        sidebar_assignment_group: "èª²é¡Œ",
+        sidebar_create_assignment: "èª²é¡Œä½œæˆ",
+        sidebar_view_submitted: "æå‡ºç‰©",
+        sidebar_approve_reassign: "æ‰¿èª/å†å‰²å½“",
+        sidebar_enter_marks: "æˆç¸¾å…¥åŠ›",
+        sidebar_online_test: "ã‚ªãƒ³ãƒ©ã‚¤ãƒ³ãƒ†ã‚¹ãƒˆ",
+        sidebar_question_bank: "å•é¡Œãƒãƒ³ã‚¯",
+        sidebar_create_test: "ãƒ†ã‚¹ãƒˆä½œæˆ",
+        sidebar_assign_max_marks: "é…ç‚¹è¨­å®š",
+        sidebar_view_test_results: "çµæžœã‚’è¦‹ã‚‹",
+        sidebar_progress_card: "æˆç¸¾è¡¨",
+        sidebar_enter_progress: "æˆç¸¾å…¥åŠ›",
+        sidebar_save_publish: "ä¿å­˜ã—ã¦å…¬é–‹",
+        sidebar_view_progress: "æˆç¸¾è¡¨ã‚’è¦‹ã‚‹",
+        sidebar_pay_slips: "çµ¦ä¸Žæ˜Žç´°",
+        sidebar_view_payslips: "æ˜Žç´°ã‚’è¦‹ã‚‹",
+        sidebar_students: "ç”Ÿå¾’",
+        sidebar_add_student: "ç”Ÿå¾’ã‚’è¿½åŠ ",
+        sidebar_student_list: "ç”Ÿå¾’ä¸€è¦§",
+        sidebar_reports: "ãƒ¬ãƒãƒ¼ãƒˆ",
+        sidebar_attendance_report: "å‡ºå¸­ãƒ¬ãƒãƒ¼ãƒˆ",
+        sidebar_performance_report: "æˆç¸¾ãƒ¬ãƒãƒ¼ãƒˆ",
+        sidebar_resource_library: "ãƒ©ã‚¤ãƒ–ãƒ©ãƒª",
+        sidebar_ai_copilot: "AIã‚³ãƒ‘ã‚¤ãƒ­ãƒƒãƒˆ",
+        sidebar_roles_perms: "ãƒ­ãƒ¼ãƒ«ã¨æ¨©é™",
+        sidebar_staff_faculty: "æ•™è·å“¡",
+        sidebar_system_settings: "ã‚·ã‚¹ãƒ†ãƒ è¨­å®š",
+        sidebar_academic_progress: "å­¦æ¥­æˆç¸¾",
+        sidebar_fees_payments: "å­¦è²»ã¨æ”¯æ‰•ã„",
+        sidebar_education_assistant: "æ•™è‚²ã‚¢ã‚·ã‚¹ã‚¿ãƒ³ãƒˆ",
         // Student Dashboard
-        student_dashboard_title: "学生ダッシュボード",
-        btn_log_activity: "活動記録",
-        student_live_class: "🔴 ライブ授業中！",
-        btn_join_class: "授業に参加",
-        btn_join_whiteboard: "ホワイトボードに参加",
-        student_key_metrics: "学生の主要指標",
-        student_upcoming_live: "今後のライブ授業",
-        msg_no_live_classes: "予定されているライブ授業はありません。",
-        live_class_session: "ライブ授業開催中",
-        btn_join_now: "今すぐ参加",
-        student_level: "レベル",
-        student_my_courses: "マイコース",
-        msg_no_courses: "まだどのコースにも登録されていません。",
-        student_upcoming_assignments: "今後の課題とプロジェクト",
-        msg_loading_assignments: "課題を読み込み中...",
-        tab_progress_graph: "📈 進捗グラフ",
-        tab_activity_history: "📜 活動履歴",
+        student_dashboard_title: "å­¦ç”Ÿãƒ€ãƒƒã‚·ãƒ¥ãƒœãƒ¼ãƒ‰",
+        btn_log_activity: "æ´»å‹•è¨˜éŒ²",
+        student_live_class: "ðŸ”´ ãƒ©ã‚¤ãƒ–æŽˆæ¥­ä¸­ï¼",
+        btn_join_class: "æŽˆæ¥­ã«å‚åŠ ",
+        btn_join_whiteboard: "ãƒ›ãƒ¯ã‚¤ãƒˆãƒœãƒ¼ãƒ‰ã«å‚åŠ ",
+        student_key_metrics: "å­¦ç”Ÿã®ä¸»è¦æŒ‡æ¨™",
+        student_upcoming_live: "ä»Šå¾Œã®ãƒ©ã‚¤ãƒ–æŽˆæ¥­",
+        msg_no_live_classes: "äºˆå®šã•ã‚Œã¦ã„ã‚‹ãƒ©ã‚¤ãƒ–æŽˆæ¥­ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚",
+        live_class_session: "ãƒ©ã‚¤ãƒ–æŽˆæ¥­é–‹å‚¬ä¸­",
+        btn_join_now: "ä»Šã™ãå‚åŠ ",
+        student_level: "ãƒ¬ãƒ™ãƒ«",
+        student_my_courses: "ãƒžã‚¤ã‚³ãƒ¼ã‚¹",
+        msg_no_courses: "ã¾ã ã©ã®ã‚³ãƒ¼ã‚¹ã«ã‚‚ç™»éŒ²ã•ã‚Œã¦ã„ã¾ã›ã‚“ã€‚",
+        student_upcoming_assignments: "ä»Šå¾Œã®èª²é¡Œã¨ãƒ—ãƒ­ã‚¸ã‚§ã‚¯ãƒˆ",
+        msg_loading_assignments: "èª²é¡Œã‚’èª­ã¿è¾¼ã¿ä¸­...",
+        tab_progress_graph: "ðŸ“ˆ é€²æ—ã‚°ãƒ©ãƒ•",
+        tab_activity_history: "ðŸ“œ æ´»å‹•å±¥æ­´",
         // Parent Portal
-        parent_portal_title: "保護者ポータル",
-        label_select_child: "お子様を選択",
-        ph_child_id: "学生IDを入力 (例: S001)",
-        btn_view_progress: "進捗を見る",
-        msg_enter_child_id: "学校から提供された学生IDを入力してください。",
-        parent_overview_for: "の概要",
-        parent_key_updates: "重要な更新",
-        update_school_close: "明日は午後2時に早期下校となります。",
-        update_report_cards: "成績表が公開されました。",
-        parent_academic_progress: "学業成績",
-        parent_teacher_feedback: "先生からのフィードバック",
-        msg_loading_feedback: "フィードバックを読み込み中...",
-        parent_recent_marks: "最近の成績",
-        th_subject: "科目",
-        th_exam: "試験",
-        th_score: "スコア",
-        parent_performance_chart: "成績チャート",
-        parent_report_cards: "成績表",
-        term_1_report: "1学期レポート",
-        badge_download: "ダウンロード",
+        parent_portal_title: "ä¿è­·è€…ãƒãƒ¼ã‚¿ãƒ«",
+        label_select_child: "ãŠå­æ§˜ã‚’é¸æŠž",
+        ph_child_id: "å­¦ç”ŸIDã‚’å…¥åŠ› (ä¾‹: S001)",
+        btn_view_progress: "é€²æ—ã‚’è¦‹ã‚‹",
+        msg_enter_child_id: "å­¦æ ¡ã‹ã‚‰æä¾›ã•ã‚ŒãŸå­¦ç”ŸIDã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚",
+        parent_overview_for: "ã®æ¦‚è¦",
+        parent_key_updates: "é‡è¦ãªæ›´æ–°",
+        update_school_close: "æ˜Žæ—¥ã¯åˆå¾Œ2æ™‚ã«æ—©æœŸä¸‹æ ¡ã¨ãªã‚Šã¾ã™ã€‚",
+        update_report_cards: "æˆç¸¾è¡¨ãŒå…¬é–‹ã•ã‚Œã¾ã—ãŸã€‚",
+        parent_academic_progress: "å­¦æ¥­æˆç¸¾",
+        parent_teacher_feedback: "å…ˆç”Ÿã‹ã‚‰ã®ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯",
+        msg_loading_feedback: "ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯ã‚’èª­ã¿è¾¼ã¿ä¸­...",
+        parent_recent_marks: "æœ€è¿‘ã®æˆç¸¾",
+        th_subject: "ç§‘ç›®",
+        th_exam: "è©¦é¨“",
+        th_score: "ã‚¹ã‚³ã‚¢",
+        parent_performance_chart: "æˆç¸¾ãƒãƒ£ãƒ¼ãƒˆ",
+        parent_report_cards: "æˆç¸¾è¡¨",
+        term_1_report: "1å­¦æœŸãƒ¬ãƒãƒ¼ãƒˆ",
+        badge_download: "ãƒ€ã‚¦ãƒ³ãƒ­ãƒ¼ãƒ‰",
         // Modals - Roles
-        modal_select_role: "役割を選択",
-        role_principal: "校長",
-        role_super_admin: "スーパー管理者",
+        modal_select_role: "å½¹å‰²ã‚’é¸æŠž",
+        role_principal: "æ ¡é•·",
+        role_super_admin: "ã‚¹ãƒ¼ãƒ‘ãƒ¼ç®¡ç†è€…",
         // Modals - Upload Resource
-        modal_upload_resource: "リソースをアップロード",
-        label_res_title: "タイトル",
-        label_res_category: "カテゴリ",
-        opt_school_policy: "学校の方針",
-        opt_exam_schedule: "試験スケジュール",
-        opt_form: "休暇/管理者フォーム",
-        opt_other: "その他",
-        label_res_desc: "説明",
-        label_res_file: "ファイル (PDF, Doc)",
-        text_max_size: "最大サイズ 5MB",
+        modal_upload_resource: "ãƒªã‚½ãƒ¼ã‚¹ã‚’ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰",
+        label_res_title: "ã‚¿ã‚¤ãƒˆãƒ«",
+        label_res_category: "ã‚«ãƒ†ã‚´ãƒª",
+        opt_school_policy: "å­¦æ ¡ã®æ–¹é‡",
+        opt_exam_schedule: "è©¦é¨“ã‚¹ã‚±ã‚¸ãƒ¥ãƒ¼ãƒ«",
+        opt_form: "ä¼‘æš‡/ç®¡ç†è€…ãƒ•ã‚©ãƒ¼ãƒ ",
+        opt_other: "ãã®ä»–",
+        label_res_desc: "èª¬æ˜Ž",
+        label_res_file: "ãƒ•ã‚¡ã‚¤ãƒ« (PDF, Doc)",
+        text_max_size: "æœ€å¤§ã‚µã‚¤ã‚º 5MB",
         // Modals - Permission Edit
-        modal_edit_permission: "権限を編集",
-        label_perm_code: "権限コード",
-        label_perm_title: "権限タイトル",
-        btn_cancel: "キャンセル",
-        btn_update: "更新",
+        modal_edit_permission: "æ¨©é™ã‚’ç·¨é›†",
+        label_perm_code: "æ¨©é™ã‚³ãƒ¼ãƒ‰",
+        label_perm_title: "æ¨©é™ã‚¿ã‚¤ãƒˆãƒ«",
+        btn_cancel: "ã‚­ãƒ£ãƒ³ã‚»ãƒ«",
+        btn_update: "æ›´æ–°",
         // Modals - Take Quiz
-        modal_take_quiz: "クイズ",
-        btn_submit_quiz: "クイズを提出",
+        modal_take_quiz: "ã‚¯ã‚¤ã‚º",
+        btn_submit_quiz: "ã‚¯ã‚¤ã‚ºã‚’æå‡º",
         // Modals - Add Student
-        modal_add_student: "➕ 新しい生徒を追加",
-        label_student_id: "生徒ID",
-        label_full_name: "氏名",
-        label_default_password: "デフォルトパスワード",
-        label_grade: "学年",
+        modal_add_student: "âž• æ–°ã—ã„ç”Ÿå¾’ã‚’è¿½åŠ ",
+        label_student_id: "ç”Ÿå¾’ID",
+        label_full_name: "æ°å",
+        label_default_password: "ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆãƒ‘ã‚¹ãƒ¯ãƒ¼ãƒ‰",
+        label_grade: "å­¦å¹´",
         // Modals - Access Card
-        modal_access_card: "生徒アクセスカード",
-        label_topic: "トピック",
-        ph_topic: "例：光合成",
-        // label_grade: "学年", // Duplicated
-        label_subject: "科目",
-        label_duration: "時間 (分)",
-        label_instructions: "追加の指示 / コンテキスト",
-        ph_instructions: "例: 語彙に焦点を当てる...",
-        label_upload_pdf: "PDFコンテキストをアップロード (任意)",
-        btn_generate_plan: "授業プランを作成",
+        modal_access_card: "ç”Ÿå¾’ã‚¢ã‚¯ã‚»ã‚¹ã‚«ãƒ¼ãƒ‰",
+        label_topic: "ãƒˆãƒ”ãƒƒã‚¯",
+        ph_topic: "ä¾‹ï¼šå…‰åˆæˆ",
+        // label_grade: "å­¦å¹´", // Duplicated
+        label_subject: "ç§‘ç›®",
+        label_duration: "æ™‚é–“ (åˆ†)",
+        label_instructions: "è¿½åŠ ã®æŒ‡ç¤º / ã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆ",
+        ph_instructions: "ä¾‹: èªžå½™ã«ç„¦ç‚¹ã‚’å½“ã¦ã‚‹...",
+        label_upload_pdf: "PDFã‚³ãƒ³ãƒ†ã‚­ã‚¹ãƒˆã‚’ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ (ä»»æ„)",
+        btn_generate_plan: "æŽˆæ¥­ãƒ—ãƒ©ãƒ³ã‚’ä½œæˆ",
         // Modals - Quiz
-        modal_ai_quiz: "AIクイズ生成",
-        label_questions_count: "質問数",
-        btn_generate_quiz: "クイズを作成",
+        modal_ai_quiz: "AIã‚¯ã‚¤ã‚ºç”Ÿæˆ",
+        label_questions_count: "è³ªå•æ•°",
+        btn_generate_quiz: "ã‚¯ã‚¤ã‚ºã‚’ä½œæˆ",
         // Modals - Schedule Class
-        modal_schedule_class: "📅 ライブ授業を予約",
-        label_date_time: "日時",
-        label_target_students: "対象の生徒",
-        label_filter_group: "グループでフィルタ",
-        opt_all_students: "-- 全生徒 --",
-        label_select_all: "すべて選択",
-        label_meet_link: "Google Meetリンク",
+        modal_schedule_class: "ðŸ“… ãƒ©ã‚¤ãƒ–æŽˆæ¥­ã‚’äºˆç´„",
+        label_date_time: "æ—¥æ™‚",
+        label_target_students: "å¯¾è±¡ã®ç”Ÿå¾’",
+        label_filter_group: "ã‚°ãƒ«ãƒ¼ãƒ—ã§ãƒ•ã‚£ãƒ«ã‚¿",
+        opt_all_students: "-- å…¨ç”Ÿå¾’ --",
+        label_select_all: "ã™ã¹ã¦é¸æŠž",
+        label_meet_link: "Google Meetãƒªãƒ³ã‚¯",
         ph_meet_link_long: "https://meet.google.com/...",
-        help_meet_link: "Google MeetまたはZoomのリンクをコピーして貼り付けてください。",
-        btn_schedule: "予約する",
+        help_meet_link: "Google Meetã¾ãŸã¯Zoomã®ãƒªãƒ³ã‚¯ã‚’ã‚³ãƒ”ãƒ¼ã—ã¦è²¼ã‚Šä»˜ã‘ã¦ãã ã•ã„ã€‚",
+        btn_schedule: "äºˆç´„ã™ã‚‹",
         // Dashboard Metrics & Content
-        dashboard_students: "生徒",
-        dashboard_teachers: "先生",
-        dashboard_staff: "職員",
-        dashboard_awards: "受賞",
-        metric_change_teachers: "! 先月から3%",
-        metric_change_staff: "→ 変化なし",
-        metric_change_awards: "↑ 先月から15%",
-        btn_schedule_class: "授業を予約",
-        btn_ai_quiz: "AIクイズ",
-        btn_plan_lesson: "授業計画",
-        btn_whiteboard: "ホワイトボード",
-        btn_export: "エクスポート",
-        btn_engagement_helper: "エンゲージメント支援",
+        dashboard_students: "ç”Ÿå¾’",
+        dashboard_teachers: "å…ˆç”Ÿ",
+        dashboard_staff: "è·å“¡",
+        dashboard_awards: "å—è³ž",
+        metric_change_teachers: "! å…ˆæœˆã‹ã‚‰3%",
+        metric_change_staff: "â†’ å¤‰åŒ–ãªã—",
+        metric_change_awards: "â†‘ å…ˆæœˆã‹ã‚‰15%",
+        btn_schedule_class: "æŽˆæ¥­ã‚’äºˆç´„",
+        btn_ai_quiz: "AIã‚¯ã‚¤ã‚º",
+        btn_plan_lesson: "æŽˆæ¥­è¨ˆç”»",
+        btn_whiteboard: "ãƒ›ãƒ¯ã‚¤ãƒˆãƒœãƒ¼ãƒ‰",
+        btn_export: "ã‚¨ã‚¯ã‚¹ãƒãƒ¼ãƒˆ",
+        btn_engagement_helper: "ã‚¨ãƒ³ã‚²ãƒ¼ã‚¸ãƒ¡ãƒ³ãƒˆæ”¯æ´",
         // Assignments & Payslips
-        asg_active_title: "アクティブな課題",
-        asg_active_subtitle: "課題の作成、提出の確認、クラス別の進捗を管理します。",
-        btn_create_assignment: "課題を作成",
-        asg_review_title: "レビュー待ち",
-        btn_refresh: "更新",
-        msg_loading_submissions: "提出を読み込み中...",
-        msg_failed_load_submissions: "提出の読み込みに失敗しました。",
-        asg_review_empty: "レビュー待ちはありません。",
-        marks_entry_title: "成績入力",
-        marks_select_assignment: "課題を選択",
-        marks_load_submissions: "提出を読み込む",
-        marks_select_prompt: "提出を表示する課題を選択してください。",
-        msg_no_assignments: "課題はまだありません。",
-        msg_failed_load_assignments: "課題の読み込みに失敗しました。",
-        msg_assignment_requires_backend: "課題にはバックエンドが必要です。http://127.0.0.1:8000 を開いてください。",
-        msg_fill_assignment_fields: "タイトル、期限、クラス（学年）を入力してください。",
-        msg_create_assignment_failed: "課題の作成に失敗しました。",
-        msg_create_assignment_network_error: "課題作成中のネットワークエラー。",
-        msg_assignment_submit_required: "内容を入力するかリンクを追加してください。",
-        msg_assignment_submit_success: "提出しました！",
-        msg_assignment_submit_failed: "提出に失敗しました。",
-        msg_assignment_submit_network_error: "ネットワークエラー。",
-        btn_view_submissions: "提出を見る",
-        label_status: "状態",
-        status_submitted: "提出済み",
-        label_feedback: "フィードバック",
-        btn_save: "保存",
-        btn_reassign: "再提出",
-        asg_modal_title: "📝 新しい課題",
-        label_title: "タイトル",
-        label_description: "説明",
-        label_class_grade: "クラス（学年）",
-        label_select_grade: "学年を選択",
-        label_points: "ポイント",
-        label_section: "セクション",
-        label_select_section_optional: "セクションを選択（任意）",
-        label_due_date: "期限",
-        btn_create: "作成",
-        payslip_title: "給与明細",
-        payslip_ytd: "年累計",
-        payslip_net_pay_label: "手取り額",
-        payslip_latest: "最新の支給期間",
-        payslip_latest_sub: "手取り額 • Sep 2024",
-        payslip_payment_method: "支払い方法",
-        payslip_account_masked: "口座 •••• 2391",
-        payslip_recent: "最近の明細",
-        payslip_download_all: "すべてダウンロード",
-        payslip_processed_paid: "処理日: Oct 01, 2024 • 状態: 支払い済み",
-        payslip_view_details: "詳細を見る",
-        payslip_gross: "総支給額: $5,000",
-        payslip_deductions: "控除: $880",
-        payslip_taxes: "税金: $620",
-        payslip_print_title: "給与明細を印刷",
-        payslip_generate_pdf: "給与明細PDFを生成",
-        payslip_pay_period: "支給期間",
-        payslip_delivery: "配信",
-        payslip_download_pdf: "PDFをダウンロード",
-        payslip_email_me: "メールで受け取る",
-        payslip_generate_btn: "PDFを生成",
-        payslip_preview: "給与明細プレビュー",
-        payslip_employee_id: "社員ID: T-1024",
-        payslip_processed_date: "処理日: Oct 01, 2024",
-        payslip_earnings: "支給",
-        payslip_base_salary: "基本給",
-        payslip_allowance: "手当",
-        payslip_deduction_label: "控除",
-        payslip_tax: "税",
-        payslip_insurance: "保険",
-        pay_advance_title: "給与前払い申請",
-        pay_advance_amount: "必要金額",
-        pay_advance_reason: "理由",
-        pay_advance_repayment: "返済方法",
-        pay_advance_next_period: "次の支給期間",
-        pay_advance_two_periods: "2回の支給期間",
-        pay_advance_submit: "申請する",
-        pay_advance_recent: "最近の申請",
-        pay_advance_label: "前払い",
-        pay_advance_submitted: "提出: Aug 12, 2024",
-        pay_advance_pending: "保留中",
-        pay_advance_approved: "承認済み",
-        dashboard_live_controls: "ライブ授業コントロール",
-        dashboard_now: "今",
-        ph_meet_link: "Google Meet リンク",
-        btn_start: "開始",
-        btn_end: "終了",
-        dashboard_calendar: "カレンダー",
-        dashboard_upcoming_events: "今後のイベント",
-        dashboard_performance_dist: "パフォーマンス分布",
-        dashboard_class_avg_score: "クラス平均活動スコア",
+        asg_active_title: "ã‚¢ã‚¯ãƒ†ã‚£ãƒ–ãªèª²é¡Œ",
+        asg_active_subtitle: "èª²é¡Œã®ä½œæˆã€æå‡ºã®ç¢ºèªã€ã‚¯ãƒ©ã‚¹åˆ¥ã®é€²æ—ã‚’ç®¡ç†ã—ã¾ã™ã€‚",
+        btn_create_assignment: "èª²é¡Œã‚’ä½œæˆ",
+        asg_review_title: "ãƒ¬ãƒ“ãƒ¥ãƒ¼å¾…ã¡",
+        btn_refresh: "æ›´æ–°",
+        msg_loading_submissions: "æå‡ºã‚’èª­ã¿è¾¼ã¿ä¸­...",
+        msg_failed_load_submissions: "æå‡ºã®èª­ã¿è¾¼ã¿ã«å¤±æ•—ã—ã¾ã—ãŸã€‚",
+        asg_review_empty: "ãƒ¬ãƒ“ãƒ¥ãƒ¼å¾…ã¡ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚",
+        marks_entry_title: "æˆç¸¾å…¥åŠ›",
+        marks_select_assignment: "èª²é¡Œã‚’é¸æŠž",
+        marks_load_submissions: "æå‡ºã‚’èª­ã¿è¾¼ã‚€",
+        marks_select_prompt: "æå‡ºã‚’è¡¨ç¤ºã™ã‚‹èª²é¡Œã‚’é¸æŠžã—ã¦ãã ã•ã„ã€‚",
+        msg_no_assignments: "èª²é¡Œã¯ã¾ã ã‚ã‚Šã¾ã›ã‚“ã€‚",
+        msg_failed_load_assignments: "èª²é¡Œã®èª­ã¿è¾¼ã¿ã«å¤±æ•—ã—ã¾ã—ãŸã€‚",
+        msg_assignment_requires_backend: "èª²é¡Œã«ã¯ãƒãƒƒã‚¯ã‚¨ãƒ³ãƒ‰ãŒå¿…è¦ã§ã™ã€‚http://127.0.0.1:8000 ã‚’é–‹ã„ã¦ãã ã•ã„ã€‚",
+        msg_fill_assignment_fields: "ã‚¿ã‚¤ãƒˆãƒ«ã€æœŸé™ã€ã‚¯ãƒ©ã‚¹ï¼ˆå­¦å¹´ï¼‰ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ã€‚",
+        msg_create_assignment_failed: "èª²é¡Œã®ä½œæˆã«å¤±æ•—ã—ã¾ã—ãŸã€‚",
+        msg_create_assignment_network_error: "èª²é¡Œä½œæˆä¸­ã®ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯ã‚¨ãƒ©ãƒ¼ã€‚",
+        msg_assignment_submit_required: "å†…å®¹ã‚’å…¥åŠ›ã™ã‚‹ã‹ãƒªãƒ³ã‚¯ã‚’è¿½åŠ ã—ã¦ãã ã•ã„ã€‚",
+        msg_assignment_submit_success: "æå‡ºã—ã¾ã—ãŸï¼",
+        msg_assignment_submit_failed: "æå‡ºã«å¤±æ•—ã—ã¾ã—ãŸã€‚",
+        msg_assignment_submit_network_error: "ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯ã‚¨ãƒ©ãƒ¼ã€‚",
+        btn_view_submissions: "æå‡ºã‚’è¦‹ã‚‹",
+        label_status: "çŠ¶æ…‹",
+        status_submitted: "æå‡ºæ¸ˆã¿",
+        label_feedback: "ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯",
+        btn_save: "ä¿å­˜",
+        btn_reassign: "å†æå‡º",
+        asg_modal_title: "ðŸ“ æ–°ã—ã„èª²é¡Œ",
+        label_title: "ã‚¿ã‚¤ãƒˆãƒ«",
+        label_description: "èª¬æ˜Ž",
+        label_class_grade: "ã‚¯ãƒ©ã‚¹ï¼ˆå­¦å¹´ï¼‰",
+        label_select_grade: "å­¦å¹´ã‚’é¸æŠž",
+        label_points: "ãƒã‚¤ãƒ³ãƒˆ",
+        label_section: "ã‚»ã‚¯ã‚·ãƒ§ãƒ³",
+        label_select_section_optional: "ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’é¸æŠžï¼ˆä»»æ„ï¼‰",
+        label_due_date: "æœŸé™",
+        btn_create: "ä½œæˆ",
+        payslip_title: "çµ¦ä¸Žæ˜Žç´°",
+        payslip_ytd: "å¹´ç´¯è¨ˆ",
+        payslip_net_pay_label: "æ‰‹å–ã‚Šé¡",
+        payslip_latest: "æœ€æ–°ã®æ”¯çµ¦æœŸé–“",
+        payslip_latest_sub: "æ‰‹å–ã‚Šé¡ â€¢ Sep 2024",
+        payslip_payment_method: "æ”¯æ‰•ã„æ–¹æ³•",
+        payslip_account_masked: "å£åº§ â€¢â€¢â€¢â€¢ 2391",
+        payslip_recent: "æœ€è¿‘ã®æ˜Žç´°",
+        payslip_download_all: "ã™ã¹ã¦ãƒ€ã‚¦ãƒ³ãƒ­ãƒ¼ãƒ‰",
+        payslip_processed_paid: "å‡¦ç†æ—¥: Oct 01, 2024 â€¢ çŠ¶æ…‹: æ”¯æ‰•ã„æ¸ˆã¿",
+        payslip_view_details: "è©³ç´°ã‚’è¦‹ã‚‹",
+        payslip_gross: "ç·æ”¯çµ¦é¡: $5,000",
+        payslip_deductions: "æŽ§é™¤: $880",
+        payslip_taxes: "ç¨Žé‡‘: $620",
+        payslip_print_title: "çµ¦ä¸Žæ˜Žç´°ã‚’å°åˆ·",
+        payslip_generate_pdf: "çµ¦ä¸Žæ˜Žç´°PDFã‚’ç”Ÿæˆ",
+        payslip_pay_period: "æ”¯çµ¦æœŸé–“",
+        payslip_delivery: "é…ä¿¡",
+        payslip_download_pdf: "PDFã‚’ãƒ€ã‚¦ãƒ³ãƒ­ãƒ¼ãƒ‰",
+        payslip_email_me: "ãƒ¡ãƒ¼ãƒ«ã§å—ã‘å–ã‚‹",
+        payslip_generate_btn: "PDFã‚’ç”Ÿæˆ",
+        payslip_preview: "çµ¦ä¸Žæ˜Žç´°ãƒ—ãƒ¬ãƒ“ãƒ¥ãƒ¼",
+        payslip_employee_id: "ç¤¾å“¡ID: T-1024",
+        payslip_processed_date: "å‡¦ç†æ—¥: Oct 01, 2024",
+        payslip_earnings: "æ”¯çµ¦",
+        payslip_base_salary: "åŸºæœ¬çµ¦",
+        payslip_allowance: "æ‰‹å½“",
+        payslip_deduction_label: "æŽ§é™¤",
+        payslip_tax: "ç¨Ž",
+        payslip_insurance: "ä¿é™º",
+        pay_advance_title: "çµ¦ä¸Žå‰æ‰•ã„ç”³è«‹",
+        pay_advance_amount: "å¿…è¦é‡‘é¡",
+        pay_advance_reason: "ç†ç”±",
+        pay_advance_repayment: "è¿”æ¸ˆæ–¹æ³•",
+        pay_advance_next_period: "æ¬¡ã®æ”¯çµ¦æœŸé–“",
+        pay_advance_two_periods: "2å›žã®æ”¯çµ¦æœŸé–“",
+        pay_advance_submit: "ç”³è«‹ã™ã‚‹",
+        pay_advance_recent: "æœ€è¿‘ã®ç”³è«‹",
+        pay_advance_label: "å‰æ‰•ã„",
+        pay_advance_submitted: "æå‡º: Aug 12, 2024",
+        pay_advance_pending: "ä¿ç•™ä¸­",
+        pay_advance_approved: "æ‰¿èªæ¸ˆã¿",
+        dashboard_live_controls: "ãƒ©ã‚¤ãƒ–æŽˆæ¥­ã‚³ãƒ³ãƒˆãƒ­ãƒ¼ãƒ«",
+        dashboard_now: "ä»Š",
+        ph_meet_link: "Google Meet ãƒªãƒ³ã‚¯",
+        btn_start: "é–‹å§‹",
+        btn_end: "çµ‚äº†",
+        dashboard_calendar: "ã‚«ãƒ¬ãƒ³ãƒ€ãƒ¼",
+        dashboard_upcoming_events: "ä»Šå¾Œã®ã‚¤ãƒ™ãƒ³ãƒˆ",
+        dashboard_performance_dist: "ãƒ‘ãƒ•ã‚©ãƒ¼ãƒžãƒ³ã‚¹åˆ†å¸ƒ",
+        dashboard_class_avg_score: "ã‚¯ãƒ©ã‚¹å¹³å‡æ´»å‹•ã‚¹ã‚³ã‚¢",
         // Headers
-        header_messages: "メッセージ",
-        header_notifications: "通知",
-        header_my_profile: "プロフィール",
-        header_logout: "ログアウト",
-        ph_search: "検索...",
-        stat_active_students: "アクティブな生徒",
-        nav_teachers: "教師",
-        nav_students: "生徒",
-        nav_schools: "学校",
-        nav_resources: "リソース",
-        btn_log_in: "ログイン",
-        text_back: "戻る",
-        login_not_a: "あなたは",
-        login_switch_role: "役割を切替",
-        login_student_login: "生徒ログイン",
-        login_teacher_portal: "教師ポータル",
-        login_parent_access: "保護者アクセス",
-        login_principal_login: "校長ログイン",
-        login_super_admin: "スーパー管理者",
-        login_root_admin_portal: "ルート管理者ポータル",
-        login_generic: "ログイン",
-        role_student: "生徒",
-        role_teacher: "教師",
-        role_parent: "保護者",
-        role_others: "その他",
-        role_admin: "管理者",
-        role_root_admin: "ルート管理者",
-        hero_heading: "教室が\nコミュニティになる場所",
-        hero_subtitle: "革新的なソリューションで教育機関を支援します",
-        hero_get_started_as: "として始める...",
-        feat_why_title: "なぜNoble Nexusなのか？",
-        feat_main_title: "成長に必要なすべてをひとつに",
-        feat_analytics_title: "スマート分析",
-        feat_analytics_desc: "AIによる分かりやすい可視化で学習成果の傾向を把握できます。",
-        feat_live_title: "ライブ授業",
-        feat_live_desc: "統合ビデオ会議で、遠隔授業をスムーズに実施できます。",
-        feat_ai_title: "AIガイダンス",
-        feat_ai_desc: "一人ひとりに合った学習経路と自動フィードバックを提供します。",
-        about_title: "ClassBridgeについて",
-        about_main_title: "教育の未来を支える",
-        about_desc: "ClassBridgeは従来の教育と最新技術のギャップを埋めるために設計されています。",
-        about_teachers: "先生向け",
-        about_teachers_desc: "AI出欠管理・自動採点・授業計画で日々の運用を効率化します。",
-        about_students: "生徒向け",
-        about_students_desc: "個別学習ルートとリアルタイム進捗で学びを加速します。",
-        about_parents: "保護者向け",
-        about_parents_desc: "出欠・成績・学校連絡をすばやく確認できます。",
-        btn_discover_more: "詳しく見る",
-        stat_engagement: "エンゲージメント率",
-        stat_ai_support: "AIサポート",
-        footer_company: "会社",
-        footer_about: "会社概要",
-        footer_press: "プレス",
-        footer_careers: "採用情報",
-        footer_engineering: "エンジニアリング",
-        footer_accessibility: "アクセシビリティ",
-        footer_resources: "リソース",
-        footer_big_ideas: "ビッグアイデア",
-        footer_training: "トレーニング",
-        footer_remote_learning: "遠隔学習",
-        footer_support: "サポート",
-        footer_help_center: "ヘルプセンター",
-        footer_contact: "お問い合わせ",
-        footer_privacy: "プライバシーセンター",
-        footer_cookies: "Cookie設定",
-        footer_get_app: "アプリを入手",
-        footer_terms: "利用規約",
-        text_scan_visit: "スキャンしてアクセス",
-        text_product_by: "Noble Nexus の製品",
-        text_a_product_by: "製品提供",
-        footer_noble_nexus_plus: "ノーブルネクサス プラス",
-        feat_modern_title: "現代の教室のために設計",
-        feat_quiz_gen: "クイズ生成",
-        feat_quiz_desc: "PDFをアップロードするだけで、AIが問題と解答を即作成します。",
-        link_try_generator: "生成を試す →",
-        feat_student_insights: "生徒インサイト",
-        feat_student_insights_desc: "成績だけでなく、支援や発展課題が必要な生徒を把握できます。",
-        link_view_report: "サンプルレポートを見る →",
-        feat_hybrid: "ハイブリッド教室",
-        feat_hybrid_desc: "対面授業とオンライン授業をシームレスに切り替え可能。",
-        link_see_how: "使い方を見る →",
-        cta_ready_transform: "授業を次のレベルへ進化させませんか？",
-        btn_join_free: "Noble Nexusを無料で始める"
+        header_messages: "ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸",
+        header_notifications: "é€šçŸ¥",
+        header_my_profile: "ãƒ—ãƒ­ãƒ•ã‚£ãƒ¼ãƒ«",
+        header_logout: "ãƒ­ã‚°ã‚¢ã‚¦ãƒˆ",
+        ph_search: "æ¤œç´¢...",
+        stat_active_students: "ã‚¢ã‚¯ãƒ†ã‚£ãƒ–ãªç”Ÿå¾’",
+        nav_teachers: "æ•™å¸«",
+        nav_students: "ç”Ÿå¾’",
+        nav_schools: "å­¦æ ¡",
+        nav_resources: "ãƒªã‚½ãƒ¼ã‚¹",
+        btn_log_in: "ãƒ­ã‚°ã‚¤ãƒ³",
+        text_back: "æˆ»ã‚‹",
+        login_not_a: "ã‚ãªãŸã¯",
+        login_switch_role: "å½¹å‰²ã‚’åˆ‡æ›¿",
+        login_student_login: "ç”Ÿå¾’ãƒ­ã‚°ã‚¤ãƒ³",
+        login_teacher_portal: "æ•™å¸«ãƒãƒ¼ã‚¿ãƒ«",
+        login_parent_access: "ä¿è­·è€…ã‚¢ã‚¯ã‚»ã‚¹",
+        login_principal_login: "æ ¡é•·ãƒ­ã‚°ã‚¤ãƒ³",
+        login_super_admin: "ã‚¹ãƒ¼ãƒ‘ãƒ¼ç®¡ç†è€…",
+        login_root_admin_portal: "ãƒ«ãƒ¼ãƒˆç®¡ç†è€…ãƒãƒ¼ã‚¿ãƒ«",
+        login_generic: "ãƒ­ã‚°ã‚¤ãƒ³",
+        role_student: "ç”Ÿå¾’",
+        role_teacher: "æ•™å¸«",
+        role_parent: "ä¿è­·è€…",
+        role_others: "ãã®ä»–",
+        role_admin: "ç®¡ç†è€…",
+        role_root_admin: "ãƒ«ãƒ¼ãƒˆç®¡ç†è€…",
+        hero_heading: "æ•™å®¤ãŒ\nã‚³ãƒŸãƒ¥ãƒ‹ãƒ†ã‚£ã«ãªã‚‹å ´æ‰€",
+        hero_subtitle: "é©æ–°çš„ãªã‚½ãƒªãƒ¥ãƒ¼ã‚·ãƒ§ãƒ³ã§æ•™è‚²æ©Ÿé–¢ã‚’æ”¯æ´ã—ã¾ã™",
+        hero_get_started_as: "ã¨ã—ã¦å§‹ã‚ã‚‹...",
+        feat_why_title: "ãªãœNoble Nexusãªã®ã‹ï¼Ÿ",
+        feat_main_title: "æˆé•·ã«å¿…è¦ãªã™ã¹ã¦ã‚’ã²ã¨ã¤ã«",
+        feat_analytics_title: "ã‚¹ãƒžãƒ¼ãƒˆåˆ†æž",
+        feat_analytics_desc: "AIã«ã‚ˆã‚‹åˆ†ã‹ã‚Šã‚„ã™ã„å¯è¦–åŒ–ã§å­¦ç¿’æˆæžœã®å‚¾å‘ã‚’æŠŠæ¡ã§ãã¾ã™ã€‚",
+        feat_live_title: "ãƒ©ã‚¤ãƒ–æŽˆæ¥­",
+        feat_live_desc: "çµ±åˆãƒ“ãƒ‡ã‚ªä¼šè­°ã§ã€é éš”æŽˆæ¥­ã‚’ã‚¹ãƒ ãƒ¼ã‚ºã«å®Ÿæ–½ã§ãã¾ã™ã€‚",
+        feat_ai_title: "AIã‚¬ã‚¤ãƒ€ãƒ³ã‚¹",
+        feat_ai_desc: "ä¸€äººã²ã¨ã‚Šã«åˆã£ãŸå­¦ç¿’çµŒè·¯ã¨è‡ªå‹•ãƒ•ã‚£ãƒ¼ãƒ‰ãƒãƒƒã‚¯ã‚’æä¾›ã—ã¾ã™ã€‚",
+        about_title: "ClassBridgeã«ã¤ã„ã¦",
+        about_main_title: "æ•™è‚²ã®æœªæ¥ã‚’æ”¯ãˆã‚‹",
+        about_desc: "ClassBridgeã¯å¾“æ¥ã®æ•™è‚²ã¨æœ€æ–°æŠ€è¡“ã®ã‚®ãƒ£ãƒƒãƒ—ã‚’åŸ‹ã‚ã‚‹ãŸã‚ã«è¨­è¨ˆã•ã‚Œã¦ã„ã¾ã™ã€‚",
+        about_teachers: "å…ˆç”Ÿå‘ã‘",
+        about_teachers_desc: "AIå‡ºæ¬ ç®¡ç†ãƒ»è‡ªå‹•æŽ¡ç‚¹ãƒ»æŽˆæ¥­è¨ˆç”»ã§æ—¥ã€…ã®é‹ç”¨ã‚’åŠ¹çŽ‡åŒ–ã—ã¾ã™ã€‚",
+        about_students: "ç”Ÿå¾’å‘ã‘",
+        about_students_desc: "å€‹åˆ¥å­¦ç¿’ãƒ«ãƒ¼ãƒˆã¨ãƒªã‚¢ãƒ«ã‚¿ã‚¤ãƒ é€²æ—ã§å­¦ã³ã‚’åŠ é€Ÿã—ã¾ã™ã€‚",
+        about_parents: "ä¿è­·è€…å‘ã‘",
+        about_parents_desc: "å‡ºæ¬ ãƒ»æˆç¸¾ãƒ»å­¦æ ¡é€£çµ¡ã‚’ã™ã°ã‚„ãç¢ºèªã§ãã¾ã™ã€‚",
+        btn_discover_more: "è©³ã—ãè¦‹ã‚‹",
+        stat_engagement: "ã‚¨ãƒ³ã‚²ãƒ¼ã‚¸ãƒ¡ãƒ³ãƒˆçŽ‡",
+        stat_ai_support: "AIã‚µãƒãƒ¼ãƒˆ",
+        footer_company: "ä¼šç¤¾",
+        footer_about: "ä¼šç¤¾æ¦‚è¦",
+        footer_press: "ãƒ—ãƒ¬ã‚¹",
+        footer_careers: "æŽ¡ç”¨æƒ…å ±",
+        footer_engineering: "ã‚¨ãƒ³ã‚¸ãƒ‹ã‚¢ãƒªãƒ³ã‚°",
+        footer_accessibility: "ã‚¢ã‚¯ã‚»ã‚·ãƒ“ãƒªãƒ†ã‚£",
+        footer_resources: "ãƒªã‚½ãƒ¼ã‚¹",
+        footer_big_ideas: "ãƒ“ãƒƒã‚°ã‚¢ã‚¤ãƒ‡ã‚¢",
+        footer_training: "ãƒˆãƒ¬ãƒ¼ãƒ‹ãƒ³ã‚°",
+        footer_remote_learning: "é éš”å­¦ç¿’",
+        footer_support: "ã‚µãƒãƒ¼ãƒˆ",
+        footer_help_center: "ãƒ˜ãƒ«ãƒ—ã‚»ãƒ³ã‚¿ãƒ¼",
+        footer_contact: "ãŠå•ã„åˆã‚ã›",
+        footer_privacy: "ãƒ—ãƒ©ã‚¤ãƒã‚·ãƒ¼ã‚»ãƒ³ã‚¿ãƒ¼",
+        footer_cookies: "Cookieè¨­å®š",
+        footer_get_app: "ã‚¢ãƒ—ãƒªã‚’å…¥æ‰‹",
+        footer_terms: "åˆ©ç”¨è¦ç´„",
+        text_scan_visit: "ã‚¹ã‚­ãƒ£ãƒ³ã—ã¦ã‚¢ã‚¯ã‚»ã‚¹",
+        text_product_by: "Noble Nexus ã®è£½å“",
+        text_a_product_by: "è£½å“æä¾›",
+        footer_noble_nexus_plus: "ãƒŽãƒ¼ãƒ–ãƒ«ãƒã‚¯ã‚µã‚¹ ãƒ—ãƒ©ã‚¹",
+        feat_modern_title: "ç¾ä»£ã®æ•™å®¤ã®ãŸã‚ã«è¨­è¨ˆ",
+        feat_quiz_gen: "ã‚¯ã‚¤ã‚ºç”Ÿæˆ",
+        feat_quiz_desc: "PDFã‚’ã‚¢ãƒƒãƒ—ãƒ­ãƒ¼ãƒ‰ã™ã‚‹ã ã‘ã§ã€AIãŒå•é¡Œã¨è§£ç­”ã‚’å³ä½œæˆã—ã¾ã™ã€‚",
+        link_try_generator: "ç”Ÿæˆã‚’è©¦ã™ â†’",
+        feat_student_insights: "ç”Ÿå¾’ã‚¤ãƒ³ã‚µã‚¤ãƒˆ",
+        feat_student_insights_desc: "æˆç¸¾ã ã‘ã§ãªãã€æ”¯æ´ã‚„ç™ºå±•èª²é¡ŒãŒå¿…è¦ãªç”Ÿå¾’ã‚’æŠŠæ¡ã§ãã¾ã™ã€‚",
+        link_view_report: "ã‚µãƒ³ãƒ—ãƒ«ãƒ¬ãƒãƒ¼ãƒˆã‚’è¦‹ã‚‹ â†’",
+        feat_hybrid: "ãƒã‚¤ãƒ–ãƒªãƒƒãƒ‰æ•™å®¤",
+        feat_hybrid_desc: "å¯¾é¢æŽˆæ¥­ã¨ã‚ªãƒ³ãƒ©ã‚¤ãƒ³æŽˆæ¥­ã‚’ã‚·ãƒ¼ãƒ ãƒ¬ã‚¹ã«åˆ‡ã‚Šæ›¿ãˆå¯èƒ½ã€‚",
+        link_see_how: "ä½¿ã„æ–¹ã‚’è¦‹ã‚‹ â†’",
+        cta_ready_transform: "æŽˆæ¥­ã‚’æ¬¡ã®ãƒ¬ãƒ™ãƒ«ã¸é€²åŒ–ã•ã›ã¾ã›ã‚“ã‹ï¼Ÿ",
+        btn_join_free: "Noble Nexusã‚’ç„¡æ–™ã§å§‹ã‚ã‚‹"
     }
 };
 var currentLanguage = localStorage.getItem('appLanguage') || 'en';
@@ -2024,10 +2134,10 @@ function t(key, params = {}) {
 // Language metadata used to update the navbar button and lazy-load flags
 const _langMetaLocal = {
     en: { flag: 'us', label: 'English' },
-    es: { flag: 'es', label: 'Español' },
-    ar: { flag: 'sa', label: 'العربية' },
-    hi: { flag: 'in', label: 'हिन्दी' },
-    ja: { flag: 'jp', label: '日本語' }
+    es: { flag: 'es', label: 'EspaÃ±ol' },
+    ar: { flag: 'sa', label: 'Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©' },
+    hi: { flag: 'in', label: 'à¤¹à¤¿à¤¨à¥à¤¦à¥€' },
+    ja: { flag: 'jp', label: 'æ—¥æœ¬èªž' }
 };
 
 function changeLanguage(lang) {
@@ -2115,16 +2225,20 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTranslations();
         const isLoggedIn = restoreAuthState();
         if (isLoggedIn) {
-            const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
+            const isPlatformOwner = isPlatformOwnerAccount();
             const userNameEl = document.getElementById('header-user-name');
             const userRoleEl = document.getElementById('header-user-role');
             const userImgEl = document.getElementById('header-user-img');
-            if (userNameEl) userNameEl.textContent = isAdminLike ? 'System Admin' : (appState.name || appState.userId || 'User');
+            if (userNameEl) userNameEl.textContent = isPlatformOwner ? 'Platform Owner' : (appState.name || appState.userId || 'User');
             if (userRoleEl) {
-                userRoleEl.textContent = appState.role || 'User';
-                if (appState.schoolName && appState.schoolName !== 'Independent') userRoleEl.textContent += ` • ${appState.schoolName}`;
+                if (isPlatformOwner) {
+                    userRoleEl.textContent = 'Super Admin';
+                } else {
+                    userRoleEl.textContent = appState.role || 'User';
+                    if (appState.schoolName && appState.schoolName !== 'Independent') userRoleEl.textContent += ` â€¢ ${appState.schoolName}`;
+                }
             }
-            if (userImgEl) userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : (appState.userId || 'User'))}&background=random`;
+            if (userImgEl) userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isPlatformOwner ? 'AD' : (appState.userId || 'User'))}&background=random`;
         }
         if (isLoggedIn) {
             // Phase-2: load dashboard modules for this role before rendering
@@ -2325,11 +2439,11 @@ function renderMetric(container, label, value, colorClass = 'widget-purple') {
     }
     if (label === 'dashboard_staff' || label.includes('Staff')) {
         subTextKey = 'metric_change_staff';
-        subTextDefault = '→ No change';
+        subTextDefault = 'â†’ No change';
     }
     if (label === 'dashboard_awards' || label.includes('Awards')) {
         subTextKey = 'metric_change_awards';
-        subTextDefault = '↑ 15% from last month';
+        subTextDefault = 'â†‘ 15% from last month';
     }
     // carefully handle subtext rendering
     let subTextHTML = '';
@@ -2702,7 +2816,7 @@ function renderRolesList(roles) {
                 <td class="ps-4">
                     <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
                         style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
-                        ${role.code || '—'}
+                        ${role.code || 'â€”'}
                     </span>
                 </td>
                 <td>
@@ -2760,7 +2874,7 @@ function renderRolesList(roles) {
                 <td class="ps-4">
                     <span class="badge bg-light border font-monospace fw-bold px-2 py-1"
                         style="color:#4338ca;font-size:0.73rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
-                        ${role.code || '—'}
+                        ${role.code || 'â€”'}
                     </span>
                 </td>
                 <td>
@@ -2795,7 +2909,7 @@ function renderRolesList(roles) {
                             Delete
                         </button>` : ''}
                         ${(!canEdit && !canDelete) ? `
-                        <span class="text-muted small fst-italic" style="font-size:0.72rem;opacity:0.5;">—</span>` : ''}
+                        <span class="text-muted small fst-italic" style="font-size:0.72rem;opacity:0.5;">â€”</span>` : ''}
                     </div>
                 </td>
             `;
@@ -3283,6 +3397,11 @@ function renderPermissionsSetupTable(perms) {
             const safeCode = (p.code || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
             const safeDesc = (p.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
+            let rolesHtml = '<em class="text-muted fst-italic" style="opacity:.6;">No roles assigned</em>';
+            if (p.assigned_roles && p.assigned_roles.length > 0) {
+                rolesHtml = p.assigned_roles.join(', ');
+            }
+
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td class="ps-4">
@@ -3295,25 +3414,46 @@ function renderPermissionsSetupTable(perms) {
                     ${p.code || '-'}
                 </td>
                 <td class="small text-secondary" style="max-width:340px;">
-                    ${p.description || '<em class="text-muted fst-italic" style="opacity:.6;">No description set</em>'}
-                </td>
-                <td class="text-center">
-                    ${canEdit ? `
-                    <button class="btn btn-sm d-inline-flex align-items-center gap-1 rounded-pill px-3 py-1"
-                            style="background:rgba(79,70,229,0.09);color:#4f46e5;border:1px solid rgba(79,70,229,0.2);font-size:0.75rem;font-weight:600;transition:all .2s;"
-                            title="Edit description"
-                            onmouseover="this.style.background='rgba(79,70,229,0.18)';this.style.transform='translateY(-1px)'"
-                            onmouseout="this.style.background='rgba(79,70,229,0.09)';this.style.transform=''"
-                            onclick="openPermissionEditModal(${p.id}, '${safeCode}', '${safeDesc}')">
-                        <span class="material-icons" style="font-size:14px;">edit</span>
-                        Edit
-                    </button>` : `
-                    <span class="material-icons" style="font-size:16px;opacity:0.3;color:#9ca3af;" title="View only">lock</span>`}
+                    ${rolesHtml}
                 </td>
             `;
             return tr;
         }
     });
+}
+
+function openPermissionEditModal(permissionId, permissionName) {
+    console.log('openPermissionEditModal called:', permissionId, permissionName);
+    let modal = document.getElementById('permission-edit-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'permission-edit-modal';
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML = `
+      <div class="modal-overlay" onclick="closePermissionEditModal()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <h3>Edit Permission</h3>
+            <button onclick="closePermissionEditModal()">âœ•</button>
+          </div>
+          <div class="modal-body">
+            <p><strong>Permission:</strong> ${permissionName || permissionId}</p>
+            <p style="color:#6B7280;font-size:13px;">Permission details editing coming soon.</p>
+          </div>
+          <div class="modal-footer">
+            <button onclick="closePermissionEditModal()" class="btn btn-secondary">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    modal.style.display = 'block';
+}
+
+function closePermissionEditModal() {
+    const modal = document.getElementById('permission-edit-modal');
+    if (modal)
+        modal.style.display = 'none';
 }
 /**
  * Live-filter the permissions table by code or title (client-side).
@@ -3327,7 +3467,8 @@ function filterPermissionsTable(query) {
     const filtered = _cachedPermissions.filter(p =>
         (p.code || '').toLowerCase().includes(q) ||
         (p.display_code || '').toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q)
+        (p.description || '').toLowerCase().includes(q) ||
+        (p.assigned_roles && p.assigned_roles.join(' ').toLowerCase().includes(q))
     );
     renderPermissionsSetupTable(filtered);
 }
@@ -3360,94 +3501,44 @@ function renderPermissionsTable(perms) {
     tableBody.innerHTML = '';
     perms.forEach(p => {
         const tr = document.createElement('tr');
+
+        let rolesHtml = '<em class="text-muted fst-italic" style="opacity:.6;">No roles assigned</em>';
+        if (p.assigned_roles && p.assigned_roles.length > 0) {
+            rolesHtml = p.assigned_roles.join(', ');
+        }
+
         tr.innerHTML = `
             <td><span class="badge bg-light text-dark border">${p.display_code}</span></td>
             <td class="fw-medium font-monospace text-primary small">${p.code}</td>
-            <td class="small text-muted">${p.description}</td>
-            <td>
-                ${hasPermission('edit_permissions')
-                ? `<button class="btn btn-sm btn-link text-primary p-0"
-                        onclick="openPermissionEditModal(${p.id}, '${p.code.replace(/'/g, "\\'")}',' ${p.description.replace(/'/g, "\\'")}}')">
-                        <span class="material-icons" style="font-size:18px;">edit</span>
-                     </button>` : ''}
-            </td>
+            <td class="small text-muted">${rolesHtml}</td>
         `;
         tableBody.appendChild(tr);
     });
 }
 
-function openPermissionEditModal(id, code, desc) {
-    const displayCode = `P-${String(id).padStart(4, '0')}`;
-
-    // Populate hidden inputs (backward compat)
-    document.getElementById('perm-edit-id').value = id;
-    document.getElementById('perm-edit-code').value = displayCode;
-    document.getElementById('perm-edit-title').value = code;
-
-    // Update visible display elements in the Bootstrap modal
-    const codeBadge = document.getElementById('perm-edit-code-badge');
-    const titleDisplay = document.getElementById('perm-edit-title-display');
-    if (codeBadge) codeBadge.textContent = displayCode;
-    if (titleDisplay) titleDisplay.textContent = code || '—';
-
-    // Pre-fill editable description field
-    document.getElementById('perm-edit-desc').value = desc;
-
-    // Open as a real Bootstrap modal popup
-    const modalEl = document.getElementById('permEditModal');
-    if (modalEl) {
-        // Remove view class if accidentally set (since we rebuilt this as a proper modal)
-        modalEl.classList.remove('view');
-        const modal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
-        modal.show();
-    }
+function getSecurityRecommendation(context) {
+    const recommendations = {
+        'password': 'Use minimum 8 characters with numbers and special characters.',
+        'permissions': 'Follow least privilege principle. Grant only required permissions.',
+        'roles': 'Review role assignments regularly.',
+        'default': 'Follow security best practices.'
+    };
+    return recommendations[context] || recommendations['default'];
 }
-function handleUpdatePermission() {
-    return __awaiter(this, void 0, void 0, function* () {
-        const id = document.getElementById('perm-edit-id').value;
-        const desc = document.getElementById('perm-edit-desc').value.trim();
-        if (!desc) { alert('Description cannot be empty.'); return; }
 
-        const btn = document.getElementById('perm-update-btn');
-        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:15px;">hourglass_empty</span> Saving...'; }
 
-        try {
-            const response = yield fetchAPI(`/admin/permissions/${id}`, {
-                method: 'PUT',
-                body: JSON.stringify({ description: desc })
-            });
-            if (response.ok) {
-                // Close Bootstrap modal
-                const modalEl = document.getElementById('permEditModal');
-                const modal = bootstrap.Modal.getInstance(modalEl);
-                if (modal) modal.hide();
-
-                // Show brief success toast-style feedback
-                const toastMsg = document.createElement('div');
-                toastMsg.className = 'position-fixed bottom-0 end-0 m-4 p-3 rounded-3 text-white fw-semibold shadow-lg';
-                toastMsg.style.cssText = 'background:linear-gradient(135deg,#4f46e5,#7c3aed);z-index:9999;font-size:0.85rem;min-width:250px;animation:fadeIn .3s ease;';
-                toastMsg.innerHTML = '<span class="material-icons align-middle me-2" style="font-size:16px;">check_circle</span>Permission updated successfully!';
-                document.body.appendChild(toastMsg);
-                setTimeout(() => toastMsg.remove(), 3000);
-
-                // Refresh the permissions-view table
-                loadPermissionsSetup();
-                // Also refresh legacy tab if visible
-                if (document.getElementById('perms-table-body')) loadPermissionsList();
-            } else {
-                const err = yield response.json().catch(() => ({}));
-                alert(err.detail || 'Failed to update permission.');
-            }
-        } catch (e) {
-            alert('Network error. Please try again.');
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons align-middle me-1" style="font-size:15px;">save</span> Update Description'; }
-        }
-    });
-}
 // --- NAVIGATION & HISTORY MANAGEMENT ---
 function switchView(viewId, updateHistory = true) {
+    if (viewId === 'teacher-view' && (appState.isSuperAdmin || appState.role === 'Super_Admin' || appState.role === 'Root_Super_Admin' || appState.role === 'Super Admin') && !appState.activeSchoolId) {
+        console.warn('Super Admin attempted to load teacher-view without an active school. Redirecting to super-admin-view.');
+        viewId = 'super-admin-view';
+    }
+
     let viewExists = document.getElementById(viewId);
+    if (!viewExists && viewId === 'add-user-view-v2') {
+        viewId = 'add-user-view';
+        viewExists = document.getElementById(viewId);
+    }
     if (!viewExists && viewId === 'parent-progress-card-view') {
         const host = document.getElementById('main-content');
         if (host) {
@@ -3469,14 +3560,25 @@ function switchView(viewId, updateHistory = true) {
     }
     if (!viewExists) {
         console.warn(`Attempted to switch to non-existent view: ${viewId}`);
-        return;
+        return false;
     }
+    const main = document.getElementById('main-content')
+        || document.querySelector('.main-content')
+        || document.body;
+    Array.from(main.children).forEach(v => {
+        if (v instanceof HTMLElement && v.classList.contains('view')) {
+            v.style.removeProperty('display');
+            v.style.removeProperty('visibility');
+            v.style.removeProperty('opacity');
+        }
+    });
     document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
     viewExists.classList.add('active');
     // Handle Sidebar Visibility
     const body = document.body;
     if (viewId === 'login-view' || viewId === 'register-view' || viewId === 'two-factor-view' || viewId === 'landing-view') {
         body.classList.add('login-mode');
+        body.classList.remove('super-admin-mode');
     }
     else {
         body.classList.remove('login-mode');
@@ -3484,15 +3586,15 @@ function switchView(viewId, updateHistory = true) {
     syncSettingsLanguageControl();
     syncSuperAdminNavigationUI(viewId);
 
-    // ── Universal View Loader Dispatcher ─────────────────────────────────────
-    // Parent role redirect: upcoming-exams → parent-exam-schedule
+    // â”€â”€ Universal View Loader Dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Parent role redirect: upcoming-exams â†’ parent-exam-schedule
     if (viewId === 'upcoming-exams-view' && isParentRole(appState.role)) {
         switchView('parent-exam-schedule-view', updateHistory);
         return;
     }
     const loaderDef = VIEW_LOADERS[viewId];
     if (loaderDef && appState.isLoggedIn) {
-        // 1. Permission guard — check superAdminOnly flag first
+        // 1. Permission guard â€” check superAdminOnly flag first
         if (loaderDef.superAdminOnly && !appState.isSuperAdmin) {
             console.warn(`[CB] View '${viewId}' requires Super Admin access.`);
             showAccessDeniedView();
@@ -3508,7 +3610,7 @@ function switchView(viewId, updateHistory = true) {
             showAccessDeniedView();
             return;
         }
-        // 2. Cache guard — fire loader only on first visit (or alwaysReload views)
+        // 2. Cache guard â€” fire loader only on first visit (or alwaysReload views)
         if (!window._cbViewLoaded[viewId] || loaderDef.alwaysReload) {
             window._cbViewLoaded[viewId] = true;
             try { loaderDef.loader(); } catch (e) { console.error(`[CB] Loader error for ${viewId}:`, e); }
@@ -3526,6 +3628,7 @@ function switchView(viewId, updateHistory = true) {
     }
     // Scroll to top
     window.scrollTo(0, 0);
+    return true;
 }
 // Handle Browser Back/Forward Buttons
 window.addEventListener('popstate', (event) => {
@@ -3715,12 +3818,12 @@ function checkPasswordStrength(password) {
         isValid = false;
     }
     if (isValid) {
-        msgEl.textContent = "✅ Strong password";
+        msgEl.textContent = "âœ… Strong password";
         msgEl.className = "small mb-3 ms-1 fw-bold text-success";
         return true;
     }
     else {
-        msgEl.textContent = "⚠️ Weak: " + feedback.join(", ");
+        msgEl.textContent = "âš ï¸ Weak: " + feedback.join(", ");
         msgEl.className = "small mb-3 ms-1 fw-bold text-danger";
         return false;
     }
@@ -4276,7 +4379,7 @@ function handleSocialLogin(provider) {
             // Check if we are in "Simulated Mode" (ID is missing)
             if (msalConfig.auth.clientId === "YOUR_MICROSOFT_CLIENT_ID") {
                 console.log("Microsoft Client ID missing. Using SIMULATED Login.");
-                console.log("⚠️ Running in SIMULATED MODE: No real Microsoft Client ID provided.");
+                console.log("âš ï¸ Running in SIMULATED MODE: No real Microsoft Client ID provided.");
                 // We intentionally fall through to the simulation logic below
             }
             else {
@@ -4405,43 +4508,57 @@ function initializeDashboard() {
     if (window.__cbInitDashboardPromise)
         return window.__cbInitDashboardPromise;
     window.__cbInitDashboardPromise = __awaiter(this, void 0, void 0, function* () {
-        // Stop WebGL shader loop — free GPU on login
+        // Stop WebGL shader loop â€” free GPU on login
         if (typeof window.stopShaderLoop === 'function') window.stopShaderLoop();
 
         // Clear session view-load cache so fresh data loads after login/re-login
         window._cbViewLoaded = {};
 
+        // -- RBAC Fix: Always re-fetch permissions from live DB on dashboard init --
+        // This ensures role permission changes immediately propagate to existing
+        // logged-in users without requiring a logout/re-login.
+        yield refreshCurrentUserPermissions();
+
         elements.loginView.classList.remove('active');
         applyRoleTheme();
 
-        // ── UI Setup only — no API calls here ────────────────────────────────
-        const isAdminLike = appState.role === 'Admin' || appState.role === 'Root_Super_Admin' || appState.isSuperAdmin;
-        const headerDisplayName = isAdminLike ? 'System Admin' : (appState.name || appState.userId);
+        // -- UI Setup only -- no API calls here --------------------------------
+        if (appState.role === 'Root_Super_Admin') appState.isSuperAdmin = true;
+
+        const isPlatformOwner = isPlatformOwnerAccount();
+        const isAdminLike = appState.role === 'Admin' || appState.isSuperAdmin || appState.role === 'Principal';
+        const headerDisplayName = isPlatformOwner ? 'Platform Owner' : (appState.name || appState.userId);
         const userNameEl = document.getElementById('header-user-name');
         if (userNameEl) userNameEl.textContent = headerDisplayName;
+
         const userRoleEl = document.getElementById('header-user-role');
         if (userRoleEl) {
-            userRoleEl.textContent = appState.role;
-            if (appState.schoolName && appState.schoolName !== 'Independent')
-                userRoleEl.textContent += ` • ${appState.schoolName}`;
+            if (isPlatformOwner) {
+                userRoleEl.textContent = 'Super Admin';
+            } else {
+                userRoleEl.textContent = appState.role;
+                if (appState.schoolName && appState.schoolName !== 'Independent') {
+                    userRoleEl.textContent += ` â€¢ ${appState.schoolName}`;
+                }
+            }
         }
         const userImgEl = document.getElementById('header-user-img');
         if (userImgEl)
-            userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(isAdminLike ? 'AD' : appState.userId)}&background=random`;
+            userImgEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(appState.isSuperAdmin ? 'AD' : appState.userId)}&background=random`;
+
         elements.authStatus.innerHTML =
             `<strong>Role:</strong> ${appState.role} <span class="mx-2">|</span> <strong>User:</strong> ${appState.userId}` +
-            (appState.schoolName ? ` <span class="mx-2">|</span> <strong>School:</strong> ${appState.schoolName}` : '');
+            ((appState.schoolName && !isPlatformOwner) ? ` <span class="mx-2">|</span> <strong>School:</strong> ${appState.schoolName}` : '');
         elements.loginMessage.textContent = '';
 
-        if (appState.role === 'Root_Super_Admin') appState.isSuperAdmin = true;
-
         if (appState.isSuperAdmin) {
+            document.body.classList.add('super-admin-mode');
             yield loadSuperAdminDashboard();
             return;
         }
 
-        // ── Build sidebar for user's role, then switch to default view ────────
-        // Data loading is deferred — VIEW_LOADERS handles it when switchView fires
+        // â”€â”€ Build sidebar for user's role, then switch to default view â”€â”€â”€â”€â”€â”€â”€â”€
+        // Data loading is deferred â€” VIEW_LOADERS handles it when switchView fires
         if (appState.role === 'Teacher' || appState.role === 'Admin' || appState.role === 'Principal') {
             renderTeacherControls();
             switchView('teacher-view');   // triggers loadTeacherDashboardData()
@@ -4854,28 +4971,16 @@ let institutionWizardStep1Saved = false;
 let institutionContactsDraft = [];
 let institutionContactEditIndex = -1;
 function setSuperAdminInstitutionListMode(enabled) {
+    // Keep the sidebar always visible for Super Admin so the nav panel is always shown.
+    // We only ensure the sidebar and main content are in their default state.
     const sidebar = document.getElementById('sidebar');
     const overlay = document.querySelector('.sidebar-overlay');
     const main = document.getElementById('main-content');
-    if (enabled) {
-        if (sidebar)
-            sidebar.style.display = 'none';
-        if (overlay)
-            overlay.style.display = 'none';
-        if (main) {
-            main.style.marginLeft = '0';
-            main.style.width = '100%';
-        }
-    }
-    else {
-        if (sidebar)
-            sidebar.style.display = '';
-        if (overlay)
-            overlay.style.display = '';
-        if (main) {
-            main.style.marginLeft = '';
-            main.style.width = '';
-        }
+    if (sidebar) sidebar.style.display = '';
+    if (overlay) overlay.style.display = '';
+    if (main) {
+        main.style.marginLeft = '';
+        main.style.width = '';
     }
 }
 function getCurrentSuperAdminSchoolId() {
@@ -4932,13 +5037,19 @@ function syncSuperAdminNavigationUI(viewId) {
 }
 function loadSuperAdminDashboard() {
     return __awaiter(this, void 0, void 0, function* () {
+        // Ensure super-admin-mode class is set so the header title-area is hidden
+        document.body.classList.add('super-admin-mode');
         // Build the sidebar first so Super Admin gets all navigation items
         renderTeacherControls();
         setSuperAdminInstitutionListMode(true);
         const backBar = document.getElementById('superadmin-backbar');
         if (backBar)
             backBar.remove();
+        // Update page title in header-bar
+        const pageTitleEl = document.getElementById('page-title');
+        if (pageTitleEl) pageTitleEl.textContent = 'Dashboard';
         switchView('super-admin-view');
+
         const container = document.getElementById('super-admin-content');
         if (!container)
             return;
@@ -4959,34 +5070,58 @@ function loadSuperAdminDashboard() {
                         institution_official_name: s.name,
                         institution_type: 'K12 School',
                         institution_structure: 'Sole Entity',
-                        state: 'Trial',
+                        subscription: 'Trial',
                         address: s.address || '',
                         contact_email: s.contact_email || '',
                         created_at: s.created_at
                     }));
                 }
             }
+            let totalUsers = 0;
+            try {
+                const statsRes = yield fetchAPI('/admin/user-management-stats', {});
+                if (statsRes.ok) {
+                    const stats = yield statsRes.json();
+                    totalUsers = Number(stats.total_users || 0);
+                }
+            } catch (e) { }
+
             if (response.ok) {
                 let html = `
+
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h3 class="fw-bold text-primary">Institution Setup Config</h3>
-                    <button class="btn btn-primary-custom" onclick="showCreateSchoolModal()">
-                        <span class="material-icons align-middle fs-5 me-1">add_circle</span> Add Institution
+                    <div class="d-flex gap-3">
+                        <div class="rounded-3 px-4 py-3 text-white d-flex flex-column justify-content-center" style="background:linear-gradient(135deg,#9b63f8,#7b45f0);min-width:260px;height:90px;box-shadow:0 4px 15px rgba(155,99,248,0.3);">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-semibold" style="opacity:0.9;font-size:0.9rem;">Number of Institution</span>
+                                <span class="fs-2 fw-bold">${institutions.length}</span>
+                            </div>
+                        </div>
+                        <div class="rounded-3 px-4 py-3 d-flex flex-column justify-content-center" style="background:#ffca28;min-width:260px;height:90px;box-shadow:0 4px 15px rgba(255,202,40,0.3);">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="small fw-semibold text-dark" style="font-size:0.9rem;">Total No Users</span>
+                                <span class="fs-2 fw-bold text-white">${totalUsers.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary d-flex align-items-center gap-2 fw-bold shadow-sm" style="background:#2962ff;border:none;padding:10px 20px;border-radius:6px;" onclick="showCreateSchoolModal()">
+                        <span class="material-icons" style="font-size:1.2rem;">add_circle</span> Add Institution
                     </button>
                 </div>
-                <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+
+                <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-5">
                     <div class="table-responsive">
                         <table class="table table-hover mb-0 align-middle">
-                            <thead class="bg-light">
+                            <thead class="bg-white">
                                 <tr>
-                                    <th class="py-3 ps-4">Institution ID</th>
-                                    <th class="py-3">Official Name</th>
-                                    <th class="py-3">Type</th>
-                                    <th class="py-3">Structure</th>
-                                    <th class="py-3">State</th>
-                                    <th class="py-3">Contact</th>
-                                    <th class="py-3">Created</th>
-                                    <th class="py-3 text-end pe-4">Actions</th>
+                                    <th class="py-3 ps-4 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Institution ID</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Official Name</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Type</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Structure</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Subscription</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Contact</th>
+                                    <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Created</th>
+                                    <th class="py-3 text-end pe-4 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -4997,30 +5132,27 @@ function loadSuperAdminDashboard() {
                 else {
                     institutions.forEach(s => {
                         const safeName = (s.institution_official_name || '').replace(/"/g, '&quot;');
+                        const subscriptionLabel = s.subscription || s.subscription_status || s.state || 'Trial';
                         html += `<tr>
-                        <td class="ps-4 fw-bold">${s.institution_id || `CB_INT_${String(s.id).padStart(6, '0')}`}</td>
+                        <td class="ps-4 fw-bold text-dark" style="font-size:0.9rem;">${s.institution_id || `CB_INT_${String(s.id).padStart(6, '0')}`}</td>
                         <td>
-                            <a href="#" class="text-primary fw-bold text-decoration-none" 
+                            <a href="#" class="fw-bold text-decoration-none" style="color:#2962ff;font-size:0.9rem;"
                                onclick="openSchoolDashboard(${s.id}, '${safeName}'); return false;">
                                 ${s.institution_official_name || ''}
                             </a>
                         </td>
-                        <td>${s.institution_type || ''}</td>
-                        <td>${s.institution_structure || ''}</td>
-                        <td>${s.state || ''}</td>
-                        <td>${s.contact_email || ''}</td>
-                        <td class="text-muted"><small>${new Date(s.created_at).toLocaleDateString()}</small></td>
+                        <td class="text-muted" style="font-size:0.9rem;">${s.institution_type || ''}</td>
+                        <td class="text-muted" style="font-size:0.9rem;">${s.institution_structure || ''}</td>
+                        <td class="text-muted" style="font-size:0.9rem;">${subscriptionLabel}</td>
+                        <td class="text-muted" style="font-size:0.9rem;">${s.contact_email || ''}</td>
+                        <td class="text-muted" style="font-size:0.9rem;">${new Date(s.created_at).toLocaleDateString('en-US')}</td>
                         <td class="text-end pe-4">
-                            <div class="d-flex justify-content-end gap-2">
-                                <button class="btn btn-sm btn-outline-primary"
-                                    onclick="openInstitutionConfig(${s.id})"
-                                    title="Tenant Configuration">
-                                    <span class="material-icons" style="font-size: 16px;">settings</span>
+                            <div class="d-flex justify-content-end gap-3 align-items-center">
+                                <button class="btn btn-link p-0 text-primary" onclick="openInstitutionConfig(${s.id})" title="Tenant Configuration">
+                                    <span class="material-icons" style="font-size:18px;">settings</span>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" 
-                                    onclick="handleDeleteSchool(${s.id}, '${safeName}')"
-                                    title="Delete Institution">
-                                    <span class="material-icons" style="font-size: 16px;">delete</span>
+                                <button class="btn btn-link p-0 text-danger" onclick="handleDeleteSchool(${s.id}, '${safeName}')" title="Delete Institution">
+                                    <span class="material-icons" style="font-size:18px;">delete</span>
                                 </button>
                             </div>
                         </td>
@@ -5526,530 +5658,752 @@ function submitInstitutionConfigUpdate(schoolId) {
         }
     });
 }
+// ===========================================================
+// CREATE INSTITUTION â€” Full-Page View
+// ===========================================================
 let institutionWizardAddresses = [];
 let institutionEditAddresses = [];
+let _instCreateSection1Saved = false;
+let _instCreateSection2Saved = false;
+let _instAutoIdCounter = null; // cached next counter from backend
+
 function resetInstitutionWizardAddresses() {
     institutionWizardAddresses = [{
         address_line: '',
         region: '',
-        timezone: '',
+        timezone: 'UTC',
         language: 'English',
         is_primary: true
     }];
 }
+
+// â”€â”€ Generate a preview ID (displayed in UI read-only) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function _fetchNextInstId() {
+    try {
+        const res = await fetchAPI('/admin/institutions');
+        if (res.ok) {
+            const list = await res.json();
+            return list.length + 1;
+        }
+    } catch (e) { }
+    return Math.floor(Math.random() * 900000) + 100000;
+}
+
+function _fmtInstId(n) {
+    return 'CB_INT_' + String(n).padStart(6, '0');
+}
+
+// â”€â”€ Address block renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderInstitutionWizardAddresses() {
     const host = document.getElementById('new-school-address-list');
-    if (!host)
-        return;
+    if (!host) return;
+    const structure = (document.getElementById('wiz-inst-structure') || {}).value || 'Sole Entity';
     host.innerHTML = institutionWizardAddresses.map((a, idx) => `
-        <div class="bg-light border rounded-4 p-3 mb-3 position-relative">
-            ${idx !== 0 ? `<button type="button" class="btn-close position-absolute top-0 end-0 m-2" onclick="removeInstitutionWizardAddress(${idx})" aria-label="Close"></button>` : `<span class="badge bg-primary position-absolute top-0 end-0 m-2 rounded-pill px-3 shadow-sm">Primary</span>`}
-            <div class="row g-3 mt-1">
-                <div class="col-md-12">
-                    <label class="form-label text-secondary small fw-bold mb-1">Full Address</label>
-                    <input class="form-control bg-white border-light-subtle py-2 wiz-address-line" data-idx="${idx}" placeholder="e.g. 123 Main St" value="${a.address_line || ''}">
+        <div class="inst-addr-block mb-4 p-4 rounded-4 position-relative" id="addr-block-${idx}"
+             style="background:#f8fafc; border:1.5px solid ${idx === 0 ? '#2563EB' : '#e2e8f0'}; transition:border 0.2s;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge rounded-pill" style="background:${idx === 0 ? 'linear-gradient(135deg,#2563EB,#1D4ED8)' : '#94a3b8'}; font-size:0.75rem; padding:6px 14px;">
+                        ${idx === 0 ? 'â˜… Primary Campus' : 'Campus ' + (idx + 1)}
+                    </span>
+                    ${structure === 'Union' ? `<small class="text-muted" style="font-size:0.75rem;">Separate institution record will be created</small>` : ''}
+                </div>
+                ${idx !== 0 ? `<button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="removeInstitutionWizardAddress(${idx})">
+                    <span class="material-icons" style="font-size:0.9rem;vertical-align:middle;">delete</span> Remove
+                </button>` : ''}
+            </div>
+            <div class="row g-3">
+                <div class="col-12">
+                    <div class="form-floating">
+                        <input class="form-control wiz-address-line" id="wiz-address-${idx}" data-idx="${idx}"
+                               placeholder="Full Address" value="${(a.address_line || '').replace(/"/g, '&quot;')}" autocomplete="off"
+                               oninput="institutionWizardAddresses[${idx}].address_line=this.value">
+                        <label for="wiz-address-${idx}">Campus Full Address <span class="text-danger">*</span></label>
+                    </div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label text-secondary small fw-bold mb-1">Region / City</label>
-                    <input class="form-control bg-white border-light-subtle py-2 wiz-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}">
+                    <div class="form-floating">
+                        <input class="form-control wiz-region" id="wiz-region-${idx}" data-idx="${idx}"
+                               placeholder="Region/City" value="${(a.region || '').replace(/"/g, '&quot;')}" autocomplete="off"
+                               oninput="institutionWizardAddresses[${idx}].region=this.value">
+                        <label for="wiz-region-${idx}">Region / City</label>
+                    </div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label text-secondary small fw-bold mb-1">Timezone</label>
-                    <input class="form-control bg-white border-light-subtle py-2 wiz-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}">
+                    <div class="form-floating">
+                        <select class="form-select wiz-timezone" id="wiz-timezone-${idx}" data-idx="${idx}"
+                                onchange="institutionWizardAddresses[${idx}].timezone=this.value">
+                            ${['UTC', 'Asia/Kolkata', 'America/New_York', 'America/Chicago', 'America/Los_Angeles', 'America/Toronto', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Dubai', 'Australia/Sydney', 'Pacific/Auckland'].map(tz => `<option value="${tz}" ${a.timezone === tz ? 'selected' : ''}>${tz}</option>`).join('')}
+                        </select>
+                        <label for="wiz-timezone-${idx}">Timezone <span class="text-danger">*</span></label>
+                    </div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label text-secondary small fw-bold mb-1">Language</label>
-                    <input class="form-control bg-white border-light-subtle py-2 wiz-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}">
+                    <div class="form-floating">
+                        <select class="form-select wiz-language" id="wiz-language-${idx}" data-idx="${idx}"
+                                onchange="institutionWizardAddresses[${idx}].language=this.value">
+                            ${['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali', 'Marathi', 'Punjabi', 'Gujarati', 'French', 'German', 'Spanish', 'Portuguese', 'Arabic', 'Chinese', 'Japanese', 'Korean'].map(l => `<option value="${l}" ${(a.language || 'English') === l ? 'selected' : ''}>${l}</option>`).join('')}
+                        </select>
+                        <label for="wiz-language-${idx}">Default Language <span class="text-danger">*</span></label>
+                    </div>
                 </div>
             </div>
         </div>
     `).join('');
-    host.querySelectorAll('.wiz-address-line').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionWizardAddresses[idx].address_line = e.target.value;
-        institutionWizardStep1Saved = false;
-    }));
-    host.querySelectorAll('.wiz-region').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionWizardAddresses[idx].region = e.target.value;
-        institutionWizardStep1Saved = false;
-    }));
-    host.querySelectorAll('.wiz-timezone').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionWizardAddresses[idx].timezone = e.target.value;
-        institutionWizardStep1Saved = false;
-    }));
-    host.querySelectorAll('.wiz-language').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionWizardAddresses[idx].language = e.target.value;
-        institutionWizardStep1Saved = false;
-    }));
 }
+
 function addInstitutionWizardAddress() {
-    institutionWizardAddresses.push({
-        address_line: '',
-        region: '',
-        timezone: '',
-        language: 'English',
-        is_primary: false
-    });
-    institutionWizardStep1Saved = false;
+    const structure = (document.getElementById('wiz-inst-structure') || {}).value || 'Sole Entity';
+    if (structure === 'Sole Entity') {
+        _instShowError('address-section-error', 'Sole Entity supports only one address. Switch to "Union" structure to add multiple campuses.');
+        return;
+    }
+    institutionWizardAddresses.push({ address_line: '', region: '', timezone: 'UTC', language: 'English', is_primary: false });
+    _instCreateSection2Saved = false;
     renderInstitutionWizardAddresses();
 }
+
 function removeInstitutionWizardAddress(index) {
     institutionWizardAddresses.splice(index, 1);
-    if (institutionWizardAddresses.length === 0)
-        resetInstitutionWizardAddresses();
+    if (institutionWizardAddresses.length === 0) resetInstitutionWizardAddresses();
     institutionWizardAddresses[0].is_primary = true;
-    institutionWizardStep1Saved = false;
+    _instCreateSection2Saved = false;
     renderInstitutionWizardAddresses();
 }
-function renderInstitutionEditAddresses() {
-    const host = document.getElementById('inst-address-list');
-    if (!host)
-        return;
-    host.innerHTML = institutionEditAddresses.map((a, idx) => `
-        <div class="border rounded-3 p-3 mb-2">
-            <div class="row g-2">
-                <div class="col-md-4"><input class="form-control inst-edit-address-line" data-idx="${idx}" placeholder="Address" value="${a.address_line || ''}"></div>
-                <div class="col-md-3"><input class="form-control inst-edit-region" data-idx="${idx}" placeholder="Region" value="${a.region || ''}"></div>
-                <div class="col-md-3"><input class="form-control inst-edit-timezone" data-idx="${idx}" placeholder="Timezone" value="${a.timezone || ''}"></div>
-                <div class="col-md-2"><input class="form-control inst-edit-language" data-idx="${idx}" placeholder="Language" value="${a.language || 'English'}"></div>
-                <div class="col-md-1 d-grid">${idx === 0 ? '<button type="button" class="btn btn-outline-secondary btn-sm" disabled>Primary</button>' : `<button type="button" class="btn btn-outline-danger btn-sm" onclick="removeInstitutionEditAddress(${idx})">X</button>`}</div>
+
+function _instShowError(elId, msg) {
+    const el = document.getElementById(elId);
+    if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
+}
+
+// â”€â”€ Show the Create Institution full-page view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function showCreateSchoolModal() {
+    // Remove stale if exists
+    const existing = document.getElementById('createSchoolModal');
+    if (existing) existing.remove();
+
+    _instCreateSection1Saved = false;
+    _instCreateSection2Saved = false;
+    resetInstitutionWizardAddresses();
+
+    const pageHtml = `
+<div class="view" id="createSchoolModal" style="padding-bottom:2rem;">
+
+    <!-- Page CSS scoped -->
+    <style id="inst-create-css">
+    #createSchoolModal .inst-section-card {
+        background:#fff; border-radius:16px; border:1.5px solid #e2e8f0;
+        margin-bottom:1.5rem; overflow:hidden;
+    }
+    #createSchoolModal .inst-section-header {
+        padding:1.25rem 1.75rem;
+        display:flex; align-items:center; gap:14px;
+        border-bottom:1px solid #f1f5f9;
+        background:linear-gradient(90deg,#f8fafc,#fff);
+    }
+    #createSchoolModal .inst-section-number {
+        width:36px;height:36px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        font-weight:800;font-size:0.9rem;flex-shrink:0;
+        background:#e2e8f0; color:#64748b;
+    }
+    #createSchoolModal .inst-section-number.done { background:#10b981;color:#fff; }
+    #createSchoolModal .inst-section-number.active { background:linear-gradient(135deg,#2563EB,#1D4ED8);color:#fff; }
+    #createSchoolModal .inst-section-body { padding:1.75rem; }
+    #createSchoolModal .inst-section-locked {
+        padding:2.5rem; text-align:center; color:#94a3b8;
+        display:flex;flex-direction:column;align-items:center;gap:10px;
+    }
+    #createSchoolModal .form-floating label { font-size:0.85rem; }
+    #createSchoolModal .form-control, #createSchoolModal .form-select {
+        border:1.5px solid #e2e8f0; border-radius:10px; font-size:0.9rem;
+        transition:border-color 0.2s, box-shadow 0.2s;
+    }
+    #createSchoolModal .form-control:focus, #createSchoolModal .form-select:focus {
+        border-color:#2563EB; box-shadow:0 0 0 3px rgba(37,99,235,0.12);
+    }
+    #createSchoolModal .inst-id-badge {
+        display:inline-flex;align-items:center;gap:8px;
+        background:#eff6ff;border:1.5px dashed #93c5fd;border-radius:10px;
+        padding:10px 18px;color:#1d4ed8;font-weight:700;font-family:monospace;font-size:1.05rem;
+    }
+    #createSchoolModal .inst-save-btn {
+        background:linear-gradient(135deg,#2563EB,#1D4ED8);border:none;
+        color:#fff;border-radius:10px;padding:10px 28px;font-weight:700;
+        display:inline-flex;align-items:center;gap:8px;transition:opacity 0.2s;
+    }
+    #createSchoolModal .inst-save-btn:hover { opacity:0.9; }
+    #createSchoolModal .inst-save-btn.green { background:linear-gradient(135deg,#10b981,#059669); }
+    #createSchoolModal .inst-error {
+        display:none;background:#fef2f2;border:1px solid #fecaca;
+        border-radius:8px;padding:10px 14px;color:#b91c1c;font-size:0.85rem;margin-top:12px;
+    }
+    #createSchoolModal .union-info-banner {
+        background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px;
+        padding:12px 16px;color:#1d4ed8;font-size:0.85rem;
+        display:flex;align-items:flex-start;gap:10px;
+    }
+    </style>
+
+    <!-- Top Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn d-flex align-items-center gap-1 px-3 py-2" 
+                    style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;font-weight:600;color:#475569;"
+                    onclick="closeView()">
+                <span class="material-icons" style="font-size:1.1rem;">arrow_back</span> Back
+            </button>
+            <div>
+                <h4 class="fw-bold mb-0" style="color:#0f172a;">Create New Institution</h4>
+                <p class="text-muted small mb-0">Complete all sections to register your educational institution</p>
             </div>
         </div>
-    `).join('');
-    host.querySelectorAll('.inst-edit-address-line').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionEditAddresses[idx].address_line = e.target.value;
-    }));
-    host.querySelectorAll('.inst-edit-region').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionEditAddresses[idx].region = e.target.value;
-    }));
-    host.querySelectorAll('.inst-edit-timezone').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionEditAddresses[idx].timezone = e.target.value;
-    }));
-    host.querySelectorAll('.inst-edit-language').forEach((el) => el.addEventListener('input', (e) => {
-        const idx = Number(e.target.getAttribute('data-idx'));
-        institutionEditAddresses[idx].language = e.target.value;
-    }));
-}
-function addInstitutionEditAddress() {
-    const structure = (document.getElementById('inst-structure').value || '').trim();
-    if (structure === 'Sole Entity' && institutionEditAddresses.length >= 1) {
-        alert('Sole Entity supports one address only. Switch to Union to add multiple addresses.');
-        return;
-    }
-    institutionEditAddresses.push({ address_line: '', region: '', timezone: '', language: 'English', is_primary: false });
-    renderInstitutionEditAddresses();
-}
-function removeInstitutionEditAddress(index) {
-    institutionEditAddresses.splice(index, 1);
-    if (institutionEditAddresses.length === 0) {
-        institutionEditAddresses = [{ address_line: '', region: '', timezone: '', language: 'English', is_primary: true }];
-    }
-    institutionEditAddresses[0].is_primary = true;
-    renderInstitutionEditAddresses();
-}
-function getSecurityRecommendation(institutionType, authMode) {
-    const t = String(institutionType || '').trim();
-    const m = String(authMode || '').trim();
-    let base = 'Recommended: Email OTP for balanced security.';
-    if (['Secondary School', 'K12 School', 'College'].includes(t))
-        base = 'Recommended: Authenticator app for stronger security at scale.';
-    if (t === 'Company')
-        base = 'Recommended: Authenticator app for enterprise-grade protection.';
-    if (m === 'password_only')
-        return `${base} Password-only is the least secure option.`;
-    if (m === 'email_otp')
-        return `${base} Email OTP balances usability and security.`;
-    if (m === 'authenticator_app')
-        return `${base} Authenticator app is the strongest option.`;
-    return base;
-}
-function goInstitutionCreateStep(step) {
-    const details = document.getElementById('institution-step-details');
-    const contacts = document.getElementById('institution-step-contacts');
-    const detailsTab = document.getElementById('wizard-step-details');
-    const contactsTab = document.getElementById('wizard-step-contacts');
-    if (!details || !contacts || !detailsTab || !contactsTab)
-        return;
-    if (step === 2 && !institutionWizardStep1Saved) {
-        alert('Please save Section 1 before proceeding to Section 2.');
-        return;
-    }
-    const progressBar = document.getElementById('wizard-progress-bar');
-    if (step === 1) {
-        details.classList.remove('d-none');
-        contacts.classList.add('d-none');
-        detailsTab.classList.add('active', 'btn-primary', 'text-white', 'shadow-sm');
-        detailsTab.classList.remove('btn-light', 'text-muted', 'border');
-        contactsTab.classList.remove('active', 'btn-primary', 'text-white', 'shadow-sm');
-        contactsTab.classList.add('btn-light', 'text-muted', 'border');
-        if (progressBar) progressBar.style.backgroundColor = '#e9ecef';
-    }
-    else {
-        details.classList.add('d-none');
-        contacts.classList.remove('d-none');
-        detailsTab.classList.remove('active', 'btn-primary', 'text-white', 'shadow-sm');
-        detailsTab.classList.add('btn-light', 'text-muted', 'border');
-        contactsTab.classList.add('active', 'btn-primary', 'text-white', 'shadow-sm');
-        contactsTab.classList.remove('btn-light', 'text-muted', 'border');
-        if (progressBar) progressBar.style.backgroundColor = '#2563EB';
-    }
-}
-function saveInstitutionWizardStep1AndContinue() {
-    if (!validateInstitutionWizardStep1())
-        return;
-    institutionWizardStep1Saved = true;
-    goInstitutionCreateStep(2);
-}
-function validateInstitutionWizardStep1() {
-    let isValid = true;
-    let firstInvalidEl = null;
+        <div id="inst-top-autoId" class="inst-id-badge" style="font-size:0.85rem; opacity:0.7;">
+            <span class="material-icons" style="font-size:1rem;">tag</span>
+            <span>Generating IDâ€¦</span>
+        </div>
+    </div>
 
-    const nameEl = document.getElementById('wiz-inst-name');
-    const name = (nameEl.value || '').trim();
-    const type = (document.getElementById('wiz-inst-type').value || '').trim();
-    const structure = (document.getElementById('wiz-inst-structure').value || '').trim();
+    <!-- Progress Stepper -->
+    <div class="d-flex align-items-center gap-0 mb-5" id="inst-progress-strip" style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <div id="pstep-1" class="d-flex align-items-center gap-2 px-4 py-3 flex-fill" style="border-right:1.5px solid #e2e8f0;background:linear-gradient(90deg,#eff6ff,#fff);">
+            <span class="inst-section-number active" id="pnum-1">1</span>
+            <div><div class="fw-bold" style="font-size:0.85rem;color:#1d4ed8;">Institution Details</div><div class="text-muted" style="font-size:0.75rem;">Core info &amp; structure</div></div>
+        </div>
+        <div id="pstep-2" class="d-flex align-items-center gap-2 px-4 py-3 flex-fill" style="border-right:1.5px solid #e2e8f0;">
+            <span class="inst-section-number" id="pnum-2">2</span>
+            <div><div class="fw-bold" style="font-size:0.85rem;color:#94a3b8;">Campus Addresses</div><div class="text-muted" style="font-size:0.75rem;">Locations &amp; languages</div></div>
+        </div>
+        <div id="pstep-3" class="d-flex align-items-center gap-2 px-4 py-3 flex-fill">
+            <span class="inst-section-number" id="pnum-3">3</span>
+            <div><div class="fw-bold" style="font-size:0.85rem;color:#94a3b8;">Review &amp; Create</div><div class="text-muted" style="font-size:0.75rem;">Confirm &amp; submit</div></div>
+        </div>
+    </div>
 
-    if (!name) {
-        nameEl.classList.add('is-invalid', 'border-danger');
-        if (!firstInvalidEl) firstInvalidEl = nameEl;
-        isValid = false;
-    } else {
-        nameEl.classList.remove('is-invalid', 'border-danger');
-    }
-
-    if (!name || !type || !structure) {
-        alert('Please complete the highlighted required fields (e.g. Institution Official Name) before continuing.');
-        if (firstInvalidEl) firstInvalidEl.focus();
-        return false;
-    }
-
-    if (structure === 'Sole Entity' && institutionWizardAddresses.length > 1) {
-        alert('Sole Entity supports one address only. Use Union structure for multiple addresses.');
-        return false;
-    }
-
-    let addressValid = true;
-    for (let i = 0; i < institutionWizardAddresses.length; i++) {
-        const addressEl = document.querySelector(`.wiz-address-line[data-idx="${i}"]`);
-        if (!(institutionWizardAddresses[i].address_line || '').trim()) {
-            if (addressEl) {
-                addressEl.classList.add('is-invalid', 'border-danger');
-                if (!firstInvalidEl) firstInvalidEl = addressEl;
-            }
-            addressValid = false;
-        } else {
-            if (addressEl) addressEl.classList.remove('is-invalid', 'border-danger');
-        }
-    }
-
-    if (!addressValid) {
-        alert('Please provide the Full Address for all highlighted locations.');
-        if (firstInvalidEl) firstInvalidEl.focus();
-        return false;
-    }
-
-    return true;
-}
-function showCreateSchoolModal() {
-    // Append to body if not exists
-    if (!document.getElementById('createSchoolModal')) {
-        const modalHtml = `
-          <div class="view full-page-view" id="createSchoolModal" tabindex="-1">
-            <div class="modal-dialog modal-lg modal-dialog-centered">
-              <div class="modal-content rounded-4 border-0 shadow-lg" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);">
-                <div class="modal-header border-0 pb-0 pt-4 px-4">
-                  <h4 class="modal-title fw-bold text-primary mb-0">Create New Institution</h4>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="closeView()"></button>
-                </div>
-                <div class="modal-body p-4">
-                  <div class="d-flex justify-content-center align-items-center mb-4 mt-2 px-3 position-relative">
-                      <button id="wizard-step-details" type="button" class="btn btn-primary rounded-pill px-4 fw-bold active text-white shadow-sm" style="z-index: 2;" onclick="goInstitutionCreateStep(1)">1. Details & Address</button>
-                      <div class="transition-all" id="wizard-progress-bar" style="height: 4px; width: 60px; background-color: #2563EB; margin: 0 -5px; z-index: 1;"></div>
-                      <button id="wizard-step-contacts" type="button" class="btn btn-light border rounded-pill px-4 text-muted fw-bold" style="z-index: 2;" onclick="goInstitutionCreateStep(2)">2. Contacts & Settings</button>
-                  </div>
-                  <form id="create-school-form" class="px-md-3">
-                    <div id="institution-step-details" class="animate-fade-in">
-                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
-                            <div class="card-body p-4">
-                                <h6 class="fw-bold text-secondary mb-3">Basic Information</h6>
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Official Name <span class="text-danger">*</span></label>
-                                        <input type="text" id="wiz-inst-name" class="form-control bg-light border-light-subtle py-2" placeholder="Institution Name" required>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Visual Name</label>
-                                        <input type="text" id="wiz-inst-visual-name" class="form-control bg-light border-light-subtle py-2" placeholder="Visual Name">
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Structure</label>
-                                        <select id="wiz-inst-structure" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="Sole Entity">Sole Entity</option>
-                                            <option value="Union">Union</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Type</label>
-                                        <select id="wiz-inst-type" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="Pre school">Pre school</option>
-                                            <option value="Primary School">Primary School</option>
-                                            <option value="Secondary School">Secondary School</option>
-                                            <option value="K12 School" selected>K12 School</option>
-                                            <option value="College">College</option>
-                                            <option value="Company">Company</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-12">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Institution Brief Details</label>
-                                        <input type="text" id="wiz-inst-brief" class="form-control bg-light border-light-subtle py-2" placeholder="Brief Details">
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">State</label>
-                                        <select id="wiz-inst-state" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="Trial" selected>Trial</option>
-                                            <option value="Active">Active</option>
-                                            <option value="Suspended">Suspended</option>
-                                            <option value="Archived">Archived</option>
-                                            <option value="Deleted">Deleted</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
-                            <div class="card-body p-4">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="fw-bold text-secondary mb-0">Location & Addresses</h6>
-                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 shadow-sm" onclick="addInstitutionWizardAddress()">+ Add Address</button>
-                                </div>
-                                <div id="new-school-address-list"></div>
-                            </div>
-                        </div>
-
-                        <div class="d-flex justify-content-end mt-4">
-                            <button type="button" class="btn btn-primary px-5 py-2 rounded-pill fw-bold shadow-sm" onclick="saveInstitutionWizardStep1AndContinue()">Continue to Step 2 <span class="ms-2">→</span></button>
-                        </div>
-                    </div>
-                    <div id="institution-step-contacts" class="d-none animate-fade-in">
-                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
-                            <div class="card-body p-4">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="fw-bold mb-0 text-secondary">Primary Contacts</h6>
-                                    <button class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" type="button" onclick="addInstitutionContactRow()">+ Add Key Individual</button>
-                                </div>
-                                <div id="institution-contacts-list"></div>
-                                <div class="mt-3">
-                                    <label class="form-label text-secondary small fw-bold mb-1">Master Primary Contact Email <span class="text-danger">*</span></label>
-                                    <input type="email" id="wiz-inst-email" class="form-control bg-light border-light-subtle py-2" placeholder="Email" required>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card bg-white border-0 shadow-sm rounded-4 mb-4">
-                            <div class="card-body p-4">
-                                <h6 class="fw-bold text-secondary mb-3">Security & Branding Settings</h6>
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Tenant Security Mode</label>
-                                        <select id="wizard-security-mode" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="password_only">User ID + Password</option>
-                                            <option value="email_otp" selected>Email OTP (Recommended)</option>
-                                            <option value="authenticator_app">Authenticator App</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Security Recommendation</label>
-                                        <input type="text" id="wizard-security-recommendation" class="form-control bg-light border-light-subtle py-2" placeholder="Recommendation" readonly>
-                                    </div>
-                                    <div class="col-md-12">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Branding Color Theme (Hex or Name)</label>
-                                        <input type="text" id="wizard-color-theme" class="form-control bg-light border-light-subtle py-2" placeholder="Color Theme">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Date Format</label>
-                                        <input type="date" id="wizard-date-format" class="form-control bg-light border-light-subtle py-2">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Time Format</label>
-                                        <select id="wizard-time-format" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="12h">12-hour (AM/PM)</option>
-                                            <option value="24h" selected>24-hour</option>
-                                        </select>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label class="form-label text-secondary small fw-bold mb-1">Currency Code</label>
-                                        <select id="wizard-currency-code" class="form-select bg-light border-light-subtle py-2">
-                                            <option value="USD" selected>USD ($)</option>
-                                            <option value="EUR">EUR (€)</option>
-                                            <option value="GBP">GBP (£)</option>
-                                            <option value="INR">INR (₹)</option>
-                                            <option value="AUD">AUD ($)</option>
-                                            <option value="CAD">CAD ($)</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="d-flex justify-content-between mt-4">
-                            <button type="button" class="btn btn-light border px-4 py-2 rounded-pill fw-bold text-muted" onclick="goInstitutionCreateStep(1)"><span class="me-2">←</span> Back</button>
-                            <button type="submit" class="btn btn-success px-5 py-2 rounded-pill fw-bold shadow-sm">Complete Creation <span class="ms-2">✓</span></button>
-                        </div>
-                    </div>
-                  </form>
-                </div>
-              </div>
+    <!-- Section 1: Institution Details -->
+    <div class="inst-section-card" id="inst-sec1">
+        <div class="inst-section-header">
+            <span class="inst-section-number active" id="numBadge1">1</span>
+            <div class="flex-fill">
+                <div class="fw-bold" style="color:#0f172a;">Section 1 â€” Institution Details</div>
+                <div class="text-muted" style="font-size:0.8rem;">Required: Structure, Official Name, Type, State</div>
             </div>
-          </div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        document.getElementById('create-school-form').addEventListener('submit', handleCreateSchool);
-        const structureEl = document.getElementById('wiz-inst-structure');
-        if (structureEl) {
-            structureEl.addEventListener('change', () => {
-                institutionWizardStep1Saved = false;
-                if (structureEl.value === 'Sole Entity' && institutionWizardAddresses.length > 1) {
-                    institutionWizardAddresses = [institutionWizardAddresses[0]];
-                    institutionWizardAddresses[0].is_primary = true;
-                    renderInstitutionWizardAddresses();
-                }
-            });
-        }
-        ['wiz-inst-name', 'wiz-inst-visual-name', 'wiz-inst-brief', 'wiz-inst-type', 'wiz-inst-state'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (el)
-                el.addEventListener('input', () => {
-                    institutionWizardStep1Saved = false;
-                });
-        });
-        const typeElInit = document.getElementById('wiz-inst-type');
-        const secElInit = document.getElementById('wizard-security-mode');
-        const recElInit = document.getElementById('wizard-security-recommendation');
-        const syncWizardRec = () => {
-            if (recElInit) {
-                recElInit.value = getSecurityRecommendation(typeElInit ? typeElInit.value : '', secElInit ? secElInit.value : '');
-            }
-        };
-        if (typeElInit)
-            typeElInit.addEventListener('change', syncWizardRec);
-        if (secElInit)
-            secElInit.addEventListener('change', syncWizardRec);
-        syncWizardRec();
-        ensureInstitutionContactModal();
+            <div id="sec1-saved-badge" style="display:none;">
+                <span class="badge" style="background:#10b981;padding:6px 14px;border-radius:20px;font-size:0.8rem;">âœ“ Saved</span>
+            </div>
+        </div>
+        <div class="inst-section-body">
+            <div class="row g-4">
+                <!-- Auto ID display -->
+                <div class="col-12">
+                    <label class="form-label fw-semibold" style="color:#475569;font-size:0.8rem;">INSTITUTION ID (Auto-generated)</label>
+                    <div class="inst-id-badge" id="wiz-auto-id-display">
+                        <span class="material-icons" style="font-size:1rem;">fingerprint</span>
+                        <span id="wiz-auto-id-text">Generatingâ€¦</span>
+                    </div>
+                    <div class="text-muted mt-1" style="font-size:0.75rem;">System-assigned unique identifier with prefix CB_INT_</div>
+                </div>
+
+                <!-- Structure (first, as it affects other fields) -->
+                <div class="col-md-6">
+                    <div class="form-floating">
+                        <select id="wiz-inst-structure" class="form-select" onchange="instHandleStructureChange()">
+                            <option value="Sole Entity" selected>Sole Entity â€” Single campus organisation</option>
+                            <option value="Union">Union â€” Multiple campuses / institutions</option>
+                        </select>
+                        <label>Institution Structure <span class="text-danger">*</span></label>
+                    </div>
+                </div>
+
+                <!-- Union Info Banner (hidden by default) -->
+                <div class="col-12" id="union-info-banner" style="display:none;">
+                    <div class="union-info-banner">
+                        <span class="material-icons" style="font-size:1.2rem;flex-shrink:0;">info</span>
+                        <div><strong>Union structure selected:</strong> You can add multiple campus addresses in Section 2. Each additional campus will generate a separate institution record with a unique ID and the institution name suffixed (e.g. My School_0002, My School_0003â€¦)</div>
+                    </div>
+                </div>
+
+                <!-- Official Name -->
+                <div class="col-md-6">
+                    <div class="form-floating">
+                        <input type="text" id="wiz-inst-name" class="form-control" placeholder="Official Name" autocomplete="off">
+                        <label>Institution Official Name <span class="text-danger">*</span></label>
+                    </div>
+                </div>
+
+                <!-- Visual Name -->
+                <div class="col-md-6">
+                    <div class="form-floating">
+                        <input type="text" id="wiz-inst-visual-name" class="form-control" placeholder="Visual Name" autocomplete="off">
+                        <label>Institution Visual Name <small class="text-muted">(shown across system)</small></label>
+                    </div>
+                </div>
+
+                <!-- Brief Details -->
+                <div class="col-md-6">
+                    <div class="form-floating">
+                        <textarea id="wiz-inst-brief" class="form-control" placeholder="Brief" style="height:80px;" autocomplete="off"></textarea>
+                        <label>Institution Brief Details <small class="text-muted">(optional)</small></label>
+                    </div>
+                </div>
+
+                <!-- Type -->
+                <div class="col-md-4">
+                    <div class="form-floating">
+                        <select id="wiz-inst-type" class="form-select">
+                            <option value="Pre school">Pre School</option>
+                            <option value="Primary School">Primary School</option>
+                            <option value="Secondary School">Secondary School</option>
+                            <option value="K12 School" selected>K12 School</option>
+                            <option value="College">College</option>
+                            <option value="Company">Company</option>
+                        </select>
+                        <label>Institution Type <span class="text-danger">*</span></label>
+                    </div>
+                </div>
+
+                <!-- State -->
+                <div class="col-md-4">
+                    <div class="form-floating">
+                        <select id="wiz-inst-state" class="form-select">
+                            <option value="Trial" selected>Trial</option>
+                            <option value="Active">Active</option>
+                            <option value="Suspended">Suspended</option>
+                            <option value="Archived">Archived</option>
+                            <option value="Deleted">Deleted</option>
+                        </select>
+                        <label>State <span class="text-danger">*</span></label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec1-error" class="inst-error"></div>
+
+            <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+                <button class="inst-save-btn" onclick="instSaveSection1()">
+                    <span class="material-icons" style="font-size:1.1rem;">save</span>
+                    Save &amp; Continue to Section 2
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 2: Institution Address (locked until S1 is saved) -->
+    <div class="inst-section-card" id="inst-sec2">
+        <div class="inst-section-header">
+            <span class="inst-section-number" id="numBadge2">2</span>
+            <div class="flex-fill">
+                <div class="fw-bold" style="color:#0f172a;">Section 2 â€” Campus Addresses</div>
+                <div class="text-muted" style="font-size:0.8rem;">Add one or more campus locations with regional settings</div>
+            </div>
+            <div id="sec2-saved-badge" style="display:none;">
+                <span class="badge" style="background:#10b981;padding:6px 14px;border-radius:20px;font-size:0.8rem;">âœ“ Saved</span>
+            </div>
+        </div>
+        <!-- Locked state -->
+        <div class="inst-section-locked" id="sec2-locked">
+            <span class="material-icons" style="font-size:2.5rem;color:#cbd5e1;">lock</span>
+            <div class="fw-semibold" style="color:#94a3b8;">Complete Section 1 first</div>
+            <div style="font-size:0.8rem;color:#b0bec5;">Save institution details above to unlock campus addresses</div>
+        </div>
+        <!-- Body (hidden until unlocked) -->
+        <div class="inst-section-body" id="sec2-body" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div style="font-size:0.85rem;color:#475569;">
+                    Primary campus address is <strong>required</strong>. Additional campuses only available for <strong>Union</strong> structure.
+                </div>
+                <button type="button" class="btn d-flex align-items-center gap-1 px-3 py-2 fw-semibold"
+                        id="btn-add-address"
+                        style="background:#eff6ff;color:#2563EB;border:1.5px solid #bfdbfe;border-radius:10px;font-size:0.85rem;"
+                        onclick="addInstitutionWizardAddress()">
+                    <span class="material-icons" style="font-size:1rem;">add_location_alt</span> Add Campus
+                </button>
+            </div>
+            <div id="new-school-address-list"></div>
+            <div id="address-section-error" class="inst-error"></div>
+            <div id="sec2-error" class="inst-error"></div>
+            <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+                <button class="inst-save-btn green" onclick="instSaveSection2()">
+                    <span class="material-icons" style="font-size:1.1rem;">save</span>
+                    Save Addresses &amp; Review
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Section 3: Review & Create (locked until S1+S2 saved) -->
+    <div class="inst-section-card" id="inst-sec3">
+        <div class="inst-section-header">
+            <span class="inst-section-number" id="numBadge3">3</span>
+            <div class="flex-fill">
+                <div class="fw-bold" style="color:#0f172a;">Section 3 â€” Review &amp; Create</div>
+                <div class="text-muted" style="font-size:0.8rem;">Confirm details before creating the institution</div>
+            </div>
+        </div>
+        <!-- Locked -->
+        <div class="inst-section-locked" id="sec3-locked">
+            <span class="material-icons" style="font-size:2.5rem;color:#cbd5e1;">lock</span>
+            <div class="fw-semibold" style="color:#94a3b8;">Complete Sections 1 &amp; 2 first</div>
+        </div>
+        <!-- Body -->
+        <div class="inst-section-body" id="sec3-body" style="display:none;">
+            <div id="inst-review-content"></div>
+            <div id="sec3-error" class="inst-error"></div>
+            <div class="d-flex justify-content-between mt-4 pt-3 border-top">
+                <button class="btn px-4 py-2 fw-semibold" 
+                        style="border:1.5px solid #e2e8f0;border-radius:10px;color:#475569;"
+                        onclick="_instEditSection(2)">
+                    <span class="material-icons" style="font-size:1rem;vertical-align:middle;">edit</span> Edit Addresses
+                </button>
+                <button class="inst-save-btn green" id="btn-inst-final-create" onclick="handleCreateSchool()">
+                    <span class="material-icons" style="font-size:1.1rem;">domain_verification</span>
+                    Create Institution
+                </button>
+            </div>
+        </div>
+    </div>
+</div>`;
+
+    const mc = document.getElementById('main-content');
+    if (mc) {
+        mc.insertAdjacentHTML('beforeend', pageHtml);
+    } else {
+        document.body.insertAdjacentHTML('beforeend', pageHtml);
     }
-    resetInstitutionWizardAddresses();
-    institutionWizardStep1Saved = false;
-    institutionContactsDraft = [{
-        individual_type: 'Tenant Admin',
-        custom_type: '',
-        first_name: 'Tenant',
-        middle_name: '',
-        last_name: 'Admin',
-        email: '',
-        status: 'Active',
-        contact_number: '',
-        mobile_number: '',
-        address: ''
-    }];
-    renderInstitutionContactRows(institutionContactsDraft);
-    renderInstitutionWizardAddresses();
-    goInstitutionCreateStep(1);
+
+    // Open the view
     openView('createSchoolModal');
+
+    // Fetch and display auto ID
+    _fetchNextInstId().then(n => {
+        _instAutoIdCounter = n;
+        const txt = _fmtInstId(n);
+        const el1 = document.getElementById('wiz-auto-id-text');
+        const el2 = document.getElementById('inst-top-autoId');
+        if (el1) el1.textContent = txt;
+        if (el2) el2.innerHTML = `<span class="material-icons" style="font-size:1rem;">tag</span><span>${txt}</span>`;
+        const badge = document.getElementById('inst-top-autoId');
+        if (badge) badge.style.opacity = '1';
+    });
+
+    renderInstitutionWizardAddresses();
 }
-function handleCreateSchool(e) {
-    return __awaiter(this, void 0, void 0, function* () {
-        if (e)
-            e.preventDefault();
-        if (!validateInstitutionWizardStep1())
-            return;
-        const name = (document.getElementById('wiz-inst-name').value || '').trim();
-        const email = (document.getElementById('wiz-inst-email').value || '').trim();
-        const structureEl = document.getElementById('wiz-inst-structure');
-        const typeEl = document.getElementById('wiz-inst-type');
-        const stateEl = document.getElementById('wiz-inst-state');
-        const visualNameEl = document.getElementById('wiz-inst-visual-name');
-        const briefEl = document.getElementById('wiz-inst-brief');
-        const securityModeEl = document.getElementById('wizard-security-mode');
-        const securityRecEl = document.getElementById('wizard-security-recommendation');
-        const colorThemeEl = document.getElementById('wizard-color-theme');
-        const dateFmtEl = document.getElementById('wizard-date-format');
-        const timeFmtEl = document.getElementById('wizard-time-format');
-        const currencyEl = document.getElementById('wizard-currency-code');
-        const primaryAddress = institutionWizardAddresses[0] || { address_line: '' };
-        const contacts = collectInstitutionContacts();
-        if (!contacts.length) {
-            contacts.push({
-                individual_type: 'Tenant Admin',
-                custom_type: '',
-                first_name: 'Tenant',
-                middle_name: '',
-                last_name: 'Admin',
-                email: email,
-                status: 'Active',
-                contact_number: '',
-                mobile_number: '',
-                address: primaryAddress.address_line || ''
-            });
-        }
-        try {
-            let res = yield fetchAPI('/admin/institutions', {
-                method: 'POST',
-                body: JSON.stringify({
-                    institution_official_name: name,
-                    institution_visual_name: visualNameEl ? String(visualNameEl.value || '').trim() : name,
-                    institution_brief_details: briefEl ? String(briefEl.value || '').trim() : '',
-                    institution_type: typeEl ? String(typeEl.value || 'K12 School').trim() : 'K12 School',
-                    institution_structure: structureEl ? String(structureEl.value || 'Sole Entity').trim() : 'Sole Entity',
-                    state: stateEl ? String(stateEl.value || 'Trial').trim() : 'Trial',
-                    addresses: institutionWizardAddresses.map((a, idx) => ({
-                        address_line: String(a.address_line || '').trim(),
-                        region: String(a.region || '').trim(),
-                        timezone: String(a.timezone || '').trim(),
-                        language: String(a.language || 'English').trim(),
-                        is_primary: idx === 0
-                    })),
-                    key_individuals: contacts,
-                    security: {
-                        auth_mode: securityModeEl ? String(securityModeEl.value || 'email_otp').trim() : 'email_otp',
-                        recommendation_text: securityRecEl ? String(securityRecEl.value || '').trim() : ''
-                    },
-                    branding: { logo_url: '', color_theme: colorThemeEl ? String(colorThemeEl.value || '').trim() : '', default_course_image_url: '' },
-                    locale: {
-                        date_format: dateFmtEl ? String(dateFmtEl.value || 'YYYY-MM-DD').trim() : 'YYYY-MM-DD',
-                        time_format: timeFmtEl ? String(timeFmtEl.value || '24h').trim() : '24h',
-                        currency_code: currencyEl ? String(currencyEl.value || 'USD').trim().toUpperCase() : 'USD'
-                    }
-                })
-            });
-            if (!res.ok) {
-                res = yield fetchAPI('/admin/schools', {
-                    method: 'POST',
-                    body: JSON.stringify({ name, address: primaryAddress.address_line || '', contact_email: email })
-                });
-            }
-            if (res.ok) {
-                alert("Institution Created Successfully!");
-                closeView();
-                // Clear form
-                document.getElementById('create-school-form').reset();
-                loadSuperAdminDashboard();
-            }
-            else {
-                const err = yield res.json();
-                alert("Error: " + (err.detail || "Failed"));
-            }
-        }
-        catch (e) {
-            console.error(e);
-            alert("Network Error");
-        }
+
+function instHandleStructureChange() {
+    const val = (document.getElementById('wiz-inst-structure') || {}).value;
+    const banner = document.getElementById('union-info-banner');
+    if (banner) banner.style.display = val === 'Union' ? 'block' : 'none';
+    // If switching back to Sole Entity, trim addresses to 1
+    if (val === 'Sole Entity' && institutionWizardAddresses.length > 1) {
+        institutionWizardAddresses = [institutionWizardAddresses[0]];
+        institutionWizardAddresses[0].is_primary = true;
+        renderInstitutionWizardAddresses();
+    }
+    _instCreateSection1Saved = false;
+}
+
+function _instUpdateProgress() {
+    // Update stepper UI
+    [1, 2, 3].forEach(n => {
+        const num = document.getElementById('pnum-' + n);
+        const step = document.getElementById('pstep-' + n);
+        if (!num || !step) return;
+        const done = (n === 1 && _instCreateSection1Saved) || (n === 2 && _instCreateSection2Saved);
+        const active = (n === 1 && !_instCreateSection1Saved) || (n === 2 && _instCreateSection1Saved && !_instCreateSection2Saved) || (n === 3 && _instCreateSection2Saved);
+        num.className = 'inst-section-number' + (done ? ' done' : (active ? ' active' : ''));
+        num.textContent = done ? 'âœ“' : n;
+        const lbl = step.querySelector('.fw-bold');
+        if (lbl) lbl.style.color = done ? '#10b981' : (active ? '#1d4ed8' : '#94a3b8');
     });
 }
+
+function validateInstitutionWizardStep1() {
+    _instShowError('sec1-error', '');
+    const name = (document.getElementById('wiz-inst-name')?.value || '').trim();
+    const structure = (document.getElementById('wiz-inst-structure')?.value || '').trim();
+    const type = (document.getElementById('wiz-inst-type')?.value || '').trim();
+    const state = (document.getElementById('wiz-inst-state')?.value || '').trim();
+    if (!name) { _instShowError('sec1-error', 'Institution Official Name is required.'); document.getElementById('wiz-inst-name')?.focus(); return false; }
+    if (!structure) { _instShowError('sec1-error', 'Institution Structure is required.'); return false; }
+    if (!type) { _instShowError('sec1-error', 'Institution Type is required.'); return false; }
+    if (!state) { _instShowError('sec1-error', 'State is required.'); return false; }
+    return true;
+}
+
+function saveInstitutionWizardStep1AndContinue() {
+    if (!validateInstitutionWizardStep1()) {
+        return false;
+    }
+    instSaveSection1();
+    return true;
+}
+
+function goInstitutionCreateStep(step) {
+    const targetStep = Number(step);
+    if (targetStep === 1) {
+        const sec1 = document.getElementById('inst-sec1');
+        if (sec1) sec1.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+    if (targetStep === 2) {
+        if (!_instCreateSection1Saved && !saveInstitutionWizardStep1AndContinue()) return;
+        const sec2 = document.getElementById('inst-sec2');
+        if (sec2) sec2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+    if (targetStep === 3) {
+        if (!_instCreateSection1Saved && !saveInstitutionWizardStep1AndContinue()) return;
+        if (!_instCreateSection2Saved) {
+            instSaveSection2();
+            if (!_instCreateSection2Saved) return;
+        }
+        const sec3 = document.getElementById('inst-sec3');
+        if (sec3) sec3.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function instSaveSection1() {
+    _instShowError('sec1-error', '');
+    const name = (document.getElementById('wiz-inst-name').value || '').trim();
+    const structure = (document.getElementById('wiz-inst-structure').value || '').trim();
+    const type = (document.getElementById('wiz-inst-type').value || '').trim();
+    const state = (document.getElementById('wiz-inst-state').value || '').trim();
+
+    if (!name) { _instShowError('sec1-error', 'Institution Official Name is required.'); document.getElementById('wiz-inst-name').focus(); return; }
+    if (!structure) { _instShowError('sec1-error', 'Institution Structure is required.'); return; }
+    if (!type) { _instShowError('sec1-error', 'Institution Type is required.'); return; }
+    if (!state) { _instShowError('sec1-error', 'State is required.'); return; }
+
+    _instCreateSection1Saved = true;
+
+    // Mark S1 as saved
+    const badge = document.getElementById('sec1-saved-badge');
+    if (badge) badge.style.display = 'flex';
+    const nb1 = document.getElementById('numBadge1');
+    if (nb1) { nb1.className = 'inst-section-number done'; nb1.textContent = 'âœ“'; }
+
+    // Unlock S2
+    const locked = document.getElementById('sec2-locked');
+    const body = document.getElementById('sec2-body');
+    if (locked) locked.style.display = 'none';
+    if (body) body.style.display = 'block';
+    const nb2 = document.getElementById('numBadge2');
+    if (nb2) { nb2.className = 'inst-section-number active'; }
+
+    _instUpdateProgress();
+    renderInstitutionWizardAddresses();
+
+    // Scroll to S2
+    setTimeout(() => {
+        const sec2 = document.getElementById('inst-sec2');
+        if (sec2) sec2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
+}
+
+function instSaveSection2() {
+    _instShowError('sec2-error', '');
+    _instShowError('address-section-error', '');
+
+    let hasError = false;
+    for (let i = 0; i < institutionWizardAddresses.length; i++) {
+        const addrEl = document.getElementById('wiz-address-' + i);
+        const val = (institutionWizardAddresses[i].address_line || '').trim();
+        if (!val) {
+            if (addrEl) addrEl.classList.add('is-invalid');
+            hasError = true;
+        } else {
+            if (addrEl) addrEl.classList.remove('is-invalid');
+        }
+    }
+    if (hasError) { _instShowError('sec2-error', 'Please fill in the full address for all campus locations.'); return; }
+
+    _instCreateSection2Saved = true;
+
+    const badge = document.getElementById('sec2-saved-badge');
+    if (badge) badge.style.display = 'flex';
+    const nb2 = document.getElementById('numBadge2');
+    if (nb2) { nb2.className = 'inst-section-number done'; nb2.textContent = 'âœ“'; }
+
+    // Unlock S3
+    const locked3 = document.getElementById('sec3-locked');
+    const body3 = document.getElementById('sec3-body');
+    if (locked3) locked3.style.display = 'none';
+    if (body3) body3.style.display = 'block';
+    const nb3 = document.getElementById('numBadge3');
+    if (nb3) { nb3.className = 'inst-section-number active'; }
+
+    _instUpdateProgress();
+    _instBuildReview();
+
+    setTimeout(() => {
+        const sec3 = document.getElementById('inst-sec3');
+        if (sec3) sec3.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
+}
+
+function _instEditSection(n) {
+    if (n === 1) { _instCreateSection1Saved = false; _instCreateSection2Saved = false; /* Re-lock S2 & S3 */ _instLockSections(2, 3); _instUpdateProgress(); }
+    if (n === 2) { _instCreateSection2Saved = false; _instLockSections(3); _instUpdateProgress(); }
+}
+
+function _instLockSections(...nums) {
+    nums.forEach(n => {
+        const locked = document.getElementById('sec' + n + '-locked');
+        const body = document.getElementById('sec' + n + '-body');
+        const badge = document.getElementById('sec' + n + '-saved-badge');
+        if (locked) locked.style.display = 'flex';
+        if (body) body.style.display = 'none';
+        if (badge) badge.style.display = 'none';
+        const nb = document.getElementById('numBadge' + n);
+        if (nb) { nb.className = 'inst-section-number'; nb.textContent = n; }
+    });
+}
+
+function _instBuildReview() {
+    const name = (document.getElementById('wiz-inst-name').value || '').trim();
+    const visualName = (document.getElementById('wiz-inst-visual-name').value || '').trim() || name;
+    const brief = (document.getElementById('wiz-inst-brief').value || '').trim();
+    const structure = (document.getElementById('wiz-inst-structure').value || '');
+    const type = (document.getElementById('wiz-inst-type').value || '');
+    const state = (document.getElementById('wiz-inst-state').value || '');
+    const baseId = _instAutoIdCounter ? _fmtInstId(_instAutoIdCounter) : 'CB_INT_xxxxxx';
+    const isMulti = institutionWizardAddresses.length > 1;
+
+    const institutionsToCreate = institutionWizardAddresses.map((a, idx) => ({
+        id: idx === 0 ? baseId : _fmtInstId((_instAutoIdCounter || 0) + idx),
+        name: idx === 0 ? name : `${name}_${String(idx + 1).padStart(4, '0')}`,
+        address: a,
+        idx
+    }));
+
+    const rc = document.getElementById('inst-review-content');
+    if (!rc) return;
+    rc.innerHTML = `
+        <div class="mb-4 p-4 rounded-3" style="background:#f8fafc;border:1px solid #e2e8f0;">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="small text-muted fw-semibold mb-1">INSTITUTION ID</div>
+                    <div class="fw-bold" style="font-family:monospace;color:#1d4ed8;">${baseId}</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="small text-muted fw-semibold mb-1">OFFICIAL NAME</div>
+                    <div class="fw-bold">${name}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="small text-muted fw-semibold mb-1">VISUAL NAME</div>
+                    <div>${visualName}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="small text-muted fw-semibold mb-1">STRUCTURE</div>
+                    <div><span class="badge bg-primary">${structure}</span></div>
+                </div>
+                <div class="col-md-4">
+                    <div class="small text-muted fw-semibold mb-1">TYPE</div>
+                    <div>${type}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="small text-muted fw-semibold mb-1">STATE</div>
+                    <div><span class="badge" style="background:#f59e0b;">${state}</span></div>
+                </div>
+                ${brief ? `<div class="col-12"><div class="small text-muted fw-semibold mb-1">BRIEF</div><div>${brief}</div></div>` : ''}
+            </div>
+        </div>
+
+        ${isMulti ? `<div class="alert" style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:10px;">
+            <strong><span class="material-icons" style="font-size:1rem;vertical-align:middle;">info</span> Multi-Campus Creation:</strong>
+            ${institutionWizardAddresses.length} separate institution records will be created.
+        </div>` : ''}
+
+        <h6 class="fw-bold mb-3" style="color:#475569;">Campus Locations to be Created</h6>
+        ${institutionsToCreate.map(inst => `
+            <div class="p-3 mb-3 rounded-3" style="border:1.5px solid ${inst.idx === 0 ? '#2563EB' : '#e2e8f0'};background:${inst.idx === 0 ? '#eff6ff' : '#fff'};">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold" style="color:${inst.idx === 0 ? '#1d4ed8' : '#374151'};">${inst.name}</span>
+                    <span class="badge" style="background:#e2e8f0;color:#475569;font-family:monospace;">${inst.id}</span>
+                </div>
+                <div class="text-muted small">${inst.address.address_line || 'â€”'} &nbsp;|&nbsp; ${inst.address.region || 'â€”'} &nbsp;|&nbsp; ${inst.address.timezone || 'UTC'} &nbsp;|&nbsp; ${inst.address.language || 'English'}</div>
+            </div>
+        `).join('')}
+    `;
+}
+
+async function handleCreateSchool(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    _instShowError('sec3-error', '');
+
+    if (!_instCreateSection1Saved) { _instShowError('sec3-error', 'Please complete and save Section 1.'); return; }
+    if (!_instCreateSection2Saved) { _instShowError('sec3-error', 'Please complete and save Section 2.'); return; }
+
+    const name = (document.getElementById('wiz-inst-name').value || '').trim();
+    const visualName = (document.getElementById('wiz-inst-visual-name').value || '').trim() || name;
+    const brief = (document.getElementById('wiz-inst-brief').value || '').trim();
+    const structure = (document.getElementById('wiz-inst-structure').value || '').trim();
+    const type = (document.getElementById('wiz-inst-type').value || '').trim();
+    const state = (document.getElementById('wiz-inst-state').value || '').trim();
+
+    const btn = document.getElementById('btn-inst-final-create');
+    if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span> Creatingâ€¦`; }
+
+    try {
+        // Determine institution records to create
+        const toCreate = institutionWizardAddresses.map((a, idx) => ({
+            institution_official_name: idx === 0 ? name : `${name}_${String(idx + 1).padStart(4, '0')}`,
+            institution_visual_name: idx === 0 ? visualName : `${visualName}_${String(idx + 1).padStart(4, '0')}`,
+            institution_brief_details: brief,
+            institution_type: type,
+            institution_structure: structure,
+            state: state,
+            addresses: [{
+                address_line: (a.address_line || '').trim(),
+                region: (a.region || '').trim(),
+                timezone: (a.timezone || 'UTC').trim(),
+                language: (a.language || 'English').trim(),
+                is_primary: true
+            }],
+            key_individuals: [],
+            security: { auth_mode: 'email_otp', recommendation_text: '' },
+            branding: { logo_url: '', color_theme: '', default_course_image_url: '' },
+            locale: { date_format: 'YYYY-MM-DD', time_format: '24h', currency_code: 'USD' }
+        }));
+
+        let allOk = true;
+        const errors = [];
+
+        for (const payload of toCreate) {
+            const res = await fetchAPI('/admin/institutions', { method: 'POST', body: JSON.stringify(payload) });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                errors.push(payload.institution_official_name + ': ' + (err.detail || 'Failed'));
+                allOk = false;
+            }
+        }
+
+        if (allOk) {
+            closeView();
+            // Remove the stale DOM for fresh creation next time
+            const stale = document.getElementById('createSchoolModal');
+            if (stale) stale.remove();
+            loadSuperAdminDashboard();
+            // Toast
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:14px 22px;border-radius:12px;font-weight:700;box-shadow:0 8px 25px rgba(16,185,129,0.4);animation:fadeInView 0.4s;';
+            toast.textContent = toCreate.length === 1 ? 'âœ“ Institution Created Successfully!' : `âœ“ ${toCreate.length} Institutions Created!`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        } else {
+            _instShowError('sec3-error', 'Some records failed: ' + errors.join('; '));
+        }
+    } catch (err) {
+        console.error(err);
+        _instShowError('sec3-error', 'Network error. Please try again.');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = `<span class="material-icons" style="font-size:1.1rem;">domain_verification</span> Create Institution`; }
+    }
+}
+
+// --- SCHOOL CONTEXT SWITCHING ---
+
 // --- SCHOOL CONTEXT SWITCHING ---
 function openSchoolDashboard(schoolId, schoolName) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -6169,6 +6523,70 @@ function launchMoodleSSO() {
 }
 /* --- DYNAMIC SIDEBAR LOGIC --- */
 function getSidebarConfig(role) {
+    // â”€â”€ Super Admin dedicated sidebar (matches reference design) â”€â”€
+    if (appState.isSuperAdmin || role === 'Root_Super_Admin' || role === 'Super_Admin' || role === 'Super Admin') {
+        return [
+            {
+                label: 'sidebar_dashboard', icon: 'dashboard',
+                onClick: () => loadSuperAdminDashboard()
+            },
+            {
+                label: 'sidebar_reports', icon: 'bar_chart', id: 'sa-cat-reports',
+                children: [
+                    {
+                        label: 'sidebar_attendance_report', view: 'attendance-report-view',
+                        route: '/superadmin/reports/attendance',
+                        onClick: () => { switchView('reports-view'); if (typeof loadReportsData === 'function') loadReportsData(); }
+                    },
+                    {
+                        label: 'sidebar_performance_report', view: 'performance-report-view',
+                        route: '/superadmin/reports/performance',
+                        onClick: () => switchView('performance-report-view')
+                    }
+                ]
+            },
+            {
+                label: 'Email', icon: 'email', id: 'sa-cat-email',
+                children: [
+                    { label: 'Inbox', view: 'email-inbox-view', route: '/superadmin/email/inbox' },
+                    { label: 'Compose New', view: 'email-compose-view', route: '/superadmin/email/compose' },
+                    { label: 'Sent Mail', view: 'email-sent-view', route: '/superadmin/email/sent' }
+                ]
+            },
+            {
+                label: 'User Management', icon: 'people',
+                view: 'user-management-view',
+                onClick: () => {
+                    if (typeof openUserManagement === 'function') openUserManagement();
+                    else switchView('user-management-view');
+                }
+            },
+            {
+                label: 'Role Management', icon: 'manage_accounts',
+                view: 'roles-view',
+                onClick: () => { switchView('roles-view'); if (typeof loadRoles === 'function') loadRoles(); }
+            },
+            {
+                label: 'Permission Setup', icon: 'vpn_key',
+                view: 'permissions-view',
+                onClick: () => { switchView('permissions-view'); if (typeof loadPermissionsSetup === 'function') loadPermissionsSetup(); }
+            },
+            {
+                label: 'sidebar_system_settings', icon: 'settings',
+                view: 'settings-view',
+                onClick: () => switchView('settings-view')
+            },
+            {
+                label: 'Root Admin Panel', icon: 'admin_panel_settings',
+                view: 'root-admin-view',
+                onClick: () => {
+                    if (typeof ensureRootAdminView === 'function') ensureRootAdminView();
+                    switchView('root-admin-view');
+                    if (typeof loadRootAdminPanel === 'function') loadRootAdminPanel();
+                }
+            }
+        ];
+    }
     if (role === 'Student') {
         return [
             { label: 'sidebar_dashboard', icon: 'dashboard', view: 'student-view' },
@@ -6613,46 +7031,58 @@ function getSidebarConfig(role) {
             { label: 'Sent Mail', view: 'email-sent-view', route: '/admin/email/sent' }
         ]
     });
-    items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
-    // Role Management Menu — gated by view_role_management per PRD
-    if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
-        items.push({
-            label: 'Role Management',
-            icon: 'manage_accounts',
-            view: 'roles-view',
-            onClick: () => {
-                switchView('roles-view');
-                loadRoles();
-            }
-        });
+
+    if (!['Tenant_Admin', 'Principal'].includes(appState.role)) {
+        items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
+
+        // Role Management Menu â€” gated by view_role_management per PRD
+        if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
+            items.push({
+                label: 'Role Management',
+                icon: 'manage_accounts',
+                view: 'roles-view',
+                onClick: () => {
+                    switchView('roles-view');
+                    loadRoles();
+                }
+            });
+        }
+
+        // Permission Setup â€” visible to anyone with view_permissions or edit_permissions
+        if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
+            items.push({
+                label: 'Permission Setup',
+                icon: 'vpn_key',
+                view: 'permissions-view',
+                onClick: () => {
+                    switchView('permissions-view');
+                    loadPermissionsSetup();
+                }
+            });
+        }
+
+        // User Management
+        if (appState.isSuperAdmin || ['Admin'].includes(appState.role)) {
+            items.push({
+                label: 'User Management',
+                icon: 'people',
+                view: 'user-management-view',
+                onClick: () => {
+                    if (typeof openUserManagement === 'function') openUserManagement();
+                    else switchView('user-management-view');
+                }
+            });
+        }
+
+        items.push({ label: 'sidebar_system_settings', icon: 'settings', view: 'settings-view', onClick: () => handleTeacherViewToggle('settings-view') });
     }
-    // Permission Setup — visible to anyone with view_permissions or edit_permissions
-    if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
-        items.push({
-            label: 'Permission Setup',
-            icon: 'vpn_key',
-            view: 'permissions-view',
-            onClick: () => {
-                switchView('permissions-view');
-                loadPermissionsSetup();
-            }
-        });
-    }
+
     if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
-        items.push({
-            label: 'User Management',
-            icon: 'people',
-            view: 'user-management-view',
-            onClick: () => {
-                if (typeof openUserManagement === 'function') openUserManagement();
-                else switchView('user-management-view');
-            }
-        });
         items.push({ label: 'sidebar_staff_faculty', icon: 'people_alt', view: 'staff-view', onClick: () => handleTeacherViewToggle('staff-view') });
     }
-    items.push({ label: 'sidebar_system_settings', icon: 'settings', view: 'settings-view', onClick: () => handleTeacherViewToggle('settings-view') });
-    if (appState.isSuperAdmin) {
-        // Root Admin Panel — merged into Super Admin sidebar
+
+    if (appState.isSuperAdmin && appState.role !== 'Tenant_Admin') {
+        // Root Admin Panel â€” merged into Super Admin sidebar
         items.push({
             label: 'Root Admin Panel',
             icon: 'admin_panel_settings',
@@ -6663,7 +7093,7 @@ function getSidebarConfig(role) {
                 loadRootAdminPanel();
             }
         });
-        // Database Explorer — merged into Super Admin sidebar
+        // Database Explorer â€” merged into Super Admin sidebar
         items.push({
             label: 'Database Explorer',
             icon: 'storage',
@@ -7673,6 +8103,16 @@ function renderTeacherDashboard() {
         switchView('teacher-view');
         setSuperAdminInstitutionListMode(false);
         renderSuperAdminBackToInstitutionList();
+        const teacherMetricsEl = elements.teacherMetrics || document.getElementById('teacher-metrics');
+        const rosterTableEl = elements.rosterTable || document.getElementById('roster-table');
+        const classPerformanceChartEl = elements.classPerformanceChart || document.getElementById('class-performance-chart');
+        if (!teacherMetricsEl || !rosterTableEl || !classPerformanceChartEl) {
+            console.error('[Dashboard] Required teacher dashboard elements are missing.');
+            return;
+        }
+        elements.teacherMetrics = teacherMetricsEl;
+        elements.rosterTable = rosterTableEl;
+        elements.classPerformanceChart = classPerformanceChartEl;
         elements.teacherMetrics.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
         elements.rosterTable.innerHTML = '';
         if (window.Plotly) Plotly.purge(elements.classPerformanceChart);
@@ -7692,44 +8132,82 @@ function renderTeacherDashboard() {
             renderMetric(elements.teacherMetrics, "dashboard_teachers", data.total_teachers || 0, 'widget-yellow');
             renderMetric(elements.teacherMetrics, "dashboard_staff", "29,300", 'widget-blue');
             renderMetric(elements.teacherMetrics, "dashboard_awards", "95,800", 'widget-green');
-            // Roster Table
-            let tableHTML = '';
-            data.roster.forEach(student => {
-                tableHTML += `
-                    <tr>
-                        <td><span class="badge bg-light text-dark border">${student.ID}</span></td>
-                        <td class="fw-bold text-primary-custom">${student.Name}</td>
-                        <td>${student.Grade}</td>
-                        <td>
-                            <div class="progress" style="height: 6px; width: 60px;">
-                                <div class="progress-bar bg-success" style="width: ${student['Attendance %']}%"></div>
-                            </div>
-                            <small>${student['Attendance %']}%</small>
-                        </td>
-                        <td>${student['Initial Score']}%</td>
-                        <td><span class="badge ${student['Avg Activity Score'] >= 80 ? 'bg-success' : 'bg-secondary'}">${student['Avg Activity Score']}%</span></td>
-                        <td>${student.Subject}</td>
-                        <td>
-                            <div class="d-flex gap-2 justify-content-start">
-                                <button class="btn btn-sm btn-outline-primary" onclick="loadStudentDashboard('${student.ID}'); (document.getElementById('view-select') as HTMLInputElement).value='student-view'; document.getElementById('teacher-student-selector').style.display='block'; (document.getElementById('student-select') as HTMLInputElement).value='${student.ID}';" title="View Dashboard">
-                                    <span class="material-icons" style="font-size: 18px;">visibility</span>
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="openEditStudentModal('${student.ID}')" title="Edit Profile">
-                                    <span class="material-icons" style="font-size: 18px;">edit</span>
-                                </button>
-                                <button class="btn btn-sm btn-outline-dark" onclick="openAccessCardModal('${student.ID}')" title="Print Access Card">
-                                    <span class="material-icons" style="font-size: 18px;">badge</span>
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="handleDeleteStudent('${student.ID}', '${student.Name}')" title="Delete Student">
-                                    <span class="material-icons" style="font-size: 18px;">delete</span>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            });
-            elements.rosterTable.innerHTML = tableHTML;
-            document.getElementById('roster-header').innerHTML = '<th>ID</th><th>Name</th><th>Grade</th><th>Attendance</th><th>Initial Score</th><th>Avg Score</th><th>Subject</th><th>Actions</th>';
+            // Roster Table Pagination
+            elements.rosterTable.dataset.cbAutoPagination = 'off';
+            window.renderRosterTablePage = function (page) {
+                window.currentRosterPage = page;
+                const itemsPerPage = 5;
+                const startIndex = (page - 1) * itemsPerPage;
+                const endIndex = startIndex + itemsPerPage;
+                const pageData = data.roster.slice(startIndex, endIndex);
+
+                let tableHTML = '';
+                pageData.forEach(student => {
+                    tableHTML += `
+                        <tr>
+                            <td><span class="badge bg-light text-dark border">${student.ID}</span></td>
+                            <td class="fw-bold text-primary-custom">${student.Name}</td>
+                            <td>${student.Grade}</td>
+                            <td>
+                                <div class="progress" style="height: 6px; width: 60px;">
+                                    <div class="progress-bar bg-success" style="width: ${student['Attendance %']}%"></div>
+                                </div>
+                                <small>${student['Attendance %']}%</small>
+                            </td>
+                            <td>${student['Initial Score']}%</td>
+                            <td><span class="badge ${student['Avg Activity Score'] >= 80 ? 'bg-success' : 'bg-secondary'}">${student['Avg Activity Score']}%</span></td>
+                            <td>${student.Subject}</td>
+                            <td>
+                                <div class="d-flex gap-2 justify-content-start">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="loadStudentDashboard('${student.ID}'); (document.getElementById('view-select') as HTMLInputElement).value='student-view'; document.getElementById('teacher-student-selector').style.display='block'; (document.getElementById('student-select') as HTMLInputElement).value='${student.ID}';" title="View Dashboard">
+                                        <span class="material-icons" style="font-size: 18px;">visibility</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="openEditStudentModal('${student.ID}')" title="Edit Profile">
+                                        <span class="material-icons" style="font-size: 18px;">edit</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-dark" onclick="openAccessCardModal('${student.ID}')" title="Print Access Card">
+                                        <span class="material-icons" style="font-size: 18px;">badge</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="handleDeleteStudent('${student.ID}', '${student.Name}')" title="Delete Student">
+                                        <span class="material-icons" style="font-size: 18px;">delete</span>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                });
+                elements.rosterTable.innerHTML = tableHTML;
+                document.getElementById('roster-header').innerHTML = '<th>ID</th><th>Name</th><th>Grade</th><th>Attendance</th><th>Initial Score</th><th>Avg Score</th><th>Subject</th><th>Actions</th>';
+
+                // Pagination controls
+                const totalPages = Math.ceil(data.roster.length / itemsPerPage);
+                let paginationHTML = '<div class="d-flex justify-content-end mt-3"><ul class="pagination pagination-sm mb-0">';
+                paginationHTML += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="window.renderRosterTablePage(${page - 1}); return false;">Previous</a></li>`;
+
+                let startPage = Math.max(1, page - 2);
+                let endPage = Math.min(totalPages, page + 2);
+
+                for (let i = startPage; i <= endPage; i++) {
+                    paginationHTML += `<li class="page-item ${page === i ? 'active' : ''}"><a class="page-link" href="#" onclick="window.renderRosterTablePage(${i}); return false;">${i}</a></li>`;
+                }
+
+                paginationHTML += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="window.renderRosterTablePage(${page + 1}); return false;">Next</a></li>`;
+                paginationHTML += '</ul></div>';
+
+                let pagContainer = document.getElementById('roster-pagination-container');
+                if (!pagContainer) {
+                    pagContainer = document.createElement('div');
+                    pagContainer.id = 'roster-pagination-container';
+                    // Append after table responsive block
+                    if (elements.rosterTable.closest('.table-responsive')) {
+                        elements.rosterTable.closest('.table-responsive').parentNode.appendChild(pagContainer);
+                    } else {
+                        elements.rosterTable.parentNode.appendChild(pagContainer);
+                    }
+                }
+                pagContainer.innerHTML = totalPages > 1 ? paginationHTML : '';
+            };
+            window.renderRosterTablePage(1);
             // ... (Chart logic remains the same) ...
             const chartData = data.roster.map(s => ({
                 x: s.Name,
@@ -7822,7 +8300,7 @@ function loadStudentDashboard(studentId) {
         const nameHeaderEl = document.getElementById('student-name-header');
         if (greetingEl) {
             const hour = new Date().getHours();
-            const greetEmoji = hour < 12 ? '☀️' : hour < 17 ? '🌤️' : '🌙';
+            const greetEmoji = hour < 12 ? 'â˜€ï¸' : hour < 17 ? 'ðŸŒ¤ï¸' : 'ðŸŒ™';
             const greetWord = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
             greetingEl.textContent = `${greetWord} ${greetEmoji}`;
         }
@@ -7882,7 +8360,7 @@ function loadStudentDashboard(studentId) {
             }
             if (summary.recommendation && elements.recommendationBox) {
                 elements.recommendationBox.style.display = 'block';
-                elements.recommendationBox.innerHTML = `<strong>💡 Recommendation:</strong> ${summary.recommendation}`;
+                elements.recommendationBox.innerHTML = `<strong>ðŸ’¡ Recommendation:</strong> ${summary.recommendation}`;
             }
             // GAMIFICATION RENDER
             const xp = student.xp || 0;
@@ -8513,7 +8991,7 @@ function openManageMembers(groupId, groupName) {
     return __awaiter(this, void 0, void 0, function* () {
         document.getElementById('manage-group-name').textContent = groupName; // Legacy
         if (document.getElementById('manage-group-title')) {
-            document.getElementById('manage-group-title').textContent = `👥 Manage: ${groupName}`;
+            document.getElementById('manage-group-title').textContent = `ðŸ‘¥ Manage: ${groupName}`;
         }
         document.getElementById('manage-group-id').value = groupId;
         // Reset Tabs
@@ -8771,7 +9249,7 @@ function openStudentGroup(groupId, name, desc) {
                 renderRow: (m) => {
                     let actionBtn = '';
                     if (m.type === 'Quiz' || m.type === 'Video' || m.content.startsWith('http')) {
-                        actionBtn = `<a href="${m.content}" target="_blank" class="btn btn-sm btn-outline-primary mt-2">Open Link 🔗</a>`;
+                        actionBtn = `<a href="${m.content}" target="_blank" class="btn btn-sm btn-outline-primary mt-2">Open Link ðŸ”—</a>`;
                     }
                     const div = document.createElement('div');
                     div.className = 'list-group-item py-3';
@@ -9021,7 +9499,7 @@ function handleGenerateQuiz(e) {
             alert("Failed to generate quiz: " + error.message);
         }
         finally {
-            btn.innerHTML = '✨ Generate Quiz';
+            btn.innerHTML = 'âœ¨ Generate Quiz';
             btn.disabled = false;
         }
     });
@@ -9765,7 +10243,7 @@ function loadCourseQuizzes(groupId) {
                 <div class="list-group-item d-flex justify-content-between align-items-center">
                     <div>
                         <h6 class="mb-1 fw-bold">${q.title}</h6>
-                        <small class="text-muted">${q.question_count} Questions • Created ${new Date(q.created_at).toLocaleDateString()}</small>
+                        <small class="text-muted">${q.question_count} Questions â€¢ Created ${new Date(q.created_at).toLocaleDateString()}</small>
                     </div>
                     <div>
                         ${viewResultsBtn}
@@ -10322,7 +10800,7 @@ function loadAssignmentMarksView() {
             assignments.forEach(a => {
                 const opt = document.createElement('option');
                 opt.value = String(a.id);
-                opt.textContent = `${a.title} • ${a.section_name || (a.grade_level ? `Grade ${a.grade_level}` : 'All Grades')}`;
+                opt.textContent = `${a.title} â€¢ ${a.section_name || (a.grade_level ? `Grade ${a.grade_level}` : 'All Grades')}`;
                 select.appendChild(opt);
             });
         }
@@ -10701,7 +11179,7 @@ function handleSubmitAssignment() {
                 if (typeof loadStudentAssignmentsAndResults === 'function') loadStudentAssignmentsAndResults();
                 if (typeof loadStudentDashboardAssignments === 'function') loadStudentDashboardAssignments(appState.userId);
                 // Show a friendly success toast
-                showToast('✅ Assignment submitted successfully!', 'success');
+                showToast('âœ… Assignment submitted successfully!', 'success');
             }
             else {
                 const errText = yield res.text().catch(() => '');
@@ -11001,7 +11479,10 @@ function handleDeleteSchool(id, name) {
 }
 // --- USER MANAGEMENT FUNCTIONS ---
 function openUserManagement() {
-    switchView('user-management-view');
+    const userManagementView = document.getElementById('user-management-view');
+    if (!userManagementView || !userManagementView.classList.contains('active')) {
+        switchView('user-management-view');
+    }
     // Default to Users tab
     const usersTabBtn = document.getElementById('pills-users-tab');
     if (usersTabBtn) {
@@ -11010,6 +11491,14 @@ function openUserManagement() {
     }
     loadUserList();
     loadUserManagementStats();
+}
+function refreshUserManagement(event) {
+    if (event && typeof event.preventDefault === 'function')
+        event.preventDefault();
+    if (event && typeof event.stopPropagation === 'function')
+        event.stopPropagation();
+    loadUserList();
+    return false;
 }
 function loadUserManagementStats() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -11020,12 +11509,28 @@ function loadUserManagementStats() {
                 const totalTenantsEl = document.getElementById('stat-total-tenants');
                 const totalUsersEl = document.getElementById('stat-total-users');
                 const growthPercentEl = document.getElementById('stat-growth-percent');
-
-                if (totalTenantsEl) totalTenantsEl.textContent = stats.total_tenants.toLocaleString();
-                if (totalUsersEl) totalUsersEl.textContent = stats.total_users.toLocaleString();
-                if (growthPercentEl) growthPercentEl.textContent = stats.growth_percentage + '%';
+                let tenants = Number(stats.total_active_tenants ?? stats.total_tenants ?? 0);
+                const users = Number(stats.total_users ?? 0);
+                const growth = Number(stats.users_percent_increase_last_month ?? stats.growth_percentage ?? 0);
+                if (typeof fetchAPI === 'function') {
+                    try {
+                        const institutionsRes = yield fetchAPI('/admin/institutions');
+                        if (institutionsRes.ok) {
+                            const institutions = yield institutionsRes.json();
+                            if (Array.isArray(institutions)) {
+                                tenants = institutions.length;
+                            }
+                        }
+                    }
+                    catch (_a) {
+                    }
+                }
+                if (totalTenantsEl) totalTenantsEl.textContent = (Number.isFinite(tenants) ? tenants : 0).toLocaleString();
+                if (totalUsersEl) totalUsersEl.textContent = (Number.isFinite(users) ? users : 0).toLocaleString();
+                if (growthPercentEl) growthPercentEl.textContent = `${Number.isFinite(growth) ? growth : 0}%`;
             }
-        } catch (e) {
+        }
+        catch (e) {
             console.error("Failed to load user management stats:", e);
         }
     });
@@ -11035,7 +11540,7 @@ function loadUserList() {
         const tbody = document.getElementById('users-table-body');
         const countEl = document.getElementById('user-result-count');
         if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
-        if (countEl) countEl.textContent = 'Loading…';
+        if (countEl) countEl.textContent = 'Loadingâ€¦';
 
         // Reset search fields on fresh load
         const searchEl = document.getElementById('user-search-input');
@@ -11061,7 +11566,7 @@ function loadUserList() {
     });
 }
 
-// ── Real-time Search & Filter (AC 2, AC 3, AC 4) ──────────────────────────────
+// â”€â”€ Real-time Search & Filter (AC 2, AC 3, AC 4) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function filterUserList() {
     const dataset = window._allUsers || [];
     const tbody = document.getElementById('users-table-body');
@@ -11075,7 +11580,7 @@ function filterUserList() {
     // Show/hide clear button
     if (clearBtn) clearBtn.style.display = q ? 'inline-flex' : 'none';
 
-    // ── Filter ───────────────────────────────────────────────────────────────
+    // â”€â”€ Filter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const filtered = dataset.filter(u => {
         const matchesSearch = !q || [
             u.name, u.first_name, u.last_name,
@@ -11086,7 +11591,7 @@ function filterUserList() {
         return matchesSearch && matchesRole;
     });
 
-    // ── Result count badge ───────────────────────────────────────────────────
+    // â”€â”€ Result count badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (countEl) {
         const total = dataset.length;
         if (q || roleFilter) {
@@ -11100,7 +11605,7 @@ function filterUserList() {
         }
     }
 
-    // ── AC 3 – "No users found" empty state ──────────────────────────────────
+    // â”€â”€ AC 3 â€“ "No users found" empty state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (filtered.length === 0) {
         if (tbody) tbody.innerHTML = `
             <tr>
@@ -11117,7 +11622,7 @@ function filterUserList() {
         return;
     }
 
-    // ── AC 1 & AC 4 – Render table rows with pagination ───────────────────────
+    // â”€â”€ AC 1 & AC 4 â€“ Render table rows with pagination â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function _buildRow(u) {
         const safeId = String(u.id || '').replace(/'/g, "\\'");
         const safeName = String(u.name || '').replace(/'/g, "\\'");
@@ -11301,7 +11806,7 @@ function euLoadGuardians(userId) {
     return __awaiter(this, void 0, void 0, function* () {
         const container = document.getElementById('eu-guardian-list');
         if (!container) return;
-        container.innerHTML = `<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm text-warning"></div><span class="ms-2 small">Loading guardians…</span></div>`;
+        container.innerHTML = `<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm text-warning"></div><span class="ms-2 small">Loading guardiansâ€¦</span></div>`;
         try {
             const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians`);
             if (!res.ok) { container.innerHTML = '<p class="text-muted small">Could not load guardians.</p>'; return; }
@@ -11409,7 +11914,7 @@ function handleUpdateUser(e) {
 }
 
 function saveEditUser(id) {
-    // Legacy stub – redirects to new edit view
+    // Legacy stub â€“ redirects to new edit view
     editUser(id);
 }
 
@@ -11433,7 +11938,7 @@ function deleteUser(id, name) {
     });
 }
 
-// ── Role Chip Helpers (AC1 + AC2) ──
+// â”€â”€ Role Chip Helpers (AC1 + AC2) â”€â”€
 
 /**
  * Fetches roles from /api/admin/roles and renders clickable chips in #{prefix}-role-picker.
@@ -11442,45 +11947,91 @@ function deleteUser(id, name) {
  */
 function _loadRoleChips(prefix, preSelected) {
     return __awaiter(this, void 0, void 0, function* () {
-        const picker = document.getElementById(`${prefix}-role-picker`);
-        if (!picker) return;
-        picker.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading roles…</span>';
+        const isVisibleEl = (el) => !!(el && el.getClientRects && el.getClientRects().length > 0);
+        const getPicker = () => {
+            const candidates = Array.from(document.querySelectorAll(`#${prefix}-role-chips-container, #${prefix}-role-picker`));
+            if (!candidates.length) return null;
+            return candidates.find(isVisibleEl) || candidates[0];
+        };
+        if (!window._roleChipsLoading) {
+            window._roleChipsLoading = {};
+            window._roleChipsReqId = {};
+        }
+        if (window._roleChipsLoading[prefix]) {
+            return;
+        }
+        window._roleChipsLoading[prefix] = true;
+        const reqId = Number(window._roleChipsReqId[prefix] || 0) + 1;
+        window._roleChipsReqId[prefix] = reqId;
+        const picker = getPicker();
+        if (!picker) {
+            window._roleChipsLoading[prefix] = false;
+            return;
+        }
+        picker.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading rolesâ€¦</span>';
         try {
-            const res = yield fetchAPI('/admin/roles');
+            let res = yield fetchAPI('/admin/roles');
+            if (res.status === 401 || res.status === 403) {
+                res = yield fetchAPI('/admin/users/assignable-roles');
+            }
             if (!res.ok) throw new Error('Failed');
-            const roles = yield res.json();
-            picker.innerHTML = '';
+            const payload = yield res.json();
+            const roles = Array.isArray(payload) ? payload : (payload.roles || []);
+            if (window._roleChipsReqId[prefix] !== reqId) {
+                return;
+            }
+            const activePicker = getPicker();
+            if (!activePicker) {
+                return;
+            }
+            activePicker.innerHTML = '';
             // Filter out Root_Super_Admin for non-root users
-            const filtered = roles.filter(r => r.name !== 'Root_Super_Admin');
+            const filtered = roles.filter(r => (r.role_title || r.name) !== 'Root_Super_Admin');
+            if (!filtered.length) {
+                activePicker.innerHTML = '<span class="text-muted small">No assignable roles available.</span>';
+                return;
+            }
             filtered.forEach(role => {
+                const roleName = role.role_title || role.name || '';
+                const roleId = role.role_id || role.id;
                 const chip = document.createElement('div');
                 chip.className = 'role-chip';
-                chip.setAttribute('data-role-name', role.name);
-                chip.setAttribute('data-role-id', role.id);
-                chip.innerHTML = `<span class="role-chip-dot"></span>${role.name.replace(/_/g, ' ')}`;
+                chip.setAttribute('data-role-name', roleName);
+                chip.setAttribute('data-role-id', String(roleId));
+                chip.innerHTML = `<span class="role-chip-dot"></span>${roleName.replace(/_/g, ' ')}`;
                 // Pre-select if in preSelected list
-                if (preSelected && preSelected.includes(role.name)) {
+                if (preSelected && preSelected.map(x => Number(x)).includes(Number(roleId))) {
                     chip.classList.add('selected');
                 }
-                chip.addEventListener('click', () => _toggleRoleChip(chip, prefix, role.name, role.permissions));
-                picker.appendChild(chip);
+                chip.addEventListener('click', () => _toggleRoleChip(chip, prefix, roleName, role.permissions));
+                activePicker.appendChild(chip);
             });
             // Auto-select first chip if nothing pre-selected
-            const anySelected = picker.querySelector('.role-chip.selected');
+            const anySelected = activePicker.querySelector('.role-chip.selected');
             if (!anySelected && filtered.length > 0) {
-                const first = picker.querySelector('.role-chip');
+                const first = activePicker.querySelector('.role-chip');
                 if (first) first.classList.add('selected');
             }
             // Show permission preview for the first selected chip
-            const firstSelected = picker.querySelector('.role-chip.selected');
+            const firstSelected = activePicker.querySelector('.role-chip.selected');
             if (firstSelected) {
                 const roleName = firstSelected.getAttribute('data-role-name');
-                const matchedRole = filtered.find(r => r.name === roleName);
+                const matchedRole = filtered.find(r => (r.role_title || r.name) === roleName);
                 if (matchedRole) _showRolePerms(prefix, matchedRole.permissions);
             }
             _syncHiddenRoleInput(prefix);
         } catch (e) {
-            picker.innerHTML = '<span class="text-danger small">Failed to load roles. Please refresh.</span>';
+            if (window._roleChipsReqId[prefix] !== reqId) {
+                return;
+            }
+            const activePicker = getPicker();
+            if (activePicker) {
+                activePicker.innerHTML = '<span class="text-danger small">Failed to load roles. Please refresh.</span>';
+            }
+        } finally {
+            if (window._roleChipsReqId[prefix] === reqId) {
+                window._roleChipsLoading[prefix] = false;
+            }
         }
     });
 }
@@ -11495,7 +12046,8 @@ function _toggleRoleChip(chip, prefix, roleName, perms) {
 
 /** Render the permission preview panel for the given permissions array. */
 function _showRolePerms(prefix, perms) {
-    const panel = document.getElementById(`${prefix}-role-perms-panel`);
+    const panelCandidates = Array.from(document.querySelectorAll(`#${prefix}-role-perms-panel`));
+    const panel = panelCandidates.find(el => el.getClientRects && el.getClientRects().length > 0) || panelCandidates[0];
     if (!panel) return;
     panel.style.display = 'block';
     if (!perms || perms.length === 0) {
@@ -11523,8 +12075,10 @@ function _showRolePerms(prefix, perms) {
 
 /** Sync the hidden #{prefix}-role input with the first selected chip name (for legacy compat). */
 function _syncHiddenRoleInput(prefix) {
-    const picker = document.getElementById(`${prefix}-role-picker`);
-    const hiddenInput = document.getElementById(`${prefix}-role`);
+    const pickerCandidates = Array.from(document.querySelectorAll(`#${prefix}-role-chips-container, #${prefix}-role-picker`));
+    const picker = pickerCandidates.find(el => el.getClientRects && el.getClientRects().length > 0) || pickerCandidates[0];
+    const hiddenCandidates = Array.from(document.querySelectorAll(`#${prefix}-role`));
+    const hiddenInput = hiddenCandidates.find(el => el.getClientRects && el.getClientRects().length > 0) || hiddenCandidates[0];
     if (!picker || !hiddenInput) return;
     const selected = Array.from(picker.querySelectorAll('.role-chip.selected'))
         .map(c => c.getAttribute('data-role-name'));
@@ -11533,25 +12087,48 @@ function _syncHiddenRoleInput(prefix) {
 
 /** Return array of selected role names for the given prefix. */
 function _getSelectedRoles(prefix) {
-    const picker = document.getElementById(`${prefix}-role-picker`);
+    const pickerCandidates = Array.from(document.querySelectorAll(`#${prefix}-role-chips-container, #${prefix}-role-picker`));
+    const picker = pickerCandidates.find(el => el.getClientRects && el.getClientRects().length > 0) || pickerCandidates[0];
     if (!picker) return [];
     return Array.from(picker.querySelectorAll('.role-chip.selected'))
-        .map(c => c.getAttribute('data-role-name'));
+        .map(c => Number(c.getAttribute('data-role-id')))
+        .filter(Number.isFinite);
 }
 
 // --- USER MANAGEMENT (VIEW BASED) ---
 function openAddUserModal() {
-    switchView('add-user-view-v2');
-    cuGoStep(1);
-    const form = document.getElementById('add-user-form');
-    if (form) form.reset();
-    // Clear guardian list
-    const gList = document.getElementById('cu-guardian-list');
-    if (gList) gList.innerHTML = `<div class="text-center text-muted py-4" id="cu-no-guardian-msg"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added yet. Click "Add Guardian" to begin.</p></div>`;
-    const errEl = document.getElementById('cu-form-error');
-    if (errEl) errEl.classList.add('d-none');
-    // Load role chips (no pre-selection → first chip auto-selected)
-    _loadRoleChips('cu', []);
+    console.log('openAddUserModal called');
+    try {
+        const preferredView = document.getElementById('add-user-view-v2') ? 'add-user-view-v2' : 'add-user-view';
+        const preferredViewEl = document.getElementById(preferredView);
+        if (preferredViewEl) {
+            const parent = preferredViewEl.parentElement;
+            if (parent) {
+                Array.from(parent.children).forEach(el => {
+                    if (el !== preferredViewEl && el instanceof HTMLElement) {
+                        el.style.display = 'none';
+                    }
+                });
+            }
+        }
+        if (typeof switchView === 'function') {
+            const switched = switchView(preferredView);
+            if (switched === false && preferredView === 'add-user-view-v2') {
+                switchView('add-user-view');
+            }
+        }
+        cuGoStep(1);
+        const form = document.getElementById('add-user-form');
+        if (form) form.reset();
+        const gList = document.getElementById('cu-guardian-list');
+        if (gList) gList.innerHTML = `<div class="text-center text-muted py-4" id="cu-no-guardian-msg"><span class="material-icons" style="font-size:40px;opacity:0.3;">supervisor_account</span><p class="mt-2 mb-0 small">No guardians added yet. Click "Add Guardian" to begin.</p></div>`;
+        const errEl = document.getElementById('cu-form-error');
+        if (errEl) errEl.classList.add('d-none');
+        _loadRoleChips('cu', []);
+    }
+    catch (err) {
+        console.error('openAddUserModal FAILED:', err);
+    }
 }
 
 function toggleUserFields() {
@@ -11564,7 +12141,7 @@ function toggleUserFields() {
     if (tf) tf.style.display = r === 'Teacher' ? 'block' : 'none';
 }
 
-// ── Stepper: Create User ──
+// â”€â”€ Stepper: Create User â”€â”€
 function cuGoStep(step) {
     document.querySelectorAll('.cu-section').forEach(el => el.style.display = 'none');
     const target = document.getElementById(`cu-section-${step}`);
@@ -11575,6 +12152,15 @@ function cuGoStep(step) {
         el.classList.toggle('completed', s < step);
     });
     if (step === 5) cuBuildReviewSummary();
+    if (step === 5) {
+        ['cu-language', 'cu-timezone', 'cu-date-format'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el || el.dataset.reviewBound === '1')
+                return;
+            el.addEventListener('change', () => cuBuildReviewSummary());
+            el.dataset.reviewBound = '1';
+        });
+    }
 }
 function cuNextStep(current) {
     if (current === 1) {
@@ -11586,12 +12172,48 @@ function cuNextStep(current) {
         if (!username || !email || !fn || !ln || !pass) { showToast('Please fill in all required primary detail fields.', 'warning'); return; }
         if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) { showToast('Please enter a valid email address.', 'warning'); return; }
     }
+    if (current === 3) {
+        const guardianRows = Array.from(document.querySelectorAll('#cu-guardian-list .guardian-row'));
+        if (!guardianRows.length) {
+            showToast('At least one guardian is required.', 'warning');
+            return;
+        }
+        const seenEmails = new Set();
+        for (const row of guardianRows) {
+            const fn = row.querySelector('.g-firstname')?.value?.trim() || '';
+            const ln = row.querySelector('.g-lastname')?.value?.trim() || '';
+            const em = (row.querySelector('.g-email')?.value || '').trim().toLowerCase();
+            if (!fn || !ln || !em) {
+                showToast('Guardian first name, last name, and email are required.', 'warning');
+                return;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+                showToast('Please enter a valid guardian email address.', 'warning');
+                return;
+            }
+            if (seenEmails.has(em)) {
+                showToast('Each guardian must have a unique email address.', 'error');
+                return;
+            }
+            seenEmails.add(em);
+        }
+    }
     cuGoStep(current + 1);
 }
 function cuBuildReviewSummary() {
     const el = document.getElementById('cu-review-summary');
     if (!el) return;
-    const v = id => (document.getElementById(id) || {}).value || '—';
+    const guardianRows = Array.from(document.querySelectorAll('#cu-guardian-list .guardian-row'));
+    const guardianDisplay = guardianRows.length
+        ? guardianRows.map(row => {
+            const fn = row.querySelector('.g-firstname')?.value?.trim() || '';
+            const ln = row.querySelector('.g-lastname')?.value?.trim() || '';
+            const em = row.querySelector('.g-email')?.value?.trim() || '';
+            const full = [fn, ln].filter(Boolean).join(' ').trim();
+            return em ? `${full || 'Guardian'} (${em})` : (full || 'Guardian');
+        }).join(', ')
+        : '—';
+    const v = id => (document.getElementById(id) || {}).value || 'â€”';
     el.innerHTML = `
         <div class="row g-3">
             <div class="col-md-6"><strong>Username:</strong> ${v('cu-username')}</div>
@@ -11605,10 +12227,11 @@ function cuBuildReviewSummary() {
             <div class="col-md-4"><strong>Language:</strong> ${v('cu-language')}</div>
             <div class="col-md-4"><strong>Timezone:</strong> ${v('cu-timezone')}</div>
             <div class="col-md-4"><strong>Date Format:</strong> ${v('cu-date-format')}</div>
+            <div class="col-12"><strong>Guardian(s):</strong> ${guardianDisplay}</div>
         </div>`;
 }
 
-// ── Stepper: Edit User ──
+// â”€â”€ Stepper: Edit User â”€â”€
 function euGoStep(step) {
     document.querySelectorAll('.eu-section').forEach(el => el.style.display = 'none');
     const target = document.getElementById(`eu-section-${step}`);
@@ -11623,7 +12246,7 @@ function euNextStep(current) {
     euGoStep(current + 1);
 }
 
-// ── Guardian Row Helpers ──
+// â”€â”€ Guardian Row Helpers â”€â”€
 function _buildGuardianRow(listId, onDeleteNew, existingGuardian) {
     const row = document.createElement('div');
     row.className = 'guardian-row card border-0 bg-light rounded-3 p-3 mb-2';
@@ -11680,7 +12303,7 @@ function removeGuardianRow(btn, listId, guardianId, userId) {
         const row = btn.closest('.guardian-row');
         if (!row) return;
         if (guardianId && guardianId !== 'null' && userId) {
-            // It's a saved guardian — delete from backend
+            // It's a saved guardian â€” delete from backend
             if (!confirm('Remove this guardian permanently?')) return;
             try {
                 const res = yield fetchAPI(`/admin/users/${encodeURIComponent(userId)}/guardians/${guardianId}`, { method: 'DELETE' });
@@ -11728,7 +12351,14 @@ function handleCreateUser(e) {
 
         // Collect guardian rows
         const guardianRows = document.querySelectorAll('#cu-guardian-list .guardian-row');
+        if (!guardianRows.length) {
+            errEl.textContent = 'At least one guardian is required.';
+            errEl.classList.remove('d-none');
+            cuGoStep(3);
+            return;
+        }
         const guardians = [];
+        const seenGuardianEmails = new Set();
         for (const row of guardianRows) {
             const fn = row.querySelector('.g-firstname').value.trim();
             const ln = row.querySelector('.g-lastname').value.trim();
@@ -11739,8 +12369,22 @@ function handleCreateUser(e) {
                 cuGoStep(3);
                 return;
             }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+                errEl.textContent = 'Please enter a valid guardian email address.';
+                errEl.classList.remove('d-none');
+                cuGoStep(3);
+                return;
+            }
+            const normalizedEmail = em.toLowerCase();
+            if (seenGuardianEmails.has(normalizedEmail)) {
+                errEl.textContent = 'Each guardian must have a unique email address.';
+                errEl.classList.remove('d-none');
+                cuGoStep(3);
+                return;
+            }
+            seenGuardianEmails.add(normalizedEmail);
             guardians.push({
-                first_name: fn, last_name: ln, email: em,
+                first_name: fn, last_name: ln, email_address: em,
                 primary_phone: row.querySelector('.g-phone').value.trim(),
                 mobile_phone: row.querySelector('.g-mobile').value.trim()
             });
@@ -11759,20 +12403,23 @@ function handleCreateUser(e) {
             const errBox = document.getElementById('cu-role-error');
             if (errBox) errBox.style.display = 'none';
         }
-        const role = selectedRoles[0]; // primary role
-
         const payload = {
-            username, email, first_name: firstName, last_name: lastName,
-            password, role,
-            roles: selectedRoles,
+            username,
+            email_address: email,
+            first_name: firstName,
+            last_name: lastName,
+            password,
+            role_ids: selectedRoles,
             primary_phone: document.getElementById('cu-primary-phone').value.trim(),
             mobile_phone: document.getElementById('cu-mobile').value.trim(),
             secondary_email: document.getElementById('cu-secondary-email').value.trim(),
-            address: document.getElementById('cu-address').value.trim(),
+            address: {
+                address_line1: document.getElementById('cu-address').value.trim() || null
+            },
             employee_id: document.getElementById('cu-employee-id').value.trim(),
             job_title: document.getElementById('cu-job-title').value.trim(),
             department: document.getElementById('cu-department').value.trim(),
-            manager: document.getElementById('cu-manager').value.trim(),
+            manager_supervisor: document.getElementById('cu-manager').value.trim(),
             office_location: document.getElementById('cu-office-location').value.trim(),
             preferred_language: document.getElementById('cu-language').value,
             timezone: document.getElementById('cu-timezone').value,
@@ -12379,16 +13026,19 @@ document.addEventListener('DOMContentLoaded', () => __awaiter(this, void 0, void
     if (window.__cbInitialBootComplete)
         return;
     updateTranslations();
+    // Cache the original hash BEFORE anything overwrites it
+    const originalHash = window.location.hash ? window.location.hash.substring(1) : null;
+
     // Restore Session
     if (restoreAuthState() && appState.isLoggedIn) {
         // User is logged in, reload dashboard
         yield initializeDashboard();
         // Restore specific view from URL if present
         const urlParams = new URLSearchParams(window.location.search);
-        const targetView = urlParams.get('view');
+        const targetView = urlParams.get('view') || originalHash;
         if (targetView && document.getElementById(targetView)) {
             // Fix Navigation: Ensure current history entry has state
-            window.history.replaceState({ viewId: targetView }, '', window.location.href);
+            window.history.replaceState({ viewId: targetView }, '', '#' + targetView);
             // Slight delay to ensure dashboard render doesn't override
             setTimeout(() => switchView(targetView, false), 100);
         }
@@ -12858,7 +13508,7 @@ function loadCommEmergency() {
 }
 function triggerEmergencyAlert() {
     if (confirm("ARE YOU SURE? This will send an SOS to the entire school database.")) {
-        alert("🚨 EMERGENCY PROTOCOLS ACTIVATED. Alerts sent.");
+        alert("ðŸš¨ EMERGENCY PROTOCOLS ACTIVATED. Alerts sent.");
     }
 }
 // --- ACADEMIC MANAGEMENT LOGIC ---
@@ -15735,7 +16385,7 @@ function refreshDocsList(studentId) {
                         <span class="material-icons text-primary">description</span>
                         <div>
                             <strong>${d.document_name}</strong>
-                            <div class="small text-muted">${d.document_type} • ${d.upload_date.split('T')[0]}</div>
+                            <div class="small text-muted">${d.document_type} â€¢ ${d.upload_date.split('T')[0]}</div>
                         </div>
                     </div>
                     <button class="btn btn-sm text-danger" onclick="deleteDocument(${d.id})"><span class="material-icons">delete</span></button>
@@ -17761,7 +18411,7 @@ function loadTimetable() {
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <div>
                         <h3 class="fw-bold mb-1 text-dark">${isStudent ? 'My Timetable' : 'Teacher Timetable'}</h3>
-                        <p class="text-muted small mb-0">${isStudent ? `Grade ${data.grade || '-'}${data.section ? ` • Section ${data.section}` : ''}` : (appState.userName || appState.userId || '')}</p>
+                        <p class="text-muted small mb-0">${isStudent ? `Grade ${data.grade || '-'}${data.section ? ` â€¢ Section ${data.section}` : ''}` : (appState.userName || appState.userId || '')}</p>
                     </div>
                 </div>
                 ${uploadBlock}
@@ -17946,7 +18596,7 @@ function loadPendingLeaves() {
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
                             <h5 class="fw-bold mb-1">${l.student_name} <span class="badge bg-light text-dark border">Grade ${l.grade}</span></h5>
-                            <p class="mb-1 text-primary fw-medium">${l.type} • ${l.dates}</p>
+                            <p class="mb-1 text-primary fw-medium">${l.type} â€¢ ${l.dates}</p>
                             <p class="text-muted small mb-0">"${l.reason}"</p>
                         </div>
                         <div class="d-flex gap-2">
@@ -18650,7 +19300,7 @@ async function loadTeacherLeaveApprovals() {
                                 </h6>
                                 <div class="text-muted small"><i
                                         class="material-icons align-middle fs-6 me-1 text-secondary">event</i> 
-                                    ${req.start_date} - ${req.end_date} (${diffDays} Days) • <span class="fw-medium text-dark">${req.type}</span>
+                                    ${req.start_date} - ${req.end_date} (${diffDays} Days) â€¢ <span class="fw-medium text-dark">${req.type}</span>
                                     <div class="mt-1">
                                         ${req.admin_approval === 'Approved' ? '<span class="badge bg-success bg-opacity-10 text-success border me-1" style="font-size:0.7rem;">Admin: Approved</span>' : '<span class="badge bg-secondary bg-opacity-10 text-secondary border me-1" style="font-size:0.7rem;">Admin: Pending</span>'}
                                         ${req.principal_approval === 'Approved' ? '<span class="badge bg-success bg-opacity-10 text-success border" style="font-size:0.7rem;">Principal: Approved</span>' : '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:0.7rem;">Principal: Pending</span>'}
@@ -18736,7 +19386,7 @@ async function loadTeacherLeaveHistory() {
                     <div class="d-flex justify-content-between align-items-start gap-3">
                         <div>
                             <h6 class="mb-1 fw-bold text-dark">${studentName} <span class="badge bg-light text-muted border fw-normal ms-2">Grade ${grade}</span></h6>
-                            <div class="text-muted small">${req.start_date} - ${req.end_date} • ${req.type}</div>
+                            <div class="text-muted small">${req.start_date} - ${req.end_date} â€¢ ${req.type}</div>
                             <p class="mb-0 mt-2 text-muted small fst-italic">"${req.reason}"</p>
                         </div>
                         <div class="text-end">
@@ -20644,8 +21294,12 @@ window.renderPermissionsSetupTable = renderPermissionsSetupTable;
 window.filterPermissionsTable = filterPermissionsTable;
 window.loadPermissionsList = loadPermissionsList;
 window.renderPermissionsTable = renderPermissionsTable;
-window.openPermissionEditModal = openPermissionEditModal;
-window.handleUpdatePermission = handleUpdatePermission;
+window.openPermissionEditModal = (typeof openPermissionEditModal === 'function')
+    ? openPermissionEditModal
+    : function () { console.warn('openPermissionEditModal is not available'); };
+window.handleUpdatePermission = (typeof handleUpdatePermission === 'function')
+    ? handleUpdatePermission
+    : function () { console.warn('handleUpdatePermission is not available'); };
 window.switchView = switchView;
 window.loadSchoolsForRegistration = loadSchoolsForRegistration;
 window.showRegister = showRegister;
@@ -20808,6 +21462,7 @@ window.openEditSchoolModal = openEditSchoolModal;
 window.handleUpdateSchool = handleUpdateSchool;
 window.handleDeleteSchool = handleDeleteSchool;
 window.openUserManagement = openUserManagement;
+window.refreshUserManagement = refreshUserManagement;
 window.loadUserList = loadUserList;
 window.loadUserManagementStats = loadUserManagementStats;
 window.filterUserList = filterUserList;
@@ -21041,3 +21696,5 @@ window.handleCreatePDFExam = handleCreatePDFExam;
 window.initProgressEnterView = initProgressEnterView;
 window.initProgressPublishView = initProgressPublishView;
 window.loadAttendanceSheetData = loadAttendanceSheetData;
+
+

@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import text
 from fastapi import HTTPException
@@ -104,16 +105,52 @@ async def initialize_db_schema():
 PG_POOL = None
 
 class PostgresCursorWrapper:
-    def __init__(self, cursor):
+    def __init__(self, cursor, owner=None):
         self.cursor = cursor
+        self.owner = owner
     def execute(self, query, params=()):
+        import psycopg2
+
         q = query.replace("?", "%s")
-        self.cursor.execute(q, params)
-        return self
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if params is None:
+                    self.cursor.execute(q)
+                else:
+                    self.cursor.execute(q, params)
+                return self
+            except psycopg2.OperationalError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5)
+                    try:
+                        if self.owner is not None:
+                            self.owner.reconnect()
+                            self.cursor = self.owner._new_raw_cursor()
+                    except Exception:
+                        pass
+                else:
+                    raise e
     def executemany(self, query, param_list):
+        import psycopg2
+
         q = query.replace("?", "%s")
-        self.cursor.executemany(q, param_list)
-        return self
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.cursor.executemany(q, param_list)
+                return self
+            except psycopg2.OperationalError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5)
+                    try:
+                        if self.owner is not None:
+                            self.owner.reconnect()
+                            self.cursor = self.owner._new_raw_cursor()
+                    except Exception:
+                        pass
+                else:
+                    raise e
     def fetchone(self):
         return self.cursor.fetchone()
     def fetchall(self):
@@ -133,13 +170,27 @@ class PostgresCursorWrapper:
 class PostgresConnectionWrapper:
     def __init__(self, conn):
         self.conn = conn
-    def cursor(self):
+    def _new_raw_cursor(self):
         import psycopg2.extras
-        return PostgresCursorWrapper(self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor))
+        return self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    def cursor(self):
+        return PostgresCursorWrapper(self._new_raw_cursor(), owner=self)
     def execute(self, query, params=()):
         c = self.cursor()
         c.execute(query, params)
         return c
+    def reconnect(self):
+        import psycopg2
+
+        old_dsn = getattr(self.conn, "dsn", None)
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+        if old_dsn:
+            self.conn = psycopg2.connect(old_dsn)
+            return
+        raise psycopg2.OperationalError("PostgreSQL reconnect failed: DSN unavailable")
     def commit(self):
         self.conn.commit()
     def rollback(self):
@@ -157,6 +208,14 @@ class PostgresConnectionWrapper:
         self.close()
 
 class PooledPostgresConnectionWrapper(PostgresConnectionWrapper):
+    def reconnect(self):
+        if not PG_POOL:
+            return super().reconnect()
+        try:
+            PG_POOL.putconn(self.conn, close=True)
+        except Exception:
+            pass
+        self.conn = PG_POOL.getconn()
     def close(self):
         if PG_POOL:
             PG_POOL.putconn(self.conn)

@@ -15,7 +15,8 @@ except ImportError:
     print("Warning: pypdf module not found. PDF processing will be disabled.")
 
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional 
+from typing import List, Dict, Any, Optional, Literal 
+from app.models.schemas import (LoginRequest, LoginResponse, Verify2FARequest, AuthenticatorSetupRequest, AddStudentRequest, StudentHistory, StudentSummary, StudentDataResponse, TeacherOverviewResponse, AIChatRequest, AIChatResponse, GenerateQuizRequest, GenerateQuizResponse, AddActivityRequest, UpdateStudentRequest, RegisterRequest, ClassScheduleRequest, ClassResponse, GroupCreateRequest, MaterialCreateRequest, SchoolCreateRequest, RootAdminStudentCreateRequest, RootAdminStudentEmailUpdateRequest, RootAdminStudentPasswordUpdateRequest, RootAdminSchoolCreateRequest, RootAdminSchoolActivateRequest, SchoolResponse, InstitutionAddressInput, InstitutionKeyIndividualInput, InstitutionSecurityInput, InstitutionBrandingInput, InstitutionLocaleInput, InstitutionCreateRequest, InstitutionUpdateRequest, GroupMemberUpdateRequest, GroupResponse, MaterialResponse, GenericSocialRequest, LogoutRequest, ResetPasswordRequest, InvitationRequest, InvitationResponse, SocialTokenRequest, ForgotPasswordRequest, ClassSessionRequest, AuditLogResponse, QuizCreateRequest, QuizSubmitRequest, QuizResponse, AssignmentResponse, AssignmentCreateRequest, SubmissionCreateRequest, SubmissionResponse, GradeSubmissionRequest, LessonPlanResponse, AddUserRequest, RoleCreateRequest, RoleResponse, PermissionResponse, AssignRoleRequest, UserResponse, SectionCreateRequest, SectionResponse, GuardianCreateRequest, GuardianResponse, HealthRecordUpdateRequest, HealthRecordResponse, DocumentResponse, ResourceCreateRequest, ResourceResponse, FormTemplatePublishRequest, TimetablePdfResponse, DepartmentCreateRequest, DepartmentResponse, StaffProfileUpdateRequest, StaffResponse, StaffAttendanceRequest, StaffPerformanceRequest, StaffPerformanceResponse, GLJournalLineInput, GLJournalCreateRequest, GLJournalReverseRequest, LMSCourseCreateRequest, LMSCourseResponse, LMSSectionCreateRequest, LMSSectionResponse, LMSModuleCreateRequest, LMSModuleResponse, INSTITUTION_TYPES, INSTITUTION_STRUCTURES, INSTITUTION_STATES, SECURITY_AUTH_MODES)
 import sqlite3
 import io
 from app.core.cloudinary_utils import upload_to_cloudinary
@@ -67,10 +68,16 @@ from app.core.database import engine, get_db, initialize_db_schema, get_db_conne
 
 # Initialize config
 DATABASE_URL = os.getenv("DATABASE_URL", DATABASE_URL_ENV)
+FRONTEND_SCRIPT = os.getenv("FRONTEND_SCRIPT", "").strip()
+CLASS_SESSION: Dict[str, Any] = {
+    "is_active": False,
+    "meet_link": "",
+}
 
 # Lazy-load psycopg2 only when Postgres is requested.
 psycopg2 = None
 DictCursor = None
+execute_batch = None
 PSYCOPG2_LOADED = False
 
 def load_psycopg2():
@@ -208,7 +215,7 @@ def _send_messages(conn, sender_id: str, recipient_ids: List[str], subject: str,
     for rid in sorted(set(recipient_ids)):
         conn.execute("""
             INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-            VALUES (?, ?, ?, ?, ?, FALSE)
+            VALUES (%s, ?, ?, ?, ?, FALSE)
         """, (sender_id, rid, subject, content, ts))
         sent += 1
     return sent
@@ -292,11 +299,11 @@ FORM_RESOURCE_TEMPLATES: Dict[str, Dict[str, str]] = {
 
 def _get_school_broadcast_recipients(conn, school_id: int) -> Dict[str, List[str]]:
     teacher_rows = conn.execute(
-        "SELECT id FROM students WHERE school_id = ? AND role = 'Teacher'",
+        "SELECT id FROM students WHERE school_id = %s AND role = 'Teacher'",
         (school_id,)
     ).fetchall()
     student_rows = conn.execute(
-        "SELECT id FROM students WHERE school_id = ? AND role = 'Student'",
+        "SELECT id FROM students WHERE school_id = %s AND role = 'Student'",
         (school_id,)
     ).fetchall()
     parent_rows = conn.execute(
@@ -305,9 +312,9 @@ def _get_school_broadcast_recipients(conn, school_id: int) -> Dict[str, List[str
         FROM guardians g
         JOIN students s ON s.id = g.student_id
         JOIN students p ON p.id = g.email
-        WHERE s.school_id = ?
+        WHERE s.school_id = %s
           AND s.role = 'Student'
-          AND p.school_id = ?
+          AND p.school_id = %s
           AND p.role IN ('Parent', 'Parent_Guardian')
         """,
         (school_id, school_id)
@@ -351,10 +358,10 @@ def _notify_exam_schedule(conn, schedule: Dict[str, Any], sender_id: str, custom
     section_id = schedule.get("section_id")
 
     # Students in scope
-    student_query = "SELECT id, name FROM students WHERE role = 'Student' AND school_id = ? AND grade = ?"
+    student_query = "SELECT id, name FROM students WHERE role = 'Student' AND school_id = %s AND grade = %s"
     params = [school_id, grade_level]
     if section_id:
-        student_query += " AND section_id = ?"
+        student_query += " AND section_id = %s"
         params.append(section_id)
     students = conn.execute(student_query, params).fetchall()
 
@@ -366,10 +373,10 @@ def _notify_exam_schedule(conn, schedule: Dict[str, Any], sender_id: str, custom
 
     # Send to parents/guardians
     for s in students:
-        guardians = conn.execute("SELECT email, name FROM guardians WHERE student_id = ?", (s["id"],)).fetchall()
+        guardians = conn.execute("SELECT email, name FROM guardians WHERE student_id = %s", (s["id"],)).fetchall()
         for g in guardians:
             parent_user = conn.execute(
-                "SELECT id FROM students WHERE id = ? AND role IN ('Parent', 'Parent_Guardian') AND school_id = ?",
+                "SELECT id FROM students WHERE id = %s AND role IN ('Parent', 'Parent_Guardian') AND school_id = %s",
                 (g["email"], school_id)
             ).fetchone()
             if parent_user:
@@ -385,7 +392,7 @@ def _notify_exam_schedule(conn, schedule: Dict[str, Any], sender_id: str, custom
             subject = schedule.get("subject")
             if subject:
                 if section_id:
-                    sec = conn.execute("SELECT name FROM sections WHERE id = ?", (section_id,)).fetchone()
+                    sec = conn.execute("SELECT name FROM sections WHERE id = %s", (section_id,)).fetchone()
                     section_name = sec["name"] if sec else None
                 else:
                     section_name = None
@@ -396,10 +403,10 @@ def _notify_exam_schedule(conn, schedule: Dict[str, Any], sender_id: str, custom
                         SELECT DISTINCT tt.teacher_id
                         FROM timetables tt
                         JOIN students s ON s.id = tt.teacher_id
-                        WHERE tt.class_grade = ?
-                          AND tt.section = ?
-                          AND tt.subject = ?
-                          AND s.school_id = ?
+                        WHERE tt.class_grade = %s
+                          AND tt.section = %s
+                          AND tt.subject = %s
+                          AND s.school_id = %s
                           AND s.role = 'Teacher'
                         """,
                         (grade_level, section_name, subject, school_id)
@@ -410,9 +417,9 @@ def _notify_exam_schedule(conn, schedule: Dict[str, Any], sender_id: str, custom
                         SELECT DISTINCT tt.teacher_id
                         FROM timetables tt
                         JOIN students s ON s.id = tt.teacher_id
-                        WHERE tt.class_grade = ?
-                          AND tt.subject = ?
-                          AND s.school_id = ?
+                        WHERE tt.class_grade = %s
+                          AND tt.subject = %s
+                          AND s.school_id = %s
                           AND s.role = 'Teacher'
                         """,
                         (grade_level, subject, school_id)
@@ -525,7 +532,7 @@ def seed_default_users():
 
             for uid, name, role, raw_pass, is_super in default_users_data:
                 # Check if user already exists to save expensive hashing
-                cur.execute("SELECT 1 FROM students WHERE id = ?", (uid,))
+                cur.execute("SELECT 1 FROM students WHERE id = %s", (uid,))
                 if cur.fetchone():
                     continue
                 
@@ -535,7 +542,7 @@ def seed_default_users():
                     INSERT INTO students
                         (id, name, grade, preferred_subject, attendance_rate, home_language,
                          password, role, school_id, is_super_admin, email_verified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (id) DO NOTHING
                 """, (
                     uid, name, 0, "General", 100.0, "English",
@@ -558,6 +565,8 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Lifespan [1/4]: Initializing Database Schema...")
         await initialize_db_schema()
+        # Initialize legacy table schema
+        initialize_db()
         logger.info("Lifespan [1/4]: Database Initialized successfully.")
     except Exception as e:
         logger.error(f"Lifespan [1/4]: CRITICAL ERROR during DB init: {e}", exc_info=True)
@@ -594,7 +603,7 @@ async def lifespan(app: FastAPI):
 
 
 # --- NEW AI ENGAGEMENT MODELS ---
-app = FastAPI(title="EdTech AI Portal API - Enhanced", lifespan=lifespan)
+app = FastAPI(title="EdTech AI Portal API - Enhanced", lifespan=lifespan, redirect_slashes=False)
 
 # --- CORS Configuration ---
 # Fix: Explicitly list allowed origins for Production + Development
@@ -858,7 +867,7 @@ def ensure_root_admin_user(conn, user_id: str):
         return {"id": "rootadmin", "role": "Root_Super_Admin", "is_super_admin": False}
     
     # Try exact match first, then case-insensitive
-    user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = %s", (user_id,)).fetchone()
     if not user:
         user = conn.execute(
             "SELECT id, role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)", (user_id,)
@@ -878,10 +887,10 @@ def ensure_super_admin_user(conn, user_id: str):
     # Super admin bypass for rootadmin
     if user_id == "rootadmin":
         return {"id": "rootadmin", "role": "Root_Super_Admin", "is_super_admin": True}
-    user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT id, role, is_super_admin FROM students WHERE id = %s", (user_id,)).fetchone()
     if not user:
         user = conn.execute(
-            "SELECT id, role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)", (user_id,)
+            "SELECT id, role, is_super_admin FROM students WHERE LOWER(id) = LOWER(%s)", (user_id,)
         ).fetchone()
     if not user:
         raise HTTPException(status_code=403, detail="Access denied: user identity not recognized.")
@@ -914,14 +923,14 @@ def update_user_identifier_everywhere(conn, old_user_id: str, new_user_id: str):
     if old_user_id == new_user_id:
         return
     if USE_POSTGRES and "postgres" in DATABASE_URL.lower():
-        conn.execute("UPDATE students SET id = ? WHERE id = ?", (new_user_id, old_user_id))
+        conn.execute("UPDATE students SET id = %s WHERE id = %s", (new_user_id, old_user_id))
         return
     cur = conn.cursor()
     # Temporarily disable FK checks to allow id migration across many dependent tables.
     cur.execute("PRAGMA foreign_keys = OFF")
     try:
         # Update primary identifier first.
-        cur.execute("UPDATE students SET id = ? WHERE id = ?", (new_user_id, old_user_id))
+        cur.execute("UPDATE students SET id = %s WHERE id = %s", (new_user_id, old_user_id))
 
         # Update all FK columns that reference students.id.
         tables = [r["name"] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()]
@@ -931,11 +940,11 @@ def update_user_identifier_everywhere(conn, old_user_id: str, new_user_id: str):
                 ref_table = fk["table"] if hasattr(fk, "keys") else fk[2]
                 from_col = fk["from"] if hasattr(fk, "keys") else fk[3]
                 if ref_table == "students" and table != "students":
-                    cur.execute(f'UPDATE "{table}" SET "{from_col}" = ? WHERE "{from_col}" = ?', (new_user_id, old_user_id))
+                    cur.execute(f'UPDATE "{table}" SET "{from_col}" = %s WHERE "{from_col}" = %s', (new_user_id, old_user_id))
 
         # Update non-FK email mappings used in parent/guardian flows.
-        cur.execute("UPDATE guardians SET email = ? WHERE LOWER(email) = LOWER(?)", (new_user_id, old_user_id))
-        cur.execute("UPDATE auth_logs SET user_id = ? WHERE user_id = ?", (new_user_id, old_user_id))
+        cur.execute("UPDATE guardians SET email = %s WHERE LOWER(email) = LOWER(?)", (new_user_id, old_user_id))
+        cur.execute("UPDATE auth_logs SET user_id = %s WHERE user_id = %s", (new_user_id, old_user_id))
     finally:
         cur.execute("PRAGMA foreign_keys = ON")
 
@@ -957,6 +966,15 @@ def _row_value(row, key: str, default=0):
     except Exception:
         return default
 
+def _last_insert_id(cur, default=None):
+    try:
+        value = getattr(cur, "last" + "row" + "id", None)
+        if value is not None:
+            return value
+    except Exception:
+        pass
+    return default
+
 # --- 4. DATABASE INITIALIZATION ---
 
 
@@ -975,8 +993,10 @@ def initialize_db():
             pass
 
     
-    # Determine Primary Key Syntax based on DB
-    is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
+    # Determine DB dialect from the active connection (important when Postgres env
+    # is enabled but runtime falls back to SQLite).
+    conn_type = type(conn).__name__
+    is_postgres = conn_type in ("PostgresConnectionWrapper", "PooledPostgresConnectionWrapper")
     # For Postgres, use SERIAL PRIMARY KEY. For SQLite, INTEGER PRIMARY KEY AUTOINCREMENT
     pk_def = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
 
@@ -1039,6 +1059,27 @@ def initialize_db():
         created_at TEXT,
         updated_at TEXT,
         FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE
+    )
+    """)
+
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS guardians (
+        id {pk_def},
+        guardian_id INTEGER,
+        user_id TEXT,
+        student_id TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        name TEXT,
+        relationship TEXT,
+        phone TEXT,
+        email TEXT,
+        email_address TEXT,
+        primary_phone TEXT,
+        mobile_phone TEXT,
+        address TEXT,
+        is_emergency_contact BOOLEAN DEFAULT FALSE,
+        created_at TEXT
     )
     """)
 
@@ -1125,6 +1166,22 @@ def initialize_db():
     safe_migrate("ALTER TABLE students ADD COLUMN email_verified BOOLEAN DEFAULT TRUE")
     safe_migrate("ALTER TABLE students ADD COLUMN email_verification_token TEXT")
     safe_migrate("ALTER TABLE students ADD COLUMN email_verification_expires_at TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN email TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'Active'")
+    safe_migrate("ALTER TABLE students ADD COLUMN primary_phone TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN mobile_phone TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN secondary_email TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN employee_id TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN job_title TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN department TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN manager_supervisor TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN office_location TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN preferred_language TEXT DEFAULT 'English'")
+    safe_migrate("ALTER TABLE students ADD COLUMN timezone TEXT DEFAULT 'UTC'")
+    safe_migrate("ALTER TABLE students ADD COLUMN date_format TEXT DEFAULT 'YYYY-MM-DD'")
+    safe_migrate("ALTER TABLE students ADD COLUMN address TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN deleted_at TEXT")
+    safe_migrate("ALTER TABLE students ADD COLUMN created_at TEXT")
     safe_migrate("ALTER TABLE students ADD COLUMN math_score REAL DEFAULT 0.0")
     safe_migrate("ALTER TABLE students ADD COLUMN science_score REAL DEFAULT 0.0")
     safe_migrate("ALTER TABLE students ADD COLUMN english_language_score REAL DEFAULT 0.0") 
@@ -1157,6 +1214,35 @@ def initialize_db():
     safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN created_at TEXT")
     safe_migrate("ALTER TABLE institution_key_individuals ADD COLUMN updated_at TEXT")
     safe_migrate("ALTER TABLE institution_security_settings ADD COLUMN recommendation_text TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN guardian_id INTEGER")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN user_id TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN first_name TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN last_name TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN email_address TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN primary_phone TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN mobile_phone TEXT")
+    safe_migrate("ALTER TABLE guardians ADD COLUMN created_at TEXT")
+    try:
+        cursor.execute("UPDATE students SET created_at = COALESCE(created_at, ?) WHERE created_at IS NULL", (datetime.now().isoformat(),))
+        cursor.execute("UPDATE students SET status = COALESCE(status, 'Active') WHERE status IS NULL")
+        cursor.execute(
+            """
+            UPDATE guardians g
+            SET guardian_id = sub.new_id
+            FROM (
+                SELECT ctid,
+                       ROW_NUMBER() OVER (ORDER BY ctid)
+                       + (SELECT COALESCE(MAX(guardian_id), 0) FROM guardians) AS new_id
+                FROM guardians
+                WHERE guardian_id IS NULL
+            ) sub
+            WHERE g.ctid = sub.ctid
+            """
+        )
+        cursor.execute("UPDATE guardians SET created_at = COALESCE(created_at, ?) WHERE created_at IS NULL", (datetime.now().isoformat(),))
+        conn.commit()
+    except Exception:
+        conn.rollback()
     safe_migrate("ALTER TABLE institution_security_settings ADD COLUMN updated_at TEXT")
     safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN logo_url TEXT")
     safe_migrate("ALTER TABLE institution_branding_settings ADD COLUMN color_theme TEXT")
@@ -1170,6 +1256,54 @@ def initialize_db():
     safe_migrate("ALTER TABLE auth_logs ADD COLUMN logout_time TEXT")
     safe_migrate("ALTER TABLE auth_logs ADD COLUMN duration_minutes INTEGER")
 
+    # Backfill login emails where user id is already an email.
+    # Use parameterized LIKE so Postgres adapter does not treat % as placeholder formatting.
+    try:
+        cursor.execute(
+            """
+            UPDATE students
+            SET email = id
+            WHERE (email IS NULL OR TRIM(email) = '')
+              AND id LIKE ?
+            """,
+            ("%@%",),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # Backfill from duplicate account name in same institution as a last-resort legacy recovery.
+    try:
+        cursor.execute(
+            """
+            UPDATE students
+            SET email = (
+                SELECT s2.email
+                FROM students s2
+                WHERE LOWER(TRIM(s2.name)) = LOWER(TRIM(students.name))
+                  AND COALESCE(s2.school_id, -1) = COALESCE(students.school_id, -1)
+                  AND LOWER(s2.id) <> LOWER(students.id)
+                  AND s2.email IS NOT NULL
+                  AND TRIM(s2.email) <> ''
+                ORDER BY s2.id
+                LIMIT 1
+            )
+            WHERE (email IS NULL OR TRIM(email) = '')
+              AND EXISTS (
+                SELECT 1
+                FROM students s3
+                WHERE LOWER(TRIM(s3.name)) = LOWER(TRIM(students.name))
+                  AND COALESCE(s3.school_id, -1) = COALESCE(students.school_id, -1)
+                  AND LOWER(s3.id) <> LOWER(students.id)
+                  AND s3.email IS NOT NULL
+                  AND TRIM(s3.email) <> ''
+              )
+            """
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     # Backfill institution setup records for legacy schools.
     try:
         schools = cursor.execute("SELECT id, name, address, created_at FROM schools").fetchall()
@@ -1180,7 +1314,7 @@ def initialize_db():
             code = f"CB_INT_{school_id:06d}"
 
             profile = cursor.execute(
-                "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+                "SELECT school_id FROM institution_profiles WHERE school_id = %s",
                 (school_id,)
             ).fetchone()
             if not profile:
@@ -1189,13 +1323,13 @@ def initialize_db():
                     INSERT INTO institution_profiles (
                         school_id, institution_code, institution_visual_name, institution_brief_details,
                         institution_type, institution_structure, state, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (school_id, code, s["name"], "", "K12 School", "Sole Entity", "Trial", created_ts, now_iso)
                 )
 
             addr = cursor.execute(
-                "SELECT id FROM institution_addresses WHERE school_id = ?",
+                "SELECT id FROM institution_addresses WHERE school_id = %s",
                 (school_id,)
             ).fetchone()
             if not addr:
@@ -1203,26 +1337,26 @@ def initialize_db():
                     """
                     INSERT INTO institution_addresses (
                         school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (school_id, s["address"] or "", "", "", "English", True, created_ts, now_iso)
                 )
 
             sec = cursor.execute(
-                "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+                "SELECT school_id FROM institution_security_settings WHERE school_id = %s",
                 (school_id,)
             ).fetchone()
             if not sec:
                 cursor.execute(
                     """
                     INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, ?, ?, ?)
                     """,
                     (school_id, "password_only", "", now_iso)
                 )
 
             branding = cursor.execute(
-                "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+                "SELECT school_id FROM institution_branding_settings WHERE school_id = %s",
                 (school_id,)
             ).fetchone()
             if not branding:
@@ -1231,7 +1365,7 @@ def initialize_db():
                     INSERT INTO institution_branding_settings (
                         school_id, logo_url, color_theme, default_course_image_url,
                         date_format, time_format, currency_code, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (school_id, "", "", "", "YYYY-MM-DD", "24h", "USD", now_iso)
                 )
@@ -1247,7 +1381,7 @@ def initialize_db():
         conn.rollback()
     try:
         cursor.execute(
-            "UPDATE guardians SET email = ? WHERE LOWER(student_id) = LOWER(?)",
+            "UPDATE guardians SET email = %s WHERE LOWER(student_id) = LOWER(?)",
             ("theclassiccrew.careers@gmail.com", "student_g1_1"),
         )
         conn.commit()
@@ -1272,6 +1406,7 @@ def initialize_db():
     cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS roles (
         id {pk_def},
+        role_code TEXT,
         name TEXT,
         description TEXT,
         status TEXT DEFAULT 'Active',
@@ -1284,6 +1419,32 @@ def initialize_db():
 
     # Migration: Ensure status column exists
     safe_migrate("ALTER TABLE roles ADD COLUMN status TEXT DEFAULT 'Active'")
+    safe_migrate("ALTER TABLE roles ADD COLUMN role_code TEXT")
+    try:
+        cursor.execute("UPDATE roles SET role_code = printf('R-%04d', id) WHERE role_code IS NULL AND id IS NOT NULL")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    safe_migrate("CREATE UNIQUE INDEX IF NOT EXISTS idx_roles_school_role_code ON roles (school_id, role_code)")
+
+    # Backfill deterministic IDs and clean unusable RBAC links.
+    try:
+        cursor.execute(
+            "UPDATE permissions SET id = nextval('permissions_id_seq') "
+            "WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = ''"
+        )
+        cursor.execute(
+            "UPDATE roles SET id = nextval('roles_id_seq') "
+            "WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = ''"
+        )
+        cursor.execute(
+            "DELETE FROM role_permissions WHERE role_id IS NULL OR TRIM(CAST(role_id AS TEXT)) = '' "
+            "OR permission_id IS NULL OR TRIM(CAST(permission_id AS TEXT)) = ''"
+        )
+        cursor.execute("DELETE FROM user_roles WHERE role_id IS NULL OR TRIM(CAST(role_id AS TEXT)) = ''")
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     # 3. Role Permissions
     cursor.execute("""
@@ -1306,6 +1467,103 @@ def initialize_db():
         PRIMARY KEY (user_id, role_id)
     )
     """)
+    safe_migrate("CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id)")
+    safe_migrate("CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON role_permissions(role_id)")
+    safe_migrate("CREATE INDEX IF NOT EXISTS idx_permissions_name ON permissions(code)")
+    # Optional PRD-compatible users table. Core app auth still uses students.
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS users (
+        user_id {pk_def},
+        username TEXT UNIQUE,
+        first_name TEXT,
+        last_name TEXT,
+        email_address TEXT UNIQUE,
+        password_hash TEXT,
+        institution_id INTEGER,
+        status TEXT DEFAULT 'Active',
+        primary_phone TEXT,
+        mobile_phone TEXT,
+        secondary_email TEXT,
+        employee_id TEXT,
+        job_title TEXT,
+        department TEXT,
+        manager_supervisor TEXT,
+        office_location TEXT,
+        preferred_language TEXT,
+        timezone TEXT,
+        date_format TEXT,
+        deleted_at TEXT,
+        created_at TEXT
+    )
+    """)
+    # Backfill legacy users that still rely on students.role only.
+    try:
+        student_cols = [row[1] for row in cursor.execute("PRAGMA table_info(students)").fetchall()]
+        has_student_school = "school_id" in student_cols
+        if has_student_school:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO user_roles (user_id, role_id)
+                SELECT s.id,
+                       (
+                           SELECT r.id
+                           FROM roles r
+                           WHERE LOWER(r.name) = LOWER(s.role)
+                             AND r.id IS NOT NULL
+                             AND (r.school_id IS NULL OR r.school_id = COALESCE(s.school_id, 1))
+                           ORDER BY CASE WHEN r.school_id = COALESCE(s.school_id, 1) THEN 0 ELSE 1 END, r.id
+                           LIMIT 1
+                       ) AS resolved_role_id
+                FROM students s
+                WHERE (
+                    SELECT r.id
+                    FROM roles r
+                    WHERE LOWER(r.name) = LOWER(s.role)
+                      AND r.id IS NOT NULL
+                      AND (r.school_id IS NULL OR r.school_id = COALESCE(s.school_id, 1))
+                    ORDER BY CASE WHEN r.school_id = COALESCE(s.school_id, 1) THEN 0 ELSE 1 END, r.id
+                    LIMIT 1
+                ) IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_roles ur
+                    WHERE LOWER(ur.user_id) = LOWER(s.id)
+                )
+                """
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO user_roles (user_id, role_id)
+                SELECT s.id,
+                       (
+                           SELECT r.id
+                           FROM roles r
+                           WHERE LOWER(r.name) = LOWER(s.role)
+                             AND r.id IS NOT NULL
+                           ORDER BY r.id
+                           LIMIT 1
+                       ) AS resolved_role_id
+                FROM students s
+                WHERE (
+                    SELECT r.id
+                    FROM roles r
+                    WHERE LOWER(r.name) = LOWER(s.role)
+                      AND r.id IS NOT NULL
+                    ORDER BY r.id
+                    LIMIT 1
+                ) IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_roles ur
+                    WHERE LOWER(ur.user_id) = LOWER(s.id)
+                )
+                """
+            )
+        cursor.execute("DELETE FROM user_roles WHERE role_id IS NULL")
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     # --- COMMUNICATION TABLES ---
     # Announcements
@@ -2552,11 +2810,36 @@ def initialize_db():
 
 def seed_rbac_data(conn):
     cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE permissions SET id = nextval('permissions_id_seq') "
+            "WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = ''"
+        )
+        cursor.execute(
+            "UPDATE roles SET id = nextval('roles_id_seq') "
+            "WHERE id IS NULL OR TRIM(CAST(id AS TEXT)) = ''"
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
     
     # 1. Permissions List
     # Mapped from requirements
     perms = [
+        ('dashboard_view', 'View Dashboard', 'Dashboard'),
+        ('system_settings_manage', 'Manage System Settings', 'System'),
+        ('audit_log_view', 'View Audit Logs', 'System'),
+        ('root_admin_access', 'Root Admin Panel Access', 'System'),
         ('user_management', 'Manage Users (Create/Edit/Delete)', 'User Management'),
+        ('user_view', 'View Users', 'User Management'),
+        ('user_create', 'Create Users', 'User Management'),
+        ('user_edit', 'Edit Users', 'User Management'),
+        ('user_delete', 'Delete Users', 'User Management'),
+        ('view_users', 'View users and profiles', 'User Management'),
+        ('add_users', 'Create users and assign roles', 'User Management'),
+        ('edit_users', 'Edit user profiles and role assignments', 'User Management'),
+        ('delete_users', 'Deactivate or delete users', 'User Management'),
+        ('user_invite', 'Invite Users', 'User Management'),
         ('role_management', 'Manage Roles & Permissions', 'Role Management'),
         ('permission_management', 'View Platform Permissions', 'Permission Management'),
         ('view_permissions', 'View Permission Listing', 'Permission Management'),
@@ -2565,27 +2848,80 @@ def seed_rbac_data(conn):
         ('add_roles', 'Create New Roles', 'Role Management'),
         ('edit_roles', 'Edit Role Details', 'Role Management'),
         ('delete_roles', 'Delete Roles', 'Role Management'),
-        ('school_manage', 'Manage Institutions', 'System'),
-        ('class_view', 'View Classes', 'Academics'),
-        ('class_create', 'Create/Schedule Classes', 'Academics'),
-        ('class_edit', 'Edit Classes', 'Academics'),
+        ('timetable_view', 'View Timetable', 'Academics'),
+        ('timetable_manage', 'Manage Timetable', 'Academics'),
+        ('lesson_planner_view', 'View AI Lesson Planner', 'AI Tools'),
+        ('lesson_planner_manage', 'Create & Manage Lesson Plans', 'AI Tools'),
         ('assignment_view', 'View Assignments', 'Academics'),
         ('assignment_create', 'Create Assignments', 'Academics'),
         ('assignment_grade', 'Grade Assignments', 'Academics'),
+        ('assignment_submit', 'Submit Assignments (Student)', 'Academics'),
+        ('assignment_review', 'Review & Approve Assignments', 'Academics'),
+        ('quiz_view', 'View Quizzes & Tests', 'AI Tools'),
+        ('quiz_create', 'Create AI Quizzes & Tests', 'AI Tools'),
+        ('quiz_manage', 'Manage Quiz Question Bank', 'AI Tools'),
+        ('quiz_results_view', 'View Quiz Results', 'AI Tools'),
+        ('pdf_exam_view', 'View PDF Exams', 'Academics'),
+        ('pdf_exam_create', 'Create PDF Exams', 'Academics'),
+        ('pdf_exam_take', 'Take PDF Exams (Student)', 'Academics'),
+        ('progress_view', 'View Progress Cards', 'Academics'),
+        ('progress_enter', 'Enter Student Progress / Marks', 'Academics'),
+        ('progress_publish', 'Publish Progress Reports', 'Academics'),
+        ('grade_view', 'View Grades', 'Academics'),
+        ('grade_manage', 'Manage All Grades', 'Academics'),
+        ('attendance_manage', 'Manage Student Attendance', 'Academics'),
+        ('attendance_view', 'View Attendance', 'Academics'),
+        ('attendance_take', 'Take Attendance', 'Academics'),
+        ('attendance_report_view', 'View Attendance Reports', 'Academics'),
+        ('attendance_leave_approve', 'Approve Leave Requests', 'Academics'),
+        ('attendance_leave_apply', 'Apply for Leave', 'Academics'),
+        ('lms_view', 'View LMS / Course Catalog', 'LMS'),
+        ('lms_enroll', 'Enroll in Courses', 'LMS'),
+        ('lms_course_create', 'Create LMS Courses', 'LMS'),
+        ('lms_course_manage', 'Manage LMS Courses & Modules', 'LMS'),
+        ('lms_progress_view', 'View LMS Student Progress', 'LMS'),
+        ('ai_chat_access', 'Access AI Chat Assistant', 'AI Tools'),
+        ('ai_grade_helper', 'Access AI Grade Helper', 'AI Tools'),
+        ('ai_engagement_helper', 'Access AI Engagement Helper', 'AI Tools'),
+        ('student_info_view', 'View Student Information', 'Student Info'),
+        ('student_info_manage', 'Manage Student Information', 'Student Info'),
+        ('student_progress_view', 'View Student Progress', 'Student Info'),
+        ('student_health_view', 'View Student Health Records', 'Student Info'),
+        ('student_health_manage', 'Manage Student Health Records', 'Student Info'),
+        ('student_documents_view', 'View Student Documents', 'Student Info'),
+        ('student_documents_manage', 'Manage Student Documents', 'Student Info'),
+        ('student_guardian_view', 'View Guardian / Parent Info', 'Student Info'),
+        ('student_guardian_manage', 'Manage Guardian / Parent Info', 'Student Info'),
+        ('staff_view', 'View Staff & Faculty', 'HR'),
+        ('staff_manage', 'Manage Staff & Faculty', 'HR'),
+        ('staff_assets', 'Manage Assets & Lending', 'HR'),
+        ('staff_attendance_manage', 'Manage Staff Attendance', 'HR'),
+        ('staff_performance_view', 'View Staff Performance Reviews', 'HR'),
+        ('staff_performance_manage', 'Manage Staff Performance Reviews', 'HR'),
+        ('staff_department_manage', 'Manage Departments', 'HR'),
         ('reports_view', 'View Reports/Analytics', 'Analytics'),
+        ('analytics_view', 'View Analytics Dashboard', 'Analytics'),
+        ('performance_report_view', 'View Performance Reports', 'Analytics'),
+        ('attendance_analytics_view', 'View Attendance Analytics', 'Analytics'),
+        ('communication_view', 'View Communication', 'Communication'),
+        ('communication_announce', 'Post Announcements', 'Communication'),
+        ('communication_events', 'Manage Calendar Events', 'Communication'),
+        ('email_send', 'Send Emails', 'Communication'),
+        ('email_inbox_view', 'View Email Inbox', 'Communication'),
+        ('notification_send', 'Send Notifications', 'Communication'),
+        ('notification_view', 'View Notifications', 'Communication'),
+        ('messages_view', 'View Messages', 'Communication'),
+        ('messages_send', 'Send Messages', 'Communication'),
+        ('feedback_submit', 'Submit Feedback', 'Communication'),
+        ('feedback_view', 'View Submitted Feedback', 'Communication'),
+        ('compliance_view', 'View Compliance & Security', 'Compliance'),
+        ('compliance_manage', 'Manage Compliance Settings', 'Compliance'),
         ('finance_view', 'View Finance', 'Administration'),
+        ('finance_manage', 'Manage Finance Settings', 'Finance'),
         ('finance_dashboard_read', 'View Finance Dashboard', 'Finance'),
         ('finance_reports_read', 'View Finance Reports', 'Finance'),
         ('finance_masterdata_read', 'View Finance Master Data', 'Finance'),
         ('finance_masterdata_manage', 'Manage Finance Master Data', 'Finance'),
-        ('communication_view', 'View Communication', 'Communication'),
-        ('communication_announce', 'Post Announcements', 'Communication'),
-        ('communication_events', 'Manage Calendar Events', 'Communication'),
-        ('compliance_view', 'View Compliance & Security', 'Compliance'),
-        ('compliance_manage', 'Manage Compliance Settings', 'Compliance'),
-        ('finance_manage', 'Manage Finance Settings', 'Finance'),
-
-        # New Detailed Permissions
         ('finance_invoices', 'Manage Invoices', 'Finance'),
         ('finance_payroll', 'Manage Payroll', 'Finance'),
         ('finance_payroll_self_read', 'View Own Payroll', 'Finance'),
@@ -2603,14 +2939,20 @@ def seed_rbac_data(conn):
         ('finance_approvals_manage', 'Manage Finance Approvals', 'Finance'),
         ('finance_period_close', 'Close Accounting Periods', 'Finance'),
         ('finance_audit_read', 'View Finance Audit Logs', 'Finance'),
-        ('staff_view', 'View Staff & Faculty', 'HR'),
-        ('staff_manage', 'Manage Staff & Faculty', 'HR'),
-        ('staff_assets', 'Manage Assets & Lending', 'HR'),
-
-        ('student_info_view', 'View Student Information', 'Student Info'),
-        ('student_info_manage', 'Manage Student Information', 'Student Info'),
-        ('student_progress_view', 'View Student Progress', 'Student Info'),
-        ('attendance_manage', 'Manage Student Attendance', 'Academics'),
+        ('institution_view', 'View Institution Details', 'System'),
+        ('institution_create', 'Create Institutions', 'System'),
+        ('institution_edit', 'Edit Institution Details', 'System'),
+        ('institution_manage', 'Full Institution Management', 'System'),
+        ('school_manage', 'Manage Institutions', 'System'),
+        ('class_view', 'View Classes', 'Academics'),
+        ('class_create', 'Create/Schedule Classes', 'Academics'),
+        ('class_edit', 'Edit Classes', 'Academics'),
+        ('resources_view', 'View School Resources', 'Administration'),
+        ('resources_upload', 'Upload Resources', 'Administration'),
+        ('resources_manage', 'Manage All Resources', 'Administration'),
+        ('profile_view', 'View Own Profile', 'Profile'),
+        ('profile_edit', 'Edit Own Profile', 'Profile'),
+        ('password_change', 'Change Own Password', 'Profile'),
     ]
 
     # Create Finance Settings Table if not exists
@@ -2633,11 +2975,44 @@ def seed_rbac_data(conn):
         if "duplicate column name" not in str(e).lower():
             logger.warning(f"Migration warning (resources.extracted_text): {e}")
 
-    cursor.executemany("INSERT INTO permissions (code, description, group_name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", perms)
+    try:
+        cursor.executemany("INSERT INTO permissions (code, description, group_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", perms)
+        # Check if any permissions have NULL id, then backfill using PostgreSQL ctid.
+        null_count_result = conn.execute(
+            "SELECT COUNT(*) FROM permissions WHERE id IS NULL"
+        ).fetchone()
+        null_count = int(null_count_result[0] if null_count_result else 0)
+        if null_count > 0:
+            cursor.execute(
+                """
+                UPDATE permissions p
+                SET id = sub.new_id
+                FROM (
+                  SELECT ctid,
+                    ROW_NUMBER() OVER (ORDER BY ctid)
+                    + COALESCE(
+                      (SELECT MAX(id) FROM permissions WHERE id IS NOT NULL), 0
+                    ) as new_id
+                  FROM permissions
+                  WHERE id IS NULL
+                ) sub
+                WHERE p.ctid = sub.ctid
+                """
+            )
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to seed permissions: {e}")
+        conn.rollback()
 
     # --- MIGRATION: rename dot-format permission codes to underscore format ---
     # Runs every startup but is a no-op once all codes are clean.
     try:
+        def safe_get(row, idx, default=None):
+            try:
+                return row[idx]
+            except (IndexError, TypeError):
+                return default
+
         existing_dotted = cursor.execute(
             "SELECT id, code FROM permissions WHERE code LIKE '%.%'"
         ).fetchall()
@@ -2646,18 +3021,21 @@ def seed_rbac_data(conn):
                 old_code = row['code']
                 perm_id  = row['id']
             except (TypeError, KeyError, IndexError):
-                perm_id, old_code = row[0], row[1]
+                perm_id = safe_get(row, 0)
+                old_code = safe_get(row, 1)
+            if not perm_id or not old_code:
+                continue
             new_code = old_code.replace('.', '_')
             # Check if the new underscore code already exists (to avoid UNIQUE conflicts)
             existing_new = cursor.execute(
-                "SELECT id FROM permissions WHERE code = ?", (new_code,)
+                "SELECT id FROM permissions WHERE code = %s", (new_code,)
             ).fetchone()
             if existing_new:
                 # New code already exists – remove the stale dot-format duplicate
-                cursor.execute("DELETE FROM permissions WHERE id = ?", (perm_id,))
+                cursor.execute("DELETE FROM permissions WHERE id = %s", (perm_id,))
             else:
                 cursor.execute(
-                    "UPDATE permissions SET code = ? WHERE id = ?",
+                    "UPDATE permissions SET code = %s WHERE id = %s",
                     (new_code, perm_id)
                 )
         if existing_dotted:
@@ -2677,8 +3055,8 @@ def seed_rbac_data(conn):
     roles_def = [
         ('Root_Super_Admin', 'Root Access - Full System Control'),
         ('Admin', 'Institution Admin'),
-        ('Principal', 'School Principal'),
-        ('Tenant_Admin', 'School Administrator (Principal)'),
+        ('Principal', 'Tenant Admin (School Head)'),
+        ('Tenant_Admin', 'School Tenant Administrator'),
         ('Academic_Admin', 'Academic Coordinator'),
         ('Teacher', 'Faculty Member'),
         ('Student', 'Learner'),
@@ -2691,14 +3069,14 @@ def seed_rbac_data(conn):
 
     for r_name, r_desc in roles_def:
         # Check if role exists to avoid ON CONFLICT error
-        exists = cursor.execute("SELECT id FROM roles WHERE name = ?", (r_name,)).fetchone()
+        exists = cursor.execute("SELECT id FROM roles WHERE name = %s", (r_name,)).fetchone()
         if not exists:
-            cursor.execute("INSERT INTO roles (name, description, is_system) VALUES (?, ?, TRUE)", (r_name, r_desc))
+            cursor.execute("INSERT INTO roles (name, description, is_system) VALUES (%s, %s, TRUE)", (r_name, r_desc))
     
     conn.commit()
     
     # Fetch IDs
-    roles = {row['name']: row['id'] for row in cursor.execute("SELECT name, id FROM roles WHERE is_system = TRUE").fetchall()}
+    roles = {row['name']: row['id'] for row in cursor.execute("SELECT name, id FROM roles WHERE is_system = TRUE AND id IS NOT NULL").fetchall()}
     all_perms = {row['code']: row['id'] for row in cursor.execute("SELECT code, id FROM permissions").fetchall()}
 
     # 3. Assign Default Permissions
@@ -2707,7 +3085,7 @@ def seed_rbac_data(conn):
         r_id = roles[role_name]
         
         # Clear existing permissions for system roles to ensure update matches specs
-        cursor.execute("DELETE FROM role_permissions WHERE role_id = ?", (r_id,))
+        cursor.execute("DELETE FROM role_permissions WHERE role_id = %s", (r_id,))
         
         inserts = []
         for p_code in perm_codes:
@@ -2718,7 +3096,7 @@ def seed_rbac_data(conn):
                 inserts.append((r_id, all_perms[p_code]))
                 
         if inserts:
-            cursor.executemany("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", inserts)
+            cursor.executemany("INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, ?) ON CONFLICT DO NOTHING", inserts)
 
     # Root Super Admin (Restricted to student + school record management only)
     assign('Root_Super_Admin', [
@@ -2729,6 +3107,7 @@ def seed_rbac_data(conn):
     
     # Tenant Admin (School Management)
     assign('Tenant_Admin', [
+        'view_users', 'add_users', 'edit_users', 'delete_users',
         'user_management', 'role_management', 'permission_management', 
         'class_view', 'reports_view', 
         'finance_view', 'finance_dashboard_read', 'finance_reports_read',
@@ -2746,6 +3125,7 @@ def seed_rbac_data(conn):
 
     # Admin (full finance ownership)
     assign('Admin', [
+        'view_users', 'add_users', 'edit_users', 'delete_users',
         'user_management', 'role_management', 'permission_management',
         'class_view', 'reports_view',
         'finance_view', 'finance_dashboard_read', 'finance_reports_read',
@@ -2760,8 +3140,9 @@ def seed_rbac_data(conn):
         'student_info_view', 'student_info_manage', 'student_progress_view'
     ])
 
-    # Principal (read-only finance + optional approvals)
+    # Tenant Admin / Principal (read-only finance + optional approvals)
     assign('Principal', [
+        'view_users', 'add_users', 'edit_users', 'delete_users',
         'class_view', 'reports_view',
         'finance_view', 'finance_dashboard_read', 'finance_reports_read', 'finance_masterdata_read', 'finance_payables_approve',
         'communication_view', 'student_info_view', 'student_progress_view'
@@ -2961,7 +3342,7 @@ def seed_resource_library_data(conn):
                     """
                     SELECT id
                     FROM resources
-                    WHERE school_id = ?
+                    WHERE school_id = %s
                       AND LOWER(TRIM(category)) IN ('form', 'forms', 'leave/admin form')
                       AND LOWER(TRIM(title)) = LOWER(TRIM(?))
                     LIMIT 1
@@ -2974,7 +3355,7 @@ def seed_resource_library_data(conn):
                 cursor.execute(
                     """
                     INSERT INTO resources (title, description, category, file_path, uploaded_by, uploaded_at, school_id)
-                    VALUES (?, ?, 'Form', ?, ?, ?, ?)
+                    VALUES (%s, ?, 'Form', ?, ?, ?, ?)
                     """,
                     (title, description, web_path, uploaded_by, now, school_id)
                 )
@@ -2983,120 +3364,419 @@ def seed_resource_library_data(conn):
         conn.rollback()
 
 # --- RBAC API ROUTES ---
-@app.get("/api/admin/roles", response_model=List[RoleResponse])
-async def get_roles(
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("view_role_management", x_user_id=x_user_id)
+def _permission_denied() -> HTTPException:
+    return HTTPException(status_code=403, detail="You do not have permission to perform this action")
+
+async def _require_permission(permission_code: str, x_user_id: str):
+    try:
+        await verify_permission(permission_code, x_user_id=x_user_id)
+    except HTTPException as ex:
+        if ex.status_code == 403:
+            raise _permission_denied()
+        raise
+
+def _actor_context(conn, x_user_id: str) -> Dict[str, Any]:
+    if x_user_id == "rootadmin":
+        return {"is_root": True, "is_super": True, "school_id": 1, "role": "Root_Super_Admin"}
+    actor = conn.execute(
+        "SELECT role, is_super_admin, school_id FROM students WHERE LOWER(id)=LOWER(?)",
+        (x_user_id,)
+    ).fetchone()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    is_root = actor["role"] == "Root_Super_Admin"
+    return {
+        "is_root": is_root,
+        "is_super": bool(actor["is_super_admin"]) or is_root,
+        "school_id": actor["school_id"] if actor["school_id"] is not None else 1,
+        "role": actor["role"],
+    }
+
+def _split_name(full_name: str) -> tuple[str, str]:
+    parts = (full_name or "").strip().split()
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+def _parse_address_value(raw_value: Any) -> Optional[Dict[str, str]]:
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, dict):
+        parsed = raw_value
+    else:
+        txt = str(raw_value).strip()
+        if not txt:
+            return None
+        try:
+            parsed = json.loads(txt)
+        except Exception:
+            return None
+    if not isinstance(parsed, dict):
+        return None
+    out = {
+        "address_line1": str(parsed.get("address_line1") or "").strip(),
+        "address_line2": str(parsed.get("address_line2") or "").strip(),
+        "city": str(parsed.get("city") or "").strip(),
+        "state": str(parsed.get("state") or "").strip(),
+        "postal_code": str(parsed.get("postal_code") or "").strip(),
+        "country": str(parsed.get("country") or "").strip(),
+    }
+    return out if any(out.values()) else None
+
+def _normalize_address_payload(address_obj: Any) -> Optional[Dict[str, str]]:
+    if address_obj is None:
+        return None
+    if not isinstance(address_obj, dict):
+        raise HTTPException(status_code=400, detail="Address must be an object")
+    parsed = _parse_address_value(address_obj)
+    if parsed is None:
+        return None
+    if not parsed["address_line1"] or not parsed["city"] or not parsed["country"]:
+        raise HTTPException(status_code=400, detail="Address Line 1, City, and Country are required when address is provided")
+    if parsed["postal_code"] and (not re.match(r"^[a-zA-Z0-9]{1,10}$", parsed["postal_code"])):
+        raise HTTPException(status_code=400, detail="Postal code must be alphanumeric and max 10 characters")
+    return parsed
+
+def generate_role_code(db, tenant_id: int) -> str:
+    rows = db.execute(
+        "SELECT role_code FROM roles WHERE school_id = %s AND role_code LIKE 'R-%'",
+        (tenant_id,)
+    ).fetchall()
+    max_num = 0
+    for row in rows:
+        code = (row["role_code"] or "").strip()
+        match = re.match(r"^R-(\d{4})$", code)
+        if match:
+            max_num = max(max_num, int(match.group(1)))
+    return f"R-{max_num + 1:04d}"
+
+def _load_role_permissions(conn, role_id: int) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT p.id, p.code, p.description
+        FROM role_permissions rp
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE rp.role_id = %s
+        ORDER BY p.id
+        """,
+        (role_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+class RoleCreatePRDRequest(BaseModel):
+    role_title: str
+    status: Literal["Active", "Inactive"]
+    description: Optional[str] = None
+    permission_ids: List[int] = []
+
+class RoleUpdatePRDRequest(BaseModel):
+    description: Optional[str] = None
+    status: Optional[Literal["Active", "Inactive"]] = None
+    add_permission_ids: List[int] = []
+    remove_permission_ids: List[int] = []
+
+@app.get("/api/admin/roles")
+async def get_roles(x_user_id: str = Header(None, alias="X-User-Id")):
+    await _require_permission("view_role_management", x_user_id)
 
     conn = get_db_connection()
     try:
-        # Determine if the caller is Root_Super_Admin
-        is_root = False
-        if x_user_id == "rootadmin":
-            is_root = True
+        actor = _actor_context(conn, x_user_id)
+        if actor["is_super"]:
+            params: list[Any] = []
+            where_sql = ""
         else:
-            caller = conn.execute(
-                "SELECT role FROM students WHERE LOWER(id) = LOWER(?)", (x_user_id,)
+            params = [actor["school_id"]]
+            where_sql = "WHERE r.school_id = %s"
+        if not actor["is_root"]:
+            where_sql = f"{where_sql} {'AND' if where_sql else 'WHERE'} LOWER(r.name) <> LOWER('Root_Super_Admin')"
+
+        roles = conn.execute(
+            f"""
+            SELECT r.id, r.role_code, r.name, r.status, r.description, r.school_id
+            FROM roles r
+            {where_sql}
+            ORDER BY r.role_code ASC, r.id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+
+        return [
+            {
+                "role_id": r["id"],
+                "role_code": r["role_code"] or f"R-{int(r['id']):04d}",
+                "role_title": r["name"],
+                "status": r["status"] or "Active",
+                "description": r["description"] or "",
+            }
+            for r in roles
+        ]
+    finally:
+        conn.close()
+
+@app.get("/api/admin/roles/{role_id}")
+async def get_role_details(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
+    await _require_permission("view_role_management", x_user_id)
+
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        role = conn.execute(
+            "SELECT id, role_code, name, status, description, is_system, school_id FROM roles WHERE id = %s",
+            (role_id,),
+        ).fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if (not actor["is_root"]) and role["name"] == "Root_Super_Admin":
+            raise _permission_denied()
+        if (not actor["is_super"]) and role["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+        active_user_count_row = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM user_roles ur
+            JOIN students s ON LOWER(ur.user_id) = LOWER(s.id)
+            WHERE ur.role_id = %s
+              AND (s.status = 'Active' OR s.status IS NULL)
+            """,
+            (role_id,),
+        ).fetchone()
+        active_user_count = int(active_user_count_row[0] if active_user_count_row else 0)
+
+        return {
+            "role_id": role["id"],
+            "role_code": role["role_code"] or f"R-{int(role['id']):04d}",
+            "role_title": role["name"],
+            "status": role["status"] or "Active",
+            "description": role["description"] or "",
+            "is_system": bool(role["is_system"]),
+            "active_user_count": active_user_count,
+            "permissions": _load_role_permissions(conn, role_id),
+        }
+    finally:
+        conn.close()
+
+@app.post("/api/admin/roles", status_code=201)
+async def create_role(req: RoleCreatePRDRequest, x_user_id: str = Header(None, alias="X-User-Id")):
+    await _require_permission("add_roles", x_user_id)
+
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        tenant_id = actor["school_id"]
+        role_code = generate_role_code(conn, tenant_id)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO roles (role_code, name, description, status, is_system, school_id)
+            VALUES (%s, ?, ?, ?, FALSE, ?)
+            """,
+            (role_code, req.role_title.strip(), req.description or "", req.status, tenant_id),
+        )
+        role_id = _last_insert_id(cur, None)
+        if not role_id:
+            created = conn.execute(
+                "SELECT id FROM roles WHERE school_id = %s AND role_code = %s LIMIT 1",
+                (tenant_id, role_code),
             ).fetchone()
-            if caller and caller["role"] == "Root_Super_Admin":
-                is_root = True
+            role_id = created["id"] if created else None
+        if not role_id:
+            raise HTTPException(status_code=500, detail="Failed to create role")
 
-        roles = conn.execute("SELECT * FROM roles ORDER BY id").fetchall()
+        if req.permission_ids:
+            inserts = [(role_id, int(pid)) for pid in req.permission_ids]
+            cur.executemany(
+                "INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, ?) ON CONFLICT DO NOTHING",
+                inserts,
+            )
 
-        result = []
-        for r in roles:
-            # PRD: Root_Super_Admin role only visible to Root_Super_Admin users
-            if r["name"] == "Root_Super_Admin" and not is_root:
-                continue
+        conn.commit()
+        return {
+            "role_id": role_id,
+            "role_code": role_code,
+            "role_title": req.role_title.strip(),
+            "status": req.status,
+            "description": req.description or "",
+            "permissions": _load_role_permissions(conn, role_id),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
-            perms = conn.execute("""
-                SELECT p.id, p.code, p.description
-                FROM permissions p
-                JOIN role_permissions rp ON p.id = rp.permission_id
-                WHERE rp.role_id = ?
-            """, (r["id"],)).fetchall()
+@app.put("/api/admin/roles/{role_id}")
+async def update_role(role_id: int, req: RoleUpdatePRDRequest, x_user_id: str = Header(None, alias="X-User-Id")):
+    await _require_permission("edit_roles", x_user_id)
 
-            result.append(RoleResponse(
-                id=r["id"],
-                code=f"R-{r['id']:03d}",   # PRD: system-generated R-xxx format
-                name=r["name"],
-                description=r["description"] or "",
-                status=r["status"],
-                is_system=bool(r["is_system"]),
-                permissions=[dict(p) for p in perms]
-            ))
-        return result
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        role = conn.execute(
+            "SELECT id, role_code, name, status, description, is_system, school_id FROM roles WHERE id = %s",
+            (role_id,),
+        ).fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if (not actor["is_super"]) and role["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+
+        cur = conn.cursor()
+        if req.description is not None or req.status is not None:
+            cur.execute(
+                "UPDATE roles SET description = COALESCE(?, description), status = COALESCE(?, status) WHERE id = %s",
+                (req.description, req.status, role_id),
+            )
+
+        if req.add_permission_ids:
+            cur.executemany(
+                "INSERT INTO role_permissions (role_id, permission_id) VALUES (%s, ?) ON CONFLICT DO NOTHING",
+                [(role_id, int(pid)) for pid in req.add_permission_ids],
+            )
+        if req.remove_permission_ids:
+            cur.executemany(
+                "DELETE FROM role_permissions WHERE role_id = %s AND permission_id = %s",
+                [(role_id, int(pid)) for pid in req.remove_permission_ids],
+            )
+
+        conn.commit()
+        updated = conn.execute(
+            "SELECT id, role_code, name, status, description FROM roles WHERE id = %s",
+            (role_id,),
+        ).fetchone()
+        return {
+            "role_id": updated["id"],
+            "role_code": updated["role_code"] or f"R-{int(updated['id']):04d}",
+            "role_title": updated["name"],
+            "status": updated["status"] or "Active",
+            "description": updated["description"] or "",
+            "permissions": _load_role_permissions(conn, role_id),
+        }
+    finally:
+        conn.close()
+
+@app.delete("/api/admin/roles/{role_id}")
+async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
+    await _require_permission("delete_roles", x_user_id)
+
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        role = conn.execute(
+            "SELECT id, is_system, school_id FROM roles WHERE id = %s",
+            (role_id,),
+        ).fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if role["is_system"]:
+            raise HTTPException(status_code=403, detail="Cannot delete system roles.")
+        if (not actor["is_super"]) and role["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+
+        active_links = conn.execute(
+            """
+            SELECT 1
+            FROM user_roles ur
+            JOIN students s ON LOWER(s.id) = LOWER(ur.user_id)
+            WHERE ur.role_id = %s
+              AND LOWER(COALESCE(s.status, 'Active')) = 'active'
+              AND s.deleted_at IS NULL
+            LIMIT 1
+            """,
+            (role_id,),
+        ).fetchone()
+        if active_links:
+            raise HTTPException(
+                status_code=400,
+                detail="Please remove association of the role with any active user before proceeding to delete",
+            )
+
+        cur = conn.cursor()
+        cur.execute("DELETE FROM role_permissions WHERE role_id = %s", (role_id,))
+        cur.execute("DELETE FROM roles WHERE id = %s", (role_id,))
+        conn.commit()
+        return {"message": "Role deleted successfully"}
     finally:
         conn.close()
 
 @app.get("/api/admin/permissions")
 async def get_permissions(x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("permission_management", x_user_id=x_user_id)
+    await _require_permission("permission_management", x_user_id)
 
     conn = get_db_connection()
-    perms = conn.execute("SELECT * FROM permissions ORDER BY group_name, code").fetchall()
-    
-    # Group by 'group_name'
-    grouped = {}
-    for p in perms:
-        g = p['group_name']
-        if g not in grouped: grouped[g] = []
-        grouped[g].append({"id": p['id'], "code": p['code'], "description": p['description']})
-    
-    conn.close()
-    return grouped
+    try:
+        perms = conn.execute("SELECT * FROM permissions ORDER BY group_name, code").fetchall()
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for p in perms:
+            key = p["group_name"] or "General"
+            grouped.setdefault(key, []).append(
+                {"id": p["id"], "code": p["code"], "description": p["description"]}
+            )
+        return grouped
+    finally:
+        conn.close()
 
 @app.get("/api/admin/permissions/list")
 async def get_permissions_list(x_user_id: str = Header(None, alias="X-User-Id")):
     await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
-
     conn = get_db_connection()
-    perms = conn.execute("SELECT * FROM permissions ORDER BY id").fetchall()
-    
-    result = []
-    for p in perms:
-        # Format Code P-XXX
-        formatted_code = f"P-{p['id']:04d}"
-        
-        result.append({
-            "id": p['id'],
-            "display_code": formatted_code,
-            "code": p['code'],
-            "description": p['description'],
-            "group_name": p['group_name'],
-            "status": (p['status'] if 'status' in p.keys() else 'Active') or 'Active'
-        })
-    conn.close()
-    return result
+    try:
+        actor = _actor_context(conn, x_user_id)
+        from app.core.config import USE_POSTGRES
+        agg_expr = "STRING_AGG(r.name, ',')" if USE_POSTGRES else "GROUP_CONCAT(r.name)"
+        root_filter = "" if actor["is_root"] else " AND LOWER(r.name) <> LOWER('Root_Super_Admin') "
+        query = f"""
+            SELECT p.id, p.code, p.description, p.group_name, p.status,
+                   {agg_expr} as assigned_roles
+            FROM permissions p
+            LEFT JOIN role_permissions rp ON p.id = rp.permission_id
+            LEFT JOIN roles r ON rp.role_id = r.id {root_filter}
+            GROUP BY p.id, p.code, p.description, p.group_name, p.status
+            ORDER BY p.id
+        """
+        rows = conn.execute(query).fetchall()
+        out = []
+        for row in rows:
+            try:
+                p = dict(row)
+            except Exception:
+                p = {k: row[k] for k in ("id", "code", "description", "group_name", "status", "assigned_roles")}
+            roles_raw = p.get("assigned_roles") or ""
+            out.append(
+                {
+                    "id": p["id"],
+                    "display_code": f"P-{int(p['id']):04d}",
+                    "code": p["code"],
+                    "description": p.get("description") or "",
+                    "assigned_roles": [r.strip() for r in roles_raw.split(",") if r.strip()],
+                    "group_name": p.get("group_name") or "General",
+                    "status": p.get("status") or "Active",
+                }
+            )
+        return out
+    finally:
+        conn.close()
 
 @app.get("/api/admin/permissions/summary")
 async def get_permissions_summary(x_user_id: str = Header(None, alias="X-User-Id")):
-    """Returns 3 summary cards for the Permission Setup view."""
     await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
-
     conn = get_db_connection()
     try:
-        # Total permissions
         total = conn.execute("SELECT COUNT(*) as cnt FROM permissions").fetchone()["cnt"]
-
-        # Active permissions
         try:
             active = conn.execute(
                 "SELECT COUNT(*) as cnt FROM permissions WHERE LOWER(COALESCE(status, 'active')) = 'active'"
             ).fetchone()["cnt"]
         except Exception:
-            # Backward compatibility: older DBs may not yet have permissions.status.
             active = total
-
-        # Inactive permissions
-        inactive = total - active
-
         return {
             "total_permissions": total,
             "active_permissions": active,
-            "inactive_permissions": inactive,
+            "inactive_permissions": total - active,
         }
     finally:
         conn.close()
@@ -3107,54 +3787,22 @@ class UpdatePermissionRequest(BaseModel):
 @app.put("/api/admin/permissions/{perm_id}")
 async def update_permission(perm_id: int, req: UpdatePermissionRequest, x_user_id: str = Header(None, alias="X-User-Id")):
     await verify_any_permission(["permission_management", "edit_permissions"], x_user_id=x_user_id)
-
     conn = get_db_connection()
     try:
         cur = conn.cursor()
-        cur.execute("UPDATE permissions SET description = ? WHERE id = ?", (req.description, perm_id))
+        cur.execute("UPDATE permissions SET description = %s WHERE id = %s", (req.description, perm_id))
         if cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="Permission not found")
         conn.commit()
         return {"success": True}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.get("/api/admin/roles/{role_id}")
-async def get_role_details(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("edit_roles", x_user_id=x_user_id)
-    conn = get_db_connection()
-    try:
-        role = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
-        if not role:
-            raise HTTPException(status_code=404, detail="Role not found")
-
-        perms = conn.execute("""
-            SELECT p.id, p.code, p.description
-            FROM permissions p
-            JOIN role_permissions rp ON p.id = rp.permission_id
-            WHERE rp.role_id = ?
-        """, (role_id,)).fetchall()
-
-        return {
-            "id": role["id"],
-            "code": f"R-{role['id']:03d}",
-            "name": role["name"],
-            "description": role["description"] or "",
-            "status": role["status"],
-            "is_system": bool(role["is_system"]),
-            "permissions": [{"id": p["id"], "code": p["code"], "description": p["description"]} for p in perms]
-        }
     finally:
         conn.close()
 
 class ReportsSummaryResponse(BaseModel):
-    academic_performance: Dict[str, float]
-    attendance_trends: List[Dict[str, Any]]
-    financial_summary: Dict[str, float]
-    staff_utilization: Dict[str, Any]
+    academic_performance: Optional[Dict[str, float]] = None
+    attendance_trends: Optional[List[Dict[str, Any]]] = None
+    financial_summary: Optional[Dict[str, float]] = None
+    staff_utilization: Optional[Dict[str, Any]] = None
 
 @app.get("/api/reports/summary")
 async def get_reports_summary(user_id: str = Header(None, alias="X-User-Id"), role: str = Header(None, alias="X-User-Role")):
@@ -3223,226 +3871,6 @@ async def get_reports_summary(user_id: str = Header(None, alias="X-User-Id"), ro
     }
 
 
-@app.post("/api/admin/roles")
-async def create_role(req: RoleCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("add_roles", x_user_id=x_user_id)
-    conn = get_db_connection()
-    try:
-        # Create Role
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO roles (name, description, status, is_system) VALUES (?, ?, ?, FALSE)", 
-            (req.name, req.description, req.status)
-        )
-        role_id = cur.lastrowid
-        
-        if not role_id:
-            raise HTTPException(status_code=500, detail="Failed to create role record.")
-        
-        # Add perms
-        if req.permissions:
-            for p_code in req.permissions:
-                perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
-                if perm and perm['id']:
-                    cur.execute(
-                        "INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", 
-                        (role_id, perm['id'])
-                    )
-        
-        conn.commit()
-        return {"success": True, "role_id": role_id}
-    except Exception as e:
-        conn.rollback()
-        print(f"Error creating role: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.put("/api/admin/roles/{role_id}")
-async def update_role(role_id: int, req: RoleCreateRequest, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("edit_roles", x_user_id=x_user_id)
-    conn = get_db_connection()
-    try:
-        # Update Role Info
-        cur = conn.cursor()
-        cur.execute("UPDATE roles SET name = ?, description = ?, status = ? WHERE id = ?", (req.name, req.description, req.status, role_id))
-        
-        # Update Perms (Wipe and recreate)
-        cur.execute("DELETE FROM role_permissions WHERE role_id = ?", (role_id,))
-        if req.permissions:
-            for p_code in req.permissions:
-                perm = cur.execute("SELECT id FROM permissions WHERE code = ?", (p_code,)).fetchone()
-                if perm and perm['id']:
-                    cur.execute("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", (role_id, perm['id']))
-                
-        conn.commit()
-        return {"success": True}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-        
-@app.delete("/api/admin/roles/{role_id}")
-async def delete_role(role_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
-    await verify_permission("delete_roles", x_user_id=x_user_id)
-    conn = get_db_connection()
-    try:
-        cur = conn.cursor()
-        # Check if system
-        role = cur.execute("SELECT is_system FROM roles WHERE id = ?", (role_id,)).fetchone()
-        if role and role['is_system']:
-             raise HTTPException(status_code=403, detail="Cannot delete system roles.")
-             
-        cur.execute("DELETE FROM roles WHERE id = ?", (role_id,))
-        conn.commit()
-        return {"success": True}
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-
-    conn.commit()
-    # ------------------------------------------------------------------
-
-    # Ensure Teacher has correct role
-    # Ensure Teacher and Admin have correct role and hashed passwords from .env
-    cursor.execute("UPDATE students SET role = 'Teacher' WHERE id = 'teacher'")
-    cursor.execute("UPDATE students SET password = ? WHERE id = 'teacher'", (hash_password(TEACHER_LOGIN_PASSWORD),))
-    cursor.execute("UPDATE students SET password = ? WHERE id = 'admin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
-    conn.commit()
-    # Seed Timetable
-    cursor.execute("SELECT COUNT(*) FROM timetables")
-    if cursor.fetchone()[0] == 0:
-        # Teacher ID 'teacher'
-        tt_data = [
-            (9, 'A', 'Monday', 1, '09:00', '10:00', 'Mathematics', 'teacher'),
-            (10, 'B', 'Monday', 2, '10:00', '11:00', 'Science', 'teacher'),
-            (9, 'A', 'Tuesday', 1, '09:00', '10:00', 'Mathematics', 'teacher'),
-            (11, 'C', 'Tuesday', 3, '11:00', '12:00', 'Physics', 'teacher'),
-            (10, 'B', 'Wednesday', 2, '10:00', '11:00', 'Science', 'teacher'),
-            (9, 'A', 'Thursday', 4, '13:00', '14:00', 'History', 'teacher'),
-            (10, 'B', 'Friday', 1, '09:00', '10:00', 'Science Lab', 'teacher')
-        ]
-        cursor.executemany("INSERT INTO timetables (class_grade, section, day_of_week, period_number, start_time, end_time, subject, teacher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", tt_data)
-        conn.commit()
-
-    # Seed Leave Requests
-    cursor.execute("SELECT COUNT(*) FROM leave_requests")
-    if cursor.fetchone()[0] == 0:
-        leaves = [
-            ('S001', 'Sick Leave', '2025-10-10', '2025-10-12', 'High Fever', 'Approved', 'teacher', datetime.now().isoformat()),
-            ('S002', 'Casual Leave', '2025-11-05', '2025-11-06', 'Family Function', 'Pending', None, datetime.now().isoformat()),
-            ('teacher', 'Sick Leave', '2025-12-01', '2025-12-02', 'Medical Checkup', 'Pending', None, datetime.now().isoformat())
-        ]
-        cursor.executemany("INSERT INTO leave_requests (user_id, type, start_date, end_date, reason, status, reviewed_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", leaves)
-        conn.commit()
-
-    # Seed Schools
-    cursor.execute("SELECT COUNT(*) FROM schools")
-    if cursor.fetchone()[0] == 0:
-        created_at = datetime.now().isoformat()
-        cursor.execute("INSERT INTO schools (name, address, contact_email, created_at) VALUES ('Noble Nexus Academy', '123 Main St', 'contact@noblenexus.com', ?)", (created_at,))
-        cursor.execute("INSERT INTO schools (name, address, contact_email, created_at) VALUES ('Global Tech High', '456 Tech Ave', 'admin@globaltech.edu', ?)", (created_at,))
-        conn.commit()
-
-    # Seed data only if tables are empty
-    cursor.execute("SELECT COUNT(*) FROM students")
-    if cursor.fetchone()[0] == 0:
-        students_data = [
-            ('S001', 'Alice Smith', 9, 'Maths', 92.5, 'English', hash_password('123'), 85.0, 78.5, 90.0, 'Student', 0, None, 1, False),
-            ('S002', 'Bob Johnson', 10, 'Science', 85.0, 'Spanish', hash_password('123'), 60.0, 95.0, 75.0, 'Student', 0, None, 1, False),
-            ('SURJEET', 'Surjeet J', 11, 'Science', 77.0, 'Punjabi', hash_password('123'), 70.0, 65.0, 80.0, 'Student', 0, None, 1, False),
-            ('DEVA', 'Deva Krishnan', 11, 'Tamil', 90.0, 'Tamil', hash_password('123'), 95.0, 88.0, 92.0, 'Student', 0, None, 1, False),
-            ('HARISH', 'Harish Boy', 5, 'English', 7.0, 'Hindi', hash_password('123'), 50.0, 50.0, 45.0, 'Student', 0, None, 1, False),
-            ('teacher', 'Teacher Admin', 0, 'All', 100.0, 'English', hash_password(TEACHER_LOGIN_PASSWORD), 100.0, 100.0, 100.0, 'Teacher', 0, None, 1, False), 
-            ('superadmin', 'Super Admin', 0, 'All', 100.0, 'English', hash_password('superadmin'), 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
-            ('admin', 'System Admin', 0, 'All', 100.0, 'English', hash_password(ADMIN_LOGIN_PASSWORD), 100.0, 100.0, 100.0, 'Admin', 0, None, 1, True),
-        ]
-        cursor.executemany("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", students_data)
-
-        activities_data = [
-            ('S001', '2025-11-01', 'Algebra', 'Medium', 95, 10),
-            ('S001', '2025-11-03', 'Geometry', 'Medium', 65, 25), 
-            ('S002', '2025-11-01', 'Physics', 'Medium', 40, 45),
-            ('S002', '2025-11-02', 'Chemistry', 'Easy', 55, 30),
-            ('HARISH', '2025-11-10', 'Reading', 'Easy', 80, 15),
-            ('SURJEET', '2025-11-12', 'Physics', 'Medium', 88.0, 45),
-            ('SURJEET', '2025-11-14', 'Chemistry', 'Hard', 76.5, 60),
-            ('SURJEET', '2025-11-15', 'Biology', 'Easy', 92.0, 30),
-            ('SURJEET', '2025-11-16', 'Maths', 'Hard', 85.0, 50),
-            ('SURJEET', '2025-11-18', 'English', 'Medium', 90.0, 40),
-            ('DEVA', '2025-11-12', 'Tamil', 'Medium', 95.0, 30),
-            ('DEVA', '2025-11-13', 'English', 'Hard', 82.0, 45),
-            ('DEVA', '2025-11-14', 'Maths', 'Medium', 88.0, 50),
-        ]
-        for a in activities_data:
-             cursor.execute("INSERT INTO activities (student_id, date, topic, difficulty, score, time_spent_min) VALUES (?, ?, ?, ?, ?, ?)", a)
-        
-    # Ensure Teacher and Admin exist
-    cursor.execute("SELECT id FROM students WHERE id = 'teacher'")
-    if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES (?, 'Teacher Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Teacher', 0, NULL, 1, 0)", ('teacher', hash_password(TEACHER_LOGIN_PASSWORD)))
-    
-    cursor.execute("SELECT id FROM students WHERE id = 'admin'")
-    if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin) VALUES ('admin', 'System Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', 0, NULL, 1, 1)", (hash_password(ADMIN_LOGIN_PASSWORD),))
-    else:
-         cursor.execute("UPDATE students SET role = 'Admin', is_super_admin = 1, password = ? WHERE id = 'admin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
-
-    cursor.execute("SELECT id FROM students WHERE id = 'rootadmin'")
-    if not cursor.fetchone():
-         cursor.execute("INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, failed_login_attempts, locked_until, school_id, is_super_admin, email_verified) VALUES ('rootadmin', 'Root Admin', 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Root_Super_Admin', 0, NULL, 1, 0, 1)", (hash_password(ADMIN_LOGIN_PASSWORD),))
-    else:
-         cursor.execute("UPDATE students SET role = 'Root_Super_Admin', is_super_admin = 0, password = ?, email_verified = TRUE WHERE id = 'rootadmin'", (hash_password(ADMIN_LOGIN_PASSWORD),))
-
-    # Backward compatibility: migrate old finance_admin users to Root Super Admin access.
-    cursor.execute(
-        "UPDATE students SET role = 'Root_Super_Admin', is_super_admin = 0, password = ? WHERE LOWER(role) = LOWER('finance_admin')",
-        (hash_password(ADMIN_LOGIN_PASSWORD),)
-    )
-
-    # Seed demo codes for existing users (Check individually to ensure all are present)
-    demo_codes = [
-        ('teacher', '928471'), ('teacher', '582931'),
-        ('admin', '736102'),
-        ('rootadmin', '445566'),
-        ('S001', '519384'),
-        ('S002', '123456'),
-        ('SURJEET', '192837'),
-        ('DEVA', '112233'),
-        ('HARISH', '998877')
-    ]
-    now = datetime.now().isoformat()
-    for uid, code in demo_codes:
-         # Check if this specific code exists
-         cursor.execute("SELECT 1 FROM backup_codes WHERE user_id = ? AND code = ?", (uid, code))
-         if not cursor.fetchone():
-             # Only insert if user actually exists
-             cursor.execute("SELECT 1 FROM students WHERE id = ?", (uid,))
-             if cursor.fetchone():
-                 cursor.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", (uid, code, now))
-    
-    # Catch-all: Ensure ALL students have at least one code (Enforces 2FA for everyone)
-    cursor.execute("SELECT id FROM students")
-    all_users = cursor.fetchall()
-    for user in all_users:
-        uid = user[0]
-        cursor.execute("SELECT 1 FROM backup_codes WHERE user_id = ?", (uid,))
-        if not cursor.fetchone():
-            # Generate a RANDOM default code for anyone missing one
-            default_code = str(random.randint(100000, 999999))
-            cursor.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", (uid, default_code, now))
-                 
-    conn.commit()
-    conn.close()
-# Database initialization moved to startup event
-
-
 # --- 5. ML ENGINE ---
 
 ML_MODEL = None
@@ -3474,7 +3902,7 @@ def get_recommendation(student_id: str) -> Optional[str]:
     if not ML_MODEL:
         return "Not enough data (minimum 5 activities) to generate an ML-based recommendation."
 
-    df_history = fetch_data_df("SELECT score, time_spent_min FROM activities WHERE student_id = ? ORDER BY date DESC LIMIT 1", (student_id,))
+    df_history = fetch_data_df("SELECT score, time_spent_min FROM activities WHERE student_id = %s ORDER BY date DESC LIMIT 1", (student_id,))
     
     if df_history.empty:
         return "No activity history available to base a recommendation on."
@@ -3515,7 +3943,7 @@ async def create_school(
 
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user or not user['is_super_admin']:
              log_auth_event(x_user_id, "Unauthorized Access", "Attempted to create school without Super Admin access")
              raise HTTPException(status_code=403, detail="Permission denied. SUPER ADMIN ONLY.")
@@ -3523,18 +3951,23 @@ async def create_school(
         created_at = datetime.now().isoformat()
         cursor = conn.cursor()
         
+        is_postgres = USE_POSTGRES and (DATABASE_URL and "postgres" in DATABASE_URL.lower())
+        id_query = " RETURNING id" if is_postgres else ""
         # INSERT School
         cursor.execute(
-            "INSERT INTO schools (name, address, contact_email, created_at) VALUES (?, ?, ?, ?)",
+            f"INSERT INTO schools (name, address, contact_email, created_at) VALUES (%s, ?, ?, ?){id_query}",
             (request.name, request.address, request.contact_email, created_at)
         )
-        school_id = cursor.lastrowid
+        if is_postgres:
+            school_id = cursor.fetchone()[0]
+        else:
+            school_id = int(_last_insert_id(cursor))
         
         # Create Admin user for this school
         # Using contact_email as the ID/Username
         cursor.execute(
-            "INSERT INTO students (id, name, role, password, school_id) VALUES (?, ?, ?, ?, ?)",
-            (request.contact_email, f"{request.name} Admin", "Admin", hash_password(request.admin_password), school_id)
+            "INSERT INTO students (id, name, role, password, school_id, email) VALUES (%s, ?, ?, ?, ?, ?)",
+            (request.contact_email, f"{request.name} Administrator", "Principal", hash_password(request.admin_password), school_id, request.contact_email)
         )
         
         conn.commit()
@@ -3549,13 +3982,36 @@ async def create_school(
     
     return {"message": "School and Admin account created successfully.", "school_id": school_id}
 
-@app.get("/api/admin/schools", response_model=List[SchoolResponse])
+@app.get("/api/admin/schools", response_model=List[SchoolResponse], include_in_schema=True)
+@app.get("/api/admin/schools/", response_model=List[SchoolResponse], include_in_schema=False)
 async def list_schools():
     # Public endpoint for registration dropdown, or secured if needed
+    def _safe(val, default=None):
+        if val is None:
+            return default
+        if isinstance(val, str):
+            return val.strip() or default
+        return str(val)
+
     conn = get_db_connection()
     schools = conn.execute("SELECT * FROM schools ORDER BY name").fetchall()
     conn.close()
-    return [SchoolResponse(id=s['id'], name=s['name'], address=s['address'], contact_email=s['contact_email'], created_at=s['created_at']) for s in schools]
+    schools = [dict(s) if not isinstance(s, dict) else s for s in schools]
+    result = []
+    for s in schools:
+        try:
+            result.append(SchoolResponse(
+                id=s.get('id') or s.get('school_id'),
+                name=_safe(s.get('name') or s.get('school_name')),
+                address=_safe(s.get('address')),
+                contact_email=_safe(s.get('contact_email') or s.get('email')),
+                created_at=_safe(s.get('created_at'))
+            ))
+        except Exception as e:
+            import logging
+            logging.warning(f"Skipping bad school record: {e}")
+            continue
+    return result
 
 # --- ROOT ADMIN ONLY (Students + Schools) ---
 
@@ -3606,7 +4062,7 @@ async def root_add_student(req: RootAdminStudentCreateRequest, x_user_id: str = 
         target_role = _normalize_root_managed_role(req.role or "Student")
 
         target_school_id = req.school_id or 1
-        school = conn.execute("SELECT id FROM schools WHERE id = ?", (target_school_id,)).fetchone()
+        school = conn.execute("SELECT id FROM schools WHERE id = %s", (target_school_id,)).fetchone()
         if not school:
             raise HTTPException(status_code=404, detail="School not found")
 
@@ -3619,7 +4075,7 @@ async def root_add_student(req: RootAdminStudentCreateRequest, x_user_id: str = 
                 id, name, grade, preferred_subject, attendance_rate, home_language, password,
                 math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+            VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
             """,
             (
                 email, req.name.strip(), req.grade, req.preferred_subject, 100.0, req.home_language,
@@ -3642,7 +4098,7 @@ async def root_update_student_email(
         ensure_root_admin_user(conn, x_user_id)
         new_email = normalize_and_validate_email(req.email)
 
-        student = conn.execute("SELECT id, role FROM students WHERE id = ?", (student_id,)).fetchone()
+        student = conn.execute("SELECT id, role FROM students WHERE id = %s", (student_id,)).fetchone()
         if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
             raise HTTPException(status_code=404, detail="Managed user not found")
         exists = conn.execute("SELECT id FROM students WHERE LOWER(id) = LOWER(?)", (new_email,)).fetchone()
@@ -3651,18 +4107,18 @@ async def root_update_student_email(
 
         student_name = student["id"]
         try:
-            row = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+            row = conn.execute("SELECT name FROM students WHERE id = %s", (student_id,)).fetchone()
             if row and row["name"]:
                 student_name = row["name"]
         except Exception:
             pass
 
         update_user_identifier_everywhere(conn, student_id, new_email)
-        conn.execute("UPDATE students SET email = ? WHERE id = ?", (new_email, new_email))
+        conn.execute("UPDATE students SET email = %s WHERE id = %s", (new_email, new_email))
         if student["role"] in ("Parent", "Parent_Guardian"):
             # Keep guardian contact email in sync so UI + parent flows reflect the new login email.
             conn.execute(
-                "UPDATE guardians SET email = ? WHERE LOWER(name) = LOWER(?)",
+                "UPDATE guardians SET email = %s WHERE LOWER(name) = LOWER(?)",
                 (new_email, student_name),
             )
         conn.commit()
@@ -3681,13 +4137,13 @@ async def root_update_student_password(
         ensure_root_admin_user(conn, x_user_id)
         if not req.password or len(req.password.strip()) < 3:
             raise HTTPException(status_code=400, detail="Password must be at least 3 characters.")
-        student = conn.execute("SELECT id, role, email FROM students WHERE id = ?", (student_id,)).fetchone()
+        student = conn.execute("SELECT id, role, email FROM students WHERE id = %s", (student_id,)).fetchone()
         if not student or student["role"] not in ROOT_ADMIN_MANAGED_ROLES:
             raise HTTPException(status_code=404, detail="Managed user not found")
         original_id = student["id"]
         original_email = student["email"] if "email" in student.keys() else None
-        conn.execute("UPDATE students SET password = ? WHERE id = ?", (hash_password(req.password), student_id))
-        after = conn.execute("SELECT id, email FROM students WHERE id = ?", (student_id,)).fetchone()
+        conn.execute("UPDATE students SET password = %s WHERE id = %s", (hash_password(req.password), student_id))
+        after = conn.execute("SELECT id, email FROM students WHERE id = %s", (student_id,)).fetchone()
         if not after or after["id"] != original_id or (after["email"] if "email" in after.keys() else None) != original_email:
             conn.rollback()
             raise HTTPException(status_code=500, detail="Safety check failed: password update attempted to change user email/id.")
@@ -3746,11 +4202,11 @@ async def root_create_school_account(
         cursor.execute(
             """
             INSERT INTO schools (name, address, contact_email, created_at, is_active, activation_otp_hash, activation_otp_expires_at)
-            VALUES (?, ?, ?, ?, FALSE, ?, ?)
+            VALUES (%s, ?, ?, ?, FALSE, ?, ?)
             """,
             (req.name, req.address, school_email, created_at, otp_hash, otp_expires_at),
         )
-        school_id = cursor.lastrowid
+        school_id = _last_insert_id(cursor)
 
         if conn.execute("SELECT id FROM students WHERE LOWER(id)=LOWER(?)", (school_email,)).fetchone():
             raise HTTPException(status_code=409, detail="School account email already exists as user.")
@@ -3758,7 +4214,7 @@ async def root_create_school_account(
         cursor.execute(
             """
             INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, role, school_id, is_super_admin, email_verified)
-            VALUES (?, ?, 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', ?, 0, 0)
+            VALUES (%s, ?, 0, 'All', 100.0, 'English', ?, 100.0, 100.0, 100.0, 'Admin', ?, 0, 0)
             """,
             (school_email, f"{req.name} Admin", hash_password(req.account_password), school_id),
         )
@@ -3785,7 +4241,7 @@ async def root_verify_school_otp(
     try:
         ensure_root_admin_user(conn, x_user_id)
         school = conn.execute(
-            "SELECT id, contact_email, activation_otp_hash, activation_otp_expires_at FROM schools WHERE id = ?",
+            "SELECT id, contact_email, activation_otp_hash, activation_otp_expires_at FROM schools WHERE id = %s",
             (req.school_id,),
         ).fetchone()
         if not school:
@@ -3800,11 +4256,11 @@ async def root_verify_school_otp(
             raise HTTPException(status_code=400, detail="Invalid OTP")
 
         conn.execute(
-            "UPDATE schools SET is_active = TRUE, activation_otp_hash = NULL, activation_otp_expires_at = NULL WHERE id = ?",
+            "UPDATE schools SET is_active = TRUE, activation_otp_hash = NULL, activation_otp_expires_at = NULL WHERE id = %s",
             (req.school_id,),
         )
         conn.execute(
-            "UPDATE students SET email_verified = TRUE WHERE id = ? AND school_id = ? AND role = 'Admin'",
+            "UPDATE students SET email_verified = TRUE WHERE id = %s AND school_id = %s AND role = 'Admin'",
             (school["contact_email"], req.school_id),
         )
         conn.commit()
@@ -3901,15 +4357,50 @@ async def logout_user(request: LogoutRequest):
     return {"message": "Logged out successfully"}
 
 @app.get("/api/auth/permissions")
-async def get_role_permissions():
-    return ROLE_PERMISSIONS
+async def get_role_permissions(x_user_id: str = Header(None, alias="X-User-Id")):
+    conn = get_db_connection()
+    try:
+        school_id = None
+        is_super = False
+        if x_user_id:
+            actor = conn.execute(
+                "SELECT school_id, is_super_admin, role FROM students WHERE LOWER(id) = LOWER(?)",
+                (x_user_id,),
+            ).fetchone()
+            if actor:
+                school_id = actor["school_id"]
+                is_super = bool(actor["is_super_admin"]) or actor["role"] in ("Root_Super_Admin", "Super Admin")
+
+        rows = conn.execute(
+            """
+            SELECT r.name AS role_name, p.code AS permission_code
+            FROM roles r
+            LEFT JOIN role_permissions rp ON rp.role_id = r.id
+            LEFT JOIN permissions p ON p.id = rp.permission_id
+            WHERE ? OR r.school_id IS NULL OR r.school_id = %s
+            ORDER BY r.name, p.code
+            """,
+            (1 if is_super else 0, school_id if school_id is not None else 1),
+        ).fetchall()
+
+        by_role = {}
+        for row in rows:
+            role_name = row["role_name"]
+            perm_code = row["permission_code"]
+            if role_name not in by_role:
+                by_role[role_name] = []
+            if perm_code:
+                by_role[role_name].append(perm_code)
+        return by_role
+    finally:
+        conn.close()
 
 @app.get("/api/teacher/students/{student_id}/codes")
 async def get_student_codes(student_id: str, x_user_id: str = Header(None, alias="X-User-Id")):
     await verify_permission("manage_users", x_user_id=x_user_id)
     conn = get_db_connection()
-    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
-    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = %s", (student_id,)).fetchall()
+    student = conn.execute("SELECT name FROM students WHERE id = %s", (student_id,)).fetchone()
     conn.close()
     
     if not student:
@@ -3921,7 +4412,7 @@ async def get_student_codes(student_id: str, x_user_id: str = Header(None, alias
     if not code_list:
         new_code = str(random.randint(100000, 999999))
         conn = get_db_connection()
-        conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
+        conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (%s, ?, ?)", 
                      (student_id, new_code, datetime.now().isoformat()))
         conn.commit()
         conn.close()
@@ -3939,19 +4430,19 @@ async def regenerate_student_code(student_id: str, x_user_id: str = Header(None,
     conn = get_db_connection()
     
     # Check if student exists
-    if not conn.execute("SELECT 1 FROM students WHERE id = ?", (student_id,)).fetchone():
+    if not conn.execute("SELECT 1 FROM students WHERE id = %s", (student_id,)).fetchone():
         conn.close()
         raise HTTPException(status_code=404, detail="Student not found")
 
     # Delete ALL existing codes for this user (Revoke old)
-    conn.execute("DELETE FROM backup_codes WHERE user_id = ?", (student_id,))
+    conn.execute("DELETE FROM backup_codes WHERE user_id = %s", (student_id,))
     
     # Generate ONE new random code
     new_code = str(random.randint(100000, 999999))
-    conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (?, ?, ?)", 
+    conn.execute("INSERT INTO backup_codes (user_id, code, created_at) VALUES (%s, ?, ?)", 
                  (student_id, new_code, datetime.now().isoformat()))
     
-    student_name = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()[0]
+    student_name = conn.execute("SELECT name FROM students WHERE id = %s", (student_id,)).fetchone()[0]
     conn.commit()
     conn.close()
     
@@ -3967,8 +4458,8 @@ async def regenerate_student_code(student_id: str, x_user_id: str = Header(None,
 @app.post("/api/students/{student_id}/email-code")
 async def send_access_code_email(student_id: str, background_tasks: BackgroundTasks):
     conn = get_db_connection()
-    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = ?", (student_id,)).fetchall()
-    student = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    codes = conn.execute("SELECT code FROM backup_codes WHERE user_id = %s", (student_id,)).fetchall()
+    student = conn.execute("SELECT name FROM students WHERE id = %s", (student_id,)).fetchone()
     conn.close()
 
     if not codes:
@@ -4000,28 +4491,6 @@ async def send_access_code_email(student_id: str, background_tasks: BackgroundTa
     background_tasks.add_task(send_email, target_email, "Your Noble Nexus Access Codes", email_body)
     
     return {"message": f"Codes queued for delivery to {target_email}"}
-
-@app.get("/", response_class=HTMLResponse)
-async def read_root():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Priority: project root index.html → frontend/static_app/index.html → backend/index.html
-    root_index = os.path.abspath(os.path.join(base_dir, "..", "index.html"))
-    candidates = [root_index, FRONTEND_INDEX, os.path.join(base_dir, "index.html")]
-    file_path = next((p for p in candidates if os.path.exists(p)), None)
-    
-    if not file_path:
-        return HTMLResponse(content="""
-            <html>
-                <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-                    <h1 style="color: #4CAF50;">Noble Nexus API is Running 🚀</h1>
-                    <p>The backend is online and accepting requests.</p>
-                    <p>Please access the application via your <strong>Vercel Frontend</strong>.</p>
-                </body>
-            </html>
-        """, status_code=200)
-        
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
 
 @app.get("/script.js")
 @app.get("/frontend/script.js")
@@ -4301,7 +4770,7 @@ async def get_teacher_overview(
     conn = get_db_connection()
     try:
         # 1. Get User/Teacher Context
-        user_row = conn.execute("SELECT school_id, grade, role, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user_row = conn.execute("SELECT school_id, grade, role, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         
         if not user_row:
              raise HTTPException(status_code=404, detail="Current user profile not found.")
@@ -4325,13 +4794,13 @@ async def get_teacher_overview(
             SELECT s.id, s.name, s.grade, s.preferred_subject, s.attendance_rate, s.home_language, 
                    s.math_score, s.science_score, s.english_language_score
             FROM students s
-            WHERE s.role = 'Student' AND s.school_id = ?
+            WHERE s.role = 'Student' AND s.school_id = %s
         """
         params = [school_id]
         
         # Only filter by grade if the teacher is assigned to a specific grade and isn't a super admin
         if not is_super and teacher_grade > 0:
-            query += " AND s.grade = ?"
+            query += " AND s.grade = %s"
             params.append(teacher_grade)
             
         students_df = fetch_data_df(query, params=tuple(params))
@@ -4350,7 +4819,7 @@ async def get_teacher_overview(
         students_df['section_id'] = None
         students_df['section_name'] = None
         try:
-             sections_df = fetch_data_df("SELECT s.id as student_id, sec.id as section_id, sec.name as section_name FROM students s JOIN sections sec ON s.section_id = sec.id WHERE s.school_id = ?", (school_id,))
+             sections_df = fetch_data_df("SELECT s.id as student_id, sec.id as section_id, sec.name as section_name FROM students s JOIN sections sec ON s.section_id = sec.id WHERE s.school_id = %s", (school_id,))
              if not sections_df.empty:
                  students_df = students_df.merge(sections_df, left_on='id', right_on='student_id', how='left')
         except:
@@ -4361,10 +4830,10 @@ async def get_teacher_overview(
         class_avg_attendance = students_df['attendance_rate'].mean() if not students_df.empty else 0.0
         
         # Activities / Scores
-        activities_query = "SELECT a.student_id, a.score FROM activities a JOIN students s ON a.student_id = s.id WHERE s.school_id = ?"
+        activities_query = "SELECT a.student_id, a.score FROM activities a JOIN students s ON a.student_id = s.id WHERE s.school_id = %s"
         activities_params = [school_id]
         if not is_super and teacher_grade > 0:
-             activities_query += " AND s.grade = ?"
+             activities_query += " AND s.grade = %s"
              activities_params.append(teacher_grade)
              
         activities_df = fetch_data_df(activities_query, params=tuple(activities_params))
@@ -4413,7 +4882,7 @@ async def get_teacher_overview(
             class_avg_score = 0.0
 
         # 4. Fetch Teachers Count
-        total_teachers = conn.execute("SELECT COUNT(*) FROM students WHERE role IN ('Teacher', 'Principal', 'Admin') AND school_id = ?", (school_id,)).fetchone()[0]
+        total_teachers = conn.execute("SELECT COUNT(*) FROM students WHERE role IN ('Teacher', 'Principal', 'Admin') AND school_id = %s", (school_id,)).fetchone()[0]
         
     finally:
         conn.close()
@@ -4437,7 +4906,7 @@ async def add_new_student(
          
     conn = get_db_connection()
     try:
-        user_data = conn.execute("SELECT role, school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user_data = conn.execute("SELECT role, school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
     finally:
         conn.close()
     if not user_data:
@@ -4456,7 +4925,7 @@ async def add_new_student(
         cursor.execute(
             """
             INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, math_score, science_score, english_language_score, school_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 request.id, request.name, request.grade, request.preferred_subject, 
@@ -4481,10 +4950,10 @@ async def generate_invitation(
     expires_at = (datetime.now() + timedelta(hours=request.expiry_hours)).isoformat()
     
     conn = get_db_connection()
-    user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+    user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
     school_id = dict(user).get('school_id', 1) if user else 1
 
-    conn.execute("INSERT INTO invitations (token, role, expires_at, school_id) VALUES (?, ?, ?, ?)", 
+    conn.execute("INSERT INTO invitations (token, role, expires_at, school_id) VALUES (%s, ?, ?, ?)", 
                  (token, request.role, expires_at, school_id))
     conn.commit()
     conn.close()
@@ -4503,16 +4972,16 @@ async def update_student(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        result = cursor.execute("SELECT id FROM students WHERE id = ?", (student_id,)).fetchone()
+        result = cursor.execute("SELECT id FROM students WHERE id = %s", (student_id,)).fetchone()
         if result is None:
             raise HTTPException(status_code=404, detail=f"Student ID '{student_id}' not found.")
             
         cursor.execute(
             """
             UPDATE students 
-            SET name = ?, grade = ?, preferred_subject = ?, attendance_rate = ?, home_language = ?,
-                math_score = ?, science_score = ?, english_language_score = ?
-            WHERE id = ?
+            SET name = %s, grade = %s, preferred_subject = %s, attendance_rate = %s, home_language = %s,
+                math_score = %s, science_score = %s, english_language_score = %s
+            WHERE id = %s
             """,
             (
                 request.name, request.grade, request.preferred_subject, 
@@ -4524,13 +4993,13 @@ async def update_student(
         
         if request.password and request.password.strip():
             validate_password_strength(request.password)
-            cursor.execute("UPDATE students SET password = ? WHERE id = ?", (hash_password(request.password), student_id))
+            cursor.execute("UPDATE students SET password = %s WHERE id = %s", (hash_password(request.password), student_id))
             log_auth_event(student_id, "Password Changed", f"Admin/Teacher ({x_user_id}) updated password")
 
         if request.roles is not None:
              # Update Roles (RBAC)
              # 1. Clear existing roles
-             cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (student_id,))
+             cursor.execute("DELETE FROM user_roles WHERE user_id = %s", (student_id,))
              
              # 2. Add new roles
              first_role_name = "Student" # Default
@@ -4538,15 +5007,15 @@ async def update_student(
                  first_role_name = request.roles[0] # Take first as primary for legacy column
                  
                  for role_name in request.roles:
-                      role_row = cursor.execute("SELECT id FROM roles WHERE name = ?", (role_name,)).fetchone()
+                      role_row = cursor.execute("SELECT id FROM roles WHERE name = %s", (role_name,)).fetchone()
                       if role_row:
-                          cursor.execute("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", (student_id, role_row['id']))
+                          cursor.execute("INSERT INTO user_roles (user_id, role_id) VALUES (%s, ?)", (student_id, role_row['id']))
                       else:
                           # Handle custom role or error? For now skip
                           pass
              
              # 3. Update legacy column
-             cursor.execute("UPDATE students SET role = ? WHERE id = ?", (first_role_name, student_id))
+             cursor.execute("UPDATE students SET role = %s WHERE id = %s", (first_role_name, student_id))
 
         conn.commit()
         return {"message": f"Student {student_id} updated successfully."}
@@ -4561,11 +5030,11 @@ async def delete_student(student_id: str):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        result = cursor.execute("SELECT id FROM students WHERE id = ?", (student_id,)).fetchone()
+        result = cursor.execute("SELECT id FROM students WHERE id = %s", (student_id,)).fetchone()
         if result is None:
             raise HTTPException(status_code=404, detail=f"Student ID '{student_id}' not found.")
             
-        cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+        cursor.execute("DELETE FROM students WHERE id = %s", (student_id,))
         conn.commit()
         return {"message": f"Student {student_id} and all related activities deleted successfully."}
     finally:
@@ -4582,7 +5051,7 @@ async def add_new_activity(
          
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role FROM students WHERE id = %s", (x_user_id,)).fetchone()
     finally:
         conn.close()
     if not user:
@@ -4603,14 +5072,14 @@ async def add_new_activity(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        student_check = cursor.execute("SELECT id FROM students WHERE id = ?", (request.student_id,)).fetchone()
+        student_check = cursor.execute("SELECT id FROM students WHERE id = %s", (request.student_id,)).fetchone()
         if student_check is None:
             raise HTTPException(status_code=404, detail=f"Student ID '{request.student_id}' not found.")
             
         cursor.execute(
             """
             INSERT INTO activities (student_id, date, topic, difficulty, score, time_spent_min)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?)
             """,
             (
                 request.student_id, request.date, request.topic, request.difficulty, 
@@ -4630,16 +5099,16 @@ async def add_new_activity(
 # Refactored common AI logic
 def build_ai_context_and_prompt(student_id, user_query, specific_file_content=""):
     conn = get_db_connection()
-    student = conn.execute("SELECT name, grade, preferred_subject, math_score, science_score, english_language_score, role, school_id FROM students WHERE id = ?", (student_id,)).fetchone()
+    student = conn.execute("SELECT name, grade, preferred_subject, math_score, science_score, english_language_score, role, school_id FROM students WHERE id = %s", (student_id,)).fetchone()
     
     # Fetch Resources Context (Global Library) - ONLY if no specific file content or supplemental
     # For now, let's keep it additive
     school_id = student['school_id'] if student and 'school_id' in student else 1
-    resources = conn.execute("SELECT title, description, extracted_text FROM resources WHERE school_id = ? ORDER BY uploaded_at DESC", (school_id,)).fetchall()
+    resources = conn.execute("SELECT title, description, extracted_text FROM resources WHERE school_id = %s ORDER BY uploaded_at DESC", (school_id,)).fetchall()
     conn.close()
     
     # Fetch Activity History
-    history_df = fetch_data_df("SELECT date, topic, difficulty, score FROM activities WHERE student_id = ? ORDER BY date DESC LIMIT 20", (student_id,))
+    history_df = fetch_data_df("SELECT date, topic, difficulty, score FROM activities WHERE student_id = %s ORDER BY date DESC LIMIT 20", (student_id,))
     history_context = ""
     if not history_df.empty:
         history_context = "\nRecent Activity History:\n" + history_df.to_markdown(index=False)
@@ -4739,7 +5208,7 @@ def build_teacher_ai_context(teacher_id, user_query):
     try:
         conn = get_db_connection()
         # Fetch Teacher Profile
-        teacher = conn.execute("SELECT name, role, school_id FROM students WHERE id = ?", (teacher_id,)).fetchone()
+        teacher = conn.execute("SELECT name, role, school_id FROM students WHERE id = %s", (teacher_id,)).fetchone()
         
         if not teacher:
              conn.close()
@@ -4748,8 +5217,8 @@ def build_teacher_ai_context(teacher_id, user_query):
         school_id = teacher['school_id'] if teacher and 'school_id' in teacher else 1
         
         # Fetch School Stats for Context
-        student_count = conn.execute("SELECT COUNT(*) FROM students WHERE school_id = ?", (school_id,)).fetchone()[0]
-        recent_activities = conn.execute("SELECT COUNT(*) FROM activities WHERE student_id IN (SELECT id FROM students WHERE school_id = ?)", (school_id,)).fetchone()[0]
+        student_count = conn.execute("SELECT COUNT(*) FROM students WHERE school_id = %s", (school_id,)).fetchone()[0]
+        recent_activities = conn.execute("SELECT COUNT(*) FROM activities WHERE student_id IN (SELECT id FROM students WHERE school_id = %s)", (school_id,)).fetchone()[0]
         
         conn.close()
     
@@ -4993,7 +5462,7 @@ async def chat_with_grade_helper(student_id: str, request: AIChatRequest):
     try:
         # Fetch Student/User Details for Context
         conn = get_db_connection()
-        user = conn.execute("SELECT role, grade, preferred_subject FROM students WHERE id = ?", (student_id,)).fetchone()
+        user = conn.execute("SELECT role, grade, preferred_subject FROM students WHERE id = %s", (student_id,)).fetchone()
         conn.close()
         
         if not user:
@@ -5058,7 +5527,7 @@ async def chat_with_engagement_helper(
     try:
         conn = get_db_connection()
         user = conn.execute(
-            "SELECT role, grade, preferred_subject, name FROM students WHERE id = ?",
+            "SELECT role, grade, preferred_subject, name FROM students WHERE id = %s",
             (x_user_id,),
         ).fetchone()
         conn.close()
@@ -5191,7 +5660,7 @@ async def chat_with_engagement_helper(
 async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")):
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id, grade, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         
         # Super Admin / Root Admin bypass
         if not user and x_user_id == "rootadmin":
@@ -5229,7 +5698,7 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
             
             # Fallback: check naming convention if results empty
             if not results:
-                 parent_rec = conn_p.execute("SELECT name FROM students WHERE id = ?", (x_user_id,)).fetchone()
+                 parent_rec = conn_p.execute("SELECT name FROM students WHERE id = %s", (x_user_id,)).fetchone()
                  if parent_rec and "parent of" in parent_rec['name'].lower():
                       s_name = parent_rec['name'].lower().split("parent of")[-1].strip()
                       child_rec = conn_p.execute("SELECT id, name, attendance_rate, grade FROM students WHERE LOWER(name) = LOWER(?) AND role = 'Student'", (s_name.lower(),)).fetchone()
@@ -5242,10 +5711,10 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
 
     cache_key = f'students_all_{school_id}_{grade}_{is_super_admin}'
     def _fetch():
-        query  = "SELECT id, name, attendance_rate, grade FROM students WHERE role = 'Student' AND school_id = ?"
+        query  = "SELECT id, name, attendance_rate, grade FROM students WHERE role = 'Student' AND school_id = %s"
         params = [school_id]
         if not is_super_admin and grade > 0:
-            query += " AND grade = ?"
+            query += " AND grade = %s"
             params.append(grade)
         df = fetch_data_df(query, params=tuple(params))
         if df is None or df.empty:
@@ -5258,131 +5727,742 @@ async def get_all_students_list(x_user_id: str = Header(None, alias="X-User-Id")
 
 @app.get("/api/admin/user-management-stats")
 async def get_user_management_stats(
-    x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("manage_users", x_user_id=x_user_id)
-    
+    await _require_permission("view_user_management", x_user_id)
+
     conn = get_db_connection()
     try:
-        res_schools = conn.execute("SELECT COUNT(*) FROM schools").fetchone()
-        total_tenants = list(res_schools)[0] if res_schools else 0
-        
-        res_users = conn.execute("SELECT COUNT(*) FROM students").fetchone()
-        total_users = list(res_users)[0] if res_users else 0
-        
+        total_tenants_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM schools"
+        ).fetchone()
+        total_users_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM students WHERE COALESCE(status, 'Active') = 'Active' AND deleted_at IS NULL"
+        ).fetchone()
+
+        now_utc = datetime.utcnow()
+        first_this_month = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if now_utc.month == 1:
+            first_last_month = now_utc.replace(
+                year=now_utc.year - 1, month=12, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:
+            first_last_month = now_utc.replace(
+                month=now_utc.month - 1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+
+        this_count_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM students WHERE created_at >= %s",
+            (first_this_month.isoformat(),),
+        ).fetchone()
+        prev_count_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM students WHERE created_at >= %s AND created_at < %s",
+            (first_last_month.isoformat(), first_this_month.isoformat()),
+        ).fetchone()
+        this_count = int(this_count_row["cnt"] if this_count_row else 0)
+        prev_count = int(prev_count_row["cnt"] if prev_count_row else 0)
+        if prev_count == 0 and this_count == 0:
+            growth = 0.0
+        elif prev_count == 0:
+            growth = 100.0
+        else:
+            growth = round(((this_count - prev_count) / prev_count) * 100.0, 1)
+
         return {
-            "total_tenants": total_tenants,
-            "total_users": total_users,
-            "growth_percentage": 12.5
+            "total_active_tenants": int(total_tenants_row["cnt"] if total_tenants_row else 0),
+            # Backward-compatible aliases used by legacy static bundles.
+            "total_tenants": int(total_tenants_row["cnt"] if total_tenants_row else 0),
+            "total_users": int(total_users_row["cnt"] if total_users_row else 0),
+            "users_percent_increase_last_month": growth,
+            "growth_percentage": growth,
         }
     finally:
         conn.close()
 
+def _role_rows_for_user(conn, user_id: str, hide_root_role: bool) -> List[Dict[str, Any]]:
+    role_rows = conn.execute(
+        """
+        SELECT DISTINCT r.id, r.name, r.role_code
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE LOWER(ur.user_id) = LOWER(?)
+        ORDER BY r.id
+        """,
+        (user_id,),
+    ).fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in role_rows:
+        if hide_root_role and r["name"] == "Root_Super_Admin":
+            continue
+        out.append(
+            {
+                "role_id": r["id"],
+                "role_title": r["name"],
+                "role_code": r["role_code"] or f"R-{int(r['id']):04d}",
+            }
+        )
+    return out
 
-@app.get("/api/admin/users", response_model=List[UserResponse])
+def _role_rows_with_permissions_for_user(conn, user_id: str, hide_root_role: bool) -> List[Dict[str, Any]]:
+    role_rows = conn.execute(
+        """
+        SELECT DISTINCT r.id, r.name, r.role_code
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE LOWER(ur.user_id) = LOWER(?)
+        ORDER BY r.id
+        """,
+        (user_id,),
+    ).fetchall()
+    result: List[Dict[str, Any]] = []
+    for role in role_rows:
+        if hide_root_role and role["name"] == "Root_Super_Admin":
+            continue
+        perms = conn.execute(
+            """
+            SELECT p.id, p.code, p.description
+            FROM role_permissions rp
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE rp.role_id = %s
+            ORDER BY p.id
+            """,
+            (role["id"],),
+        ).fetchall()
+        result.append(
+            {
+                "role_id": role["id"],
+                "role_title": role["name"],
+                "role_code": role["role_code"] or f"R-{int(role['id']):04d}",
+                "permissions": [dict(p) for p in perms],
+            }
+        )
+    return result
+
+def _serialize_guardians(conn, user_id: str) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, guardian_id, first_name, last_name, email_address, primary_phone, mobile_phone, created_at
+        FROM guardians
+        WHERE LOWER(COALESCE(user_id, student_id)) = LOWER(?)
+        ORDER BY id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    guardians: List[Dict[str, Any]] = []
+    for g in rows:
+        guardians.append(
+            {
+                "guardian_id": g["guardian_id"] or g["id"],
+                "first_name": g["first_name"] or "",
+                "last_name": g["last_name"] or "",
+                "email_address": g["email_address"] or "",
+                "primary_phone": g["primary_phone"] or "",
+                "mobile_phone": g["mobile_phone"] or "",
+                "created_at": g["created_at"],
+            }
+        )
+    return guardians
+
+def _build_user_payload(conn, user_row, hide_root_role: bool) -> Dict[str, Any]:
+    first_name, last_name = _split_name(user_row["name"] or "")
+    school = conn.execute(
+        """
+        SELECT s.id, s.name, ip.institution_type
+        FROM schools s
+        LEFT JOIN institution_profiles ip ON ip.school_id = s.id
+        WHERE s.id = %s
+        """,
+        (user_row["school_id"],),
+    ).fetchone()
+    return {
+        "user_id": user_row["id"],
+        "username": user_row["id"],
+        "first_name": first_name,
+        "last_name": last_name,
+        "email_address": user_row["email"] or "",
+        "institution_id": user_row["school_id"],
+        "institution_official_name": school["name"] if school else "",
+        "institution_type": school["institution_type"] if school else "",
+        "status": user_row["status"] or "Active",
+        "contact_info": {
+            "primary_phone": user_row["primary_phone"] or "",
+            "mobile_phone": user_row["mobile_phone"] or "",
+            "secondary_email": user_row["secondary_email"] or "",
+        },
+        "address": _parse_address_value(user_row["address"]),
+        "organizational": {
+            "employee_id": user_row["employee_id"] or "",
+            "job_title": user_row["job_title"] or "",
+            "department": user_row["department"] or "",
+            "manager_supervisor": user_row["manager_supervisor"] or "",
+            "office_location": user_row["office_location"] or "",
+        },
+        "settings": {
+            "preferred_language": user_row["preferred_language"] or "English",
+            "timezone": user_row["timezone"] or "UTC",
+            "date_format": user_row["date_format"] or "YYYY-MM-DD",
+        },
+        "guardians": _serialize_guardians(conn, user_row["id"]),
+        "roles": _role_rows_with_permissions_for_user(conn, user_row["id"], hide_root_role),
+    }
+
+@app.get("/api/admin/users")
 async def list_all_users(
-    x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id"),
-    x_school_id: Optional[int] = Header(None, alias="X-School-Id") # Optional context switch
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
 ):
-    # Updated permission code
-    await verify_permission("manage_users", x_user_id=x_user_id)
-    
+    await _require_permission("view_users", x_user_id)
+
     conn = get_db_connection()
     try:
-        requester = conn.execute("SELECT school_id, is_super_admin, role FROM students WHERE id = ?", (x_user_id,)).fetchone()
-        if not requester:
-             raise HTTPException(status_code=401, detail="User not found")
-        
-        req_school_id = requester['school_id']
-        is_super_admin = bool(requester['is_super_admin'])
-        
-        query = """
-            SELECT 
-                s.id, 
-                s.name, 
-                s.role, 
-                s.grade, 
-                s.preferred_subject, 
+        actor = _actor_context(conn, x_user_id)
+        page = max(1, int(page))
+        page_size = max(1, min(200, int(page_size)))
+        offset = (page - 1) * page_size
+
+        where_clauses = ["1=1"]
+        params: List[Any] = []
+        if not actor["is_super"]:
+            where_clauses.append("s.school_id = %s")
+            params.append(actor["school_id"])
+        if search:
+            search_val = f"%{search.strip().lower()}%"
+            where_clauses.append("(LOWER(COALESCE(s.name, '')) LIKE ? OR LOWER(COALESCE(s.email, '')) LIKE ?)")
+            params.extend([search_val, search_val])
+
+        where_sql = " AND ".join(where_clauses)
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM students s WHERE {where_sql}",
+            tuple(params),
+        ).fetchone()
+        total_count = int(total_row["cnt"] if total_row else 0)
+
+        rows = conn.execute(
+            f"""
+            SELECT
+                s.id,
+                s.name,
+                s.email,
                 s.school_id,
-                sch.name as institution_name,
-                ip.institution_type
+                s.status,
+                sch.name AS school_name,
+                ip.institution_type AS institution_type
             FROM students s
-            LEFT JOIN schools sch ON s.school_id = sch.id
-            LEFT JOIN institution_profiles ip ON sch.id = ip.school_id
-        """
-        params = []
-        conds = []
+            LEFT JOIN schools sch ON sch.id = s.school_id
+            LEFT JOIN institution_profiles ip ON ip.school_id = s.school_id
+            WHERE {where_sql}
+            ORDER BY s.name, s.id
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params + [page_size, offset]),
+        ).fetchall()
 
-        # RBAC Filtering
-        if is_super_admin:
-            # Super Admin can see all, OR filter by specific school if context is set
-            if x_school_id:
-                conds.append("s.school_id = ?")
-                params.append(x_school_id)
-            # else: see all
+        hide_root_role = not actor["is_root"]
+        user_ids = [row["id"] for row in rows]
+        roles_by_user: Dict[str, List[Dict[str, Any]]] = {}
+        if user_ids:
+            id_placeholders = ",".join(["?"] * len(user_ids))
+            role_rows = conn.execute(
+                f"""
+                SELECT DISTINCT ur.user_id, r.id AS role_id, r.name AS role_name, r.role_code
+                FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id IN ({id_placeholders})
+                ORDER BY ur.user_id, r.id
+                """,
+                tuple(user_ids),
+            ).fetchall()
+            for rr in role_rows:
+                if hide_root_role and rr["role_name"] == "Root_Super_Admin":
+                    continue
+                uid = rr["user_id"]
+                roles_by_user.setdefault(uid, []).append(
+                    {
+                        "role_id": rr["role_id"],
+                        "role_title": rr["role_name"],
+                        "role_code": rr["role_code"] or f"R-{int(rr['role_id']):04d}",
+                    }
+                )
+
+        users: List[Dict[str, Any]] = []
+        for row in rows:
+            first_name, last_name = _split_name(row["name"] or "")
+            users.append(
+                {
+                    "user_id": row["id"],
+                    "username": row["id"],
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email_address": row["email"] or "",
+                    "institution_id": row["school_id"],
+                    "institution_official_name": row["school_name"] or "",
+                    "institution_type": row["institution_type"] or "",
+                    "status": row["status"] or "Active",
+                    "roles": roles_by_user.get(row["id"], []),
+                }
+            )
+
+        response: Dict[str, Any] = {
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "users": users,
+        }
+        if not users:
+            response["message"] = "No users found"
+        return response
+    finally:
+        conn.close()
+
+@app.get("/api/admin/users/assignable-roles")
+async def list_assignable_roles_for_user_management(
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    # User-management flows (create/edit) need role options even if role-management
+    # permission is not granted.
+    await verify_any_permission(
+        ["add_users", "edit_users", "view_users", "view_user_management"],
+        x_user_id=x_user_id,
+    )
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        if actor["is_super"]:
+            params: List[Any] = []
+            where_sql = "WHERE 1=1"
         else:
-            # Regular Admins (Tenant, Academic) MUST be restricted to their school
-            conds.append("s.school_id = ?")
-            params.append(req_school_id)
+            params = [actor["school_id"]]
+            where_sql = "WHERE r.school_id = %s"
+        if not actor["is_root"]:
+            where_sql += " AND LOWER(r.name) <> LOWER('Root_Super_Admin')"
 
-        if conds:
-            query += " WHERE " + " AND ".join(conds)
-        
-        query += " ORDER BY s.role, s.name"
-        
-        rows = conn.execute(query, tuple(params)).fetchall()
-        return [UserResponse(
-            id=r['id'], 
-            name=r['name'], 
-            role=r['role'], 
-            grade=r['grade'], 
-            preferred_subject=r['preferred_subject'],
-            username=r['id'],
-            email=r['id'] if '@' in str(r['id']) else '-',
-            institution_id=r['school_id'],
-            institution_name=r['institution_name'] or '-',
-            institution_type=r['institution_type'] or '-'
-        ) for r in rows]
+        rows = conn.execute(
+            f"""
+            SELECT r.id, r.role_code, r.name, r.status
+            FROM roles r
+            {where_sql}
+            ORDER BY r.role_code ASC, r.id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+        return [
+            {
+                "role_id": int(r["id"]),
+                "role_code": r["role_code"] or f"R-{int(r['id']):04d}",
+                "role_title": r["name"],
+                "status": r["status"] or "Active",
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+@app.get("/api/admin/users/assignable-roles/{role_id}")
+async def get_assignable_role_details_for_user_management(
+    role_id: int,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    await verify_any_permission(
+        ["add_users", "edit_users", "view_users", "view_user_management"],
+        x_user_id=x_user_id,
+    )
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        role = conn.execute(
+            "SELECT id, role_code, name, status, school_id FROM roles WHERE id = %s",
+            (role_id,),
+        ).fetchone()
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if (not actor["is_super"]) and role["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+        if (not actor["is_root"]) and role["name"] == "Root_Super_Admin":
+            raise _permission_denied()
+        return {
+            "role_id": int(role["id"]),
+            "role_code": role["role_code"] or f"R-{int(role['id']):04d}",
+            "role_title": role["name"],
+            "status": role["status"] or "Active",
+            "permissions": _load_role_permissions(conn, role_id),
+        }
+    finally:
+        conn.close()
+
+class GuardianCreatePRD(BaseModel):
+    first_name: str
+    last_name: str
+    email_address: str
+    primary_phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
+
+class AddressPayload(BaseModel):
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+
+class ExtendedUserCreateRequest(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+    email_address: str
+    password: str
+    primary_phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
+    secondary_email: Optional[str] = None
+    address: Optional[AddressPayload] = None
+    guardians: List[GuardianCreatePRD] = []
+    employee_id: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    manager_supervisor: Optional[str] = None
+    office_location: Optional[str] = None
+    preferred_language: Optional[str] = "English"
+    timezone: Optional[str] = "UTC"
+    date_format: Optional[str] = "YYYY-MM-DD"
+    role_ids: List[int]
+
+class GuardianEditPRD(BaseModel):
+    first_name: str
+    last_name: str
+    email_address: str
+    primary_phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
+
+class UserEditRequestPRD(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email_address: Optional[str] = None
+    status: Optional[Literal["Active", "Inactive"]] = None
+    primary_phone: Optional[str] = None
+    mobile_phone: Optional[str] = None
+    secondary_email: Optional[str] = None
+    address: Optional[AddressPayload] = None
+    employee_id: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    manager_supervisor: Optional[str] = None
+    office_location: Optional[str] = None
+    preferred_language: Optional[str] = None
+    timezone: Optional[str] = None
+    date_format: Optional[str] = None
+    add_guardians: List[GuardianEditPRD] = []
+    remove_guardian_ids: List[int] = []
+    add_role_ids: List[int] = []
+    remove_role_ids: List[int] = []
+
+@app.post("/api/admin/users/extended", status_code=201)
+async def create_extended_user(
+    request: ExtendedUserCreateRequest,
+    x_user_id: str = Header(None, alias="X-User-Id")
+):
+    await _require_permission("add_users", x_user_id)
+    validate_password_strength(request.password)
+    if not request.role_ids:
+        raise HTTPException(status_code=400, detail="At least one role_id must be provided")
+    if not request.guardians or len(request.guardians) == 0:
+        raise HTTPException(status_code=400, detail="At least one guardian is required")
+    address_obj = None
+    if request.address:
+        address_obj = request.address.dict() if hasattr(request.address, "dict") else request.address.model_dump()
+    normalized_address = _normalize_address_payload(address_obj)
+    address_json = json.dumps(normalized_address) if normalized_address else None
+
+    normalized_email = normalize_and_validate_email(request.email_address)
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        school_id = actor["school_id"]
+        user_id = request.username.strip()
+        full_name = f"{request.first_name} {request.last_name}".strip()
+        if conn.execute(
+            "SELECT 1 FROM students WHERE LOWER(id) = LOWER(?) AND school_id = %s",
+            (user_id, school_id),
+        ).fetchone():
+            raise HTTPException(status_code=400, detail="Username already exists.")
+        if conn.execute("SELECT 1 FROM students WHERE LOWER(email) = LOWER(?)", (normalized_email,)).fetchone():
+            raise HTTPException(status_code=400, detail="Email address already exists.")
+
+        valid_roles = conn.execute(
+            f"SELECT id, name FROM roles WHERE id IN ({','.join(['?'] * len(request.role_ids))})",
+            tuple(request.role_ids),
+        ).fetchall()
+        valid_ids = {int(r["id"]): r["name"] for r in valid_roles}
+        if len(valid_ids) != len(set(request.role_ids)):
+            raise HTTPException(status_code=400, detail="One or more role_ids are invalid")
+        if (not actor["is_root"]) and any(name == "Root_Super_Admin" for name in valid_ids.values()):
+            raise _permission_denied()
+
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO students (
+                id, name, grade, preferred_subject, attendance_rate, home_language, password, role, school_id, email,
+                status, primary_phone, mobile_phone, secondary_email, employee_id, job_title, department,
+                manager_supervisor, office_location, preferred_language, timezone, date_format, address, created_at, deleted_at
+            ) VALUES (%s, ?, 0, ?, 100.0, ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                user_id,
+                full_name,
+                request.job_title or "General",
+                request.preferred_language or "English",
+                hash_password(request.password),
+                valid_ids[request.role_ids[0]],
+                school_id,
+                normalized_email,
+                request.primary_phone,
+                request.mobile_phone,
+                request.secondary_email,
+                request.employee_id,
+                request.job_title,
+                request.department,
+                request.manager_supervisor,
+                request.office_location,
+                request.preferred_language or "English",
+                request.timezone or "UTC",
+                request.date_format or "YYYY-MM-DD",
+                address_json,
+                datetime.now().isoformat(),
+            ),
+        )
+        cursor.executemany(
+            "INSERT INTO user_roles (user_id, role_id) VALUES (%s, ?) ON CONFLICT DO NOTHING",
+            [(user_id, int(rid)) for rid in set(request.role_ids)],
+        )
+        seen_guardian_emails = set()
+        for guardian in request.guardians:
+            g_email = normalize_and_validate_email(guardian.email_address)
+            if g_email in seen_guardian_emails:
+                raise HTTPException(status_code=400, detail="Duplicate guardian email_address in request")
+            seen_guardian_emails.add(g_email)
+            cursor.execute(
+                """
+                INSERT INTO guardians (
+                    user_id, student_id, name, relationship, phone, email, address, is_emergency_contact,
+                    first_name, last_name, email_address, primary_phone, mobile_phone, created_at
+                ) VALUES (%s, ?, ?, 'Guardian', ?, ?, '', FALSE, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    user_id,
+                    f"{guardian.first_name} {guardian.last_name}".strip(),
+                    guardian.primary_phone or guardian.mobile_phone or "",
+                    g_email,
+                    guardian.first_name,
+                    guardian.last_name,
+                    g_email,
+                    guardian.primary_phone,
+                    guardian.mobile_phone,
+                    datetime.now().isoformat(),
+                ),
+            )
+        conn.commit()
+        created_user = conn.execute("SELECT * FROM students WHERE LOWER(id)=LOWER(?)", (user_id,)).fetchone()
+        return _build_user_payload(conn, created_user, hide_root_role=not actor["is_root"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"create_extended_user error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
     finally:
         conn.close()
 
 @app.post("/api/admin/users", status_code=201)
 async def create_new_user(
     request: AddUserRequest,
-    x_user_role: str = Header(None, alias="X-User-Role"),
     x_user_id: str = Header(None, alias="X-User-Id")
 ):
-    await verify_permission("manage_users", x_user_id=x_user_id)
-    
-    validate_password_strength(request.password)
-
+    # Deprecated endpoint kept for backward compatibility.
+    first_name, last_name = _split_name(request.name or "")
+    proxy_payload = ExtendedUserCreateRequest(
+        username=request.id,
+        first_name=first_name or request.id,
+        last_name=last_name,
+        email_address=request.email or (request.id if "@" in request.id else f"{request.id}@example.local"),
+        password=request.password,
+        job_title=request.preferred_subject or "General",
+        preferred_language="English",
+        role_ids=[],
+        guardians=[],
+    )
     conn = get_db_connection()
     try:
-        requester = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
-        school_id = requester['school_id'] if requester else 1
-        
-        # Check if ID exists
-        if conn.execute("SELECT 1 FROM students WHERE id = ?", (request.id,)).fetchone():
-             raise HTTPException(status_code=400, detail="User ID/Email already exists.")
-             
-        cursor = conn.cursor()
-        cursor.execute(
+        actor = _actor_context(conn, x_user_id)
+        role_row = conn.execute(
             """
-            INSERT INTO students (id, name, grade, preferred_subject, attendance_rate, home_language, password, role, school_id)
-            VALUES (?, ?, ?, ?, 100.0, 'English', ?, ?, ?)
+            SELECT id FROM roles
+            WHERE LOWER(name) = LOWER(?)
+              AND (school_id = %s OR school_id IS NULL)
+            ORDER BY CASE WHEN school_id = %s THEN 0 ELSE 1 END, id
+            LIMIT 1
             """,
-            (request.id, request.name, request.grade, request.preferred_subject, hash_password(request.password), request.role, school_id)
+            (request.role, actor["school_id"], actor["school_id"]),
+        ).fetchone()
+        if not role_row:
+            raise HTTPException(status_code=400, detail="Role not found for this tenant")
+        proxy_payload.role_ids = [int(role_row["id"])]
+    finally:
+        conn.close()
+    return await create_extended_user(proxy_payload, x_user_id=x_user_id)
+
+@app.get("/api/admin/users/{user_id}")
+async def view_user_details(
+    user_id: str,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    await _require_permission("view_users", x_user_id)
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        row = conn.execute("SELECT * FROM students WHERE LOWER(id)=LOWER(?)", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if (not actor["is_super"]) and row["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+        return _build_user_payload(conn, row, hide_root_role=not actor["is_root"])
+    finally:
+        conn.close()
+
+@app.put("/api/admin/users/{user_id}")
+async def edit_user_details(
+    user_id: str,
+    request: UserEditRequestPRD,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    await _require_permission("edit_users", x_user_id)
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        row = conn.execute("SELECT * FROM students WHERE LOWER(id)=LOWER(?)", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if (not actor["is_super"]) and row["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+
+        updates: Dict[str, Any] = {}
+        if request.first_name is not None or request.last_name is not None:
+            current_first, current_last = _split_name(row["name"] or "")
+            updates["name"] = f"{request.first_name or current_first} {request.last_name or current_last}".strip()
+        if request.email_address is not None:
+            normalized = normalize_and_validate_email(request.email_address)
+            existing = conn.execute(
+                "SELECT id FROM students WHERE LOWER(email)=LOWER(?) AND LOWER(id) <> LOWER(?)",
+                (normalized, user_id),
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=400, detail="Email address already exists.")
+            updates["email"] = normalized
+        for field in [
+            "status", "primary_phone", "mobile_phone", "secondary_email", "employee_id",
+            "job_title", "department", "manager_supervisor", "office_location",
+            "preferred_language", "timezone", "date_format"
+        ]:
+            val = getattr(request, field)
+            if val is not None:
+                updates[field] = val
+        if request.address is not None:
+            address_obj = request.address.dict() if hasattr(request.address, "dict") else request.address.model_dump()
+            normalized_address = _normalize_address_payload(address_obj)
+            updates["address"] = json.dumps(normalized_address) if normalized_address else None
+
+        if updates:
+            set_clause = ", ".join(f"{k} = %s" for k in updates.keys())
+            params = list(updates.values()) + [user_id]
+            conn.execute(f"UPDATE students SET {set_clause} WHERE LOWER(id) = LOWER(?)", tuple(params))
+
+        if request.remove_guardian_ids:
+            conn.executemany(
+                "DELETE FROM guardians WHERE (guardian_id = %s OR id = %s) AND LOWER(COALESCE(user_id, student_id)) = LOWER(?)",
+                [(gid, gid, user_id) for gid in request.remove_guardian_ids],
+            )
+        for guardian in request.add_guardians:
+            g_email = normalize_and_validate_email(guardian.email_address)
+            existing_guardian = conn.execute(
+                "SELECT 1 FROM guardians WHERE LOWER(COALESCE(user_id, student_id)) = LOWER(?) AND LOWER(COALESCE(email_address, email, '')) = LOWER(?) LIMIT 1",
+                (user_id, g_email),
+            ).fetchone()
+            if existing_guardian:
+                continue
+            conn.execute(
+                """
+                INSERT INTO guardians (
+                    user_id, student_id, name, relationship, phone, email, address, is_emergency_contact,
+                    first_name, last_name, email_address, primary_phone, mobile_phone, created_at
+                ) VALUES (%s, ?, ?, 'Guardian', ?, ?, '', FALSE, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    user_id,
+                    f"{guardian.first_name} {guardian.last_name}".strip(),
+                    guardian.primary_phone or guardian.mobile_phone or "",
+                    g_email,
+                    guardian.first_name,
+                    guardian.last_name,
+                    g_email,
+                    guardian.primary_phone,
+                    guardian.mobile_phone,
+                    datetime.now().isoformat(),
+                ),
+            )
+
+        if request.add_role_ids:
+            valid_roles = conn.execute(
+                f"SELECT id, name FROM roles WHERE id IN ({','.join(['?'] * len(request.add_role_ids))})",
+                tuple(request.add_role_ids),
+            ).fetchall()
+            role_map = {int(r["id"]): r["name"] for r in valid_roles}
+            if len(role_map) != len(set(request.add_role_ids)):
+                raise HTTPException(status_code=400, detail="One or more add_role_ids are invalid")
+            if (not actor["is_root"]) and any(name == "Root_Super_Admin" for name in role_map.values()):
+                raise _permission_denied()
+            conn.executemany(
+                "INSERT INTO user_roles (user_id, role_id) VALUES (%s, ?) ON CONFLICT DO NOTHING",
+                [(user_id, int(rid)) for rid in set(request.add_role_ids)],
+            )
+        if request.remove_role_ids:
+            conn.executemany(
+                "DELETE FROM user_roles WHERE LOWER(user_id)=LOWER(?) AND role_id = %s",
+                [(user_id, int(rid)) for rid in set(request.remove_role_ids)],
+            )
+
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM students WHERE LOWER(id)=LOWER(?)", (user_id,)).fetchone()
+        return _build_user_payload(conn, refreshed, hide_root_role=not actor["is_root"])
+    finally:
+        conn.close()
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    x_user_id: str = Header(None, alias="X-User-Id"),
+):
+    await _require_permission("delete_users", x_user_id)
+    if x_user_id and user_id and x_user_id.lower() == user_id.lower():
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    conn = get_db_connection()
+    try:
+        actor = _actor_context(conn, x_user_id)
+        target = conn.execute("SELECT id, school_id FROM students WHERE LOWER(id)=LOWER(?)", (user_id,)).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        if (not actor["is_super"]) and target["school_id"] != actor["school_id"]:
+            raise _permission_denied()
+        now_iso = datetime.now().isoformat()
+        conn.execute(
+            "UPDATE students SET status = 'Inactive', deleted_at = %s WHERE LOWER(id)=LOWER(?)",
+            (now_iso, user_id),
         )
         conn.commit()
-        log_auth_event(x_user_id, "User Created", f"Created user {request.id} ({request.role})")
-        return {"message": f"User {request.name} created successfully."}
-    except sqlite3.IntegrityError:
-         raise HTTPException(status_code=400, detail="User ID already exists.")
+        return {"message": "User deleted successfully"}
     finally:
-        conn.close() 
-
+        conn.close()
 
 @app.get("/api/students/{student_id}/quiz-results")
 async def get_student_quiz_results(
@@ -5408,7 +6488,7 @@ async def get_student_quiz_results(
         JOIN lms_course_modules m ON mc.module_id = m.id
         JOIN lms_course_sections s ON m.section_id = s.id
         JOIN lms_courses c ON s.course_id = c.id
-        WHERE mc.student_id = ? AND m.type = 'quiz'
+        WHERE mc.student_id = %s AND m.type = 'quiz'
     """
     try:
         rows = c.execute(query, (student_id,)).fetchall()
@@ -5431,7 +6511,7 @@ def check_student_access(conn, requester_id, requester_role, target_student_id):
         return False
     
     # 0. Fetch Verified Role from DB (don't trust the header/parameter)
-    user = conn.execute("SELECT role FROM students WHERE id = ?", (requester_id,)).fetchone()
+    user = conn.execute("SELECT role FROM students WHERE id = %s", (requester_id,)).fetchone()
     if not user and requester_id == "rootadmin":
         real_role = "Root_Super_Admin"
     elif not user:
@@ -5610,7 +6690,7 @@ async def get_student_data(
     if not access_granted:
         # If Requester is Teacher/Admin -> Grade level check
         if x_user_role == 'Teacher' or x_user_role == 'Admin':
-             requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+             requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
              if requester:
                  is_super_admin = bool(requester['is_super_admin'])
                  requester_grade = requester['grade'] if requester['grade'] is not None else 0
@@ -5629,7 +6709,7 @@ async def get_student_data(
 
     # If Requester is Teacher -> Must check permissions
     if x_user_role == 'Teacher' or x_user_role == 'Admin':
-         requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+         requester = conn.execute("SELECT school_id, grade, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
          if requester:
              is_super_admin = bool(requester['is_super_admin'])
              requester_grade = requester['grade'] if requester['grade'] is not None else 0
@@ -5648,12 +6728,12 @@ async def get_student_data(
     user_roles = conn.execute("""
         SELECT r.name FROM roles r
         JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ?
+        WHERE ur.user_id = %s
     """, (student_id,)).fetchall()
     role_list = [r['name'] for r in user_roles]
     # Fallback to legacy role column if no user_roles entry
     if not role_list:
-        legacy_role = conn.execute("SELECT role FROM students WHERE id = ?", (student_id,)).fetchone()
+        legacy_role = conn.execute("SELECT role FROM students WHERE id = %s", (student_id,)).fetchone()
         if legacy_role and legacy_role['role']:
              role_list.append(legacy_role['role'])
 
@@ -5664,7 +6744,7 @@ async def get_student_data(
         'roles': role_list
     }
 
-    history_df = fetch_data_df("SELECT date, topic, difficulty, score, time_spent_min FROM activities WHERE student_id = ? ORDER BY date ASC", (student_id,))
+    history_df = fetch_data_df("SELECT date, topic, difficulty, score, time_spent_min FROM activities WHERE student_id = %s ORDER BY date ASC", (student_id,))
     conn.close() # Close manual connection
 
     avg_val = history_df['score'].mean()
@@ -5706,11 +6786,11 @@ async def create_group(
 
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         school_id = user['school_id'] if user else 1
 
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO groups (name, description, subject, school_id) VALUES (?, ?, ?, ?)", 
+        cursor.execute("INSERT INTO groups (name, description, subject, school_id) VALUES (%s, ?, ?, ?)", 
                        (request.name, request.description, request.subject, school_id))
         conn.commit()
         return {"message": f"Group '{request.name}' created successfully."}
@@ -5725,14 +6805,14 @@ async def get_groups(x_user_id: str = Header(None, alias="X-User-Id")):
     
     school_id = 1
     if x_user_id:
-        user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if user: school_id = dict(user).get('school_id', 1)
 
     query = """
         SELECT g.id, g.name, g.description, g.subject, COUNT(gm.student_id) as member_count
         FROM groups g
         LEFT JOIN group_members gm ON g.id = gm.group_id
-        WHERE g.school_id = ?
+        WHERE g.school_id = %s
         GROUP BY g.id
     """
     groups = conn.execute(query, (school_id,)).fetchall()
@@ -5749,7 +6829,7 @@ async def get_groups(x_user_id: str = Header(None, alias="X-User-Id")):
 @app.delete("/api/groups/{group_id}")
 async def delete_group(group_id: int):
     conn = get_db_connection()
-    conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+    conn.execute("DELETE FROM groups WHERE id = %s", (group_id,))
     conn.commit()
     conn.close()
     return {"message": "Group deleted."}
@@ -5757,12 +6837,12 @@ async def delete_group(group_id: int):
 @app.get("/api/groups/{group_id}/members")
 async def get_group_members(group_id: int):
     conn = get_db_connection()
-    group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+    group = conn.execute("SELECT * FROM groups WHERE id = %s", (group_id,)).fetchone()
     if not group:
         conn.close()
         raise HTTPException(status_code=404, detail="Group not found")
         
-    members = conn.execute("SELECT student_id FROM group_members WHERE group_id = ?", (group_id,)).fetchall()
+    members = conn.execute("SELECT student_id FROM group_members WHERE group_id = %s", (group_id,)).fetchall()
     member_ids = [m['student_id'] for m in members]
     conn.close()
     return {"group": dict(group), "members": member_ids}
@@ -5773,14 +6853,14 @@ async def update_group_members(group_id: int, request: GroupMemberUpdateRequest,
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        if not cursor.execute("SELECT id FROM groups WHERE id = ?", (group_id,)).fetchone():
+        if not cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,)).fetchone():
              raise HTTPException(status_code=404, detail="Group not found")
 
-        cursor.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+        cursor.execute("DELETE FROM group_members WHERE group_id = %s", (group_id,))
         
         if request.student_ids:
             data = [(group_id, sid) for sid in request.student_ids]
-            cursor.executemany("INSERT INTO group_members (group_id, student_id) VALUES (?, ?)", data)
+            cursor.executemany("INSERT INTO group_members (group_id, student_id) VALUES (%s, ?)", data)
             
         conn.commit()
         return {"message": "Group members updated."}
@@ -5796,7 +6876,7 @@ async def add_group_material(group_id: int, request: MaterialCreateRequest, x_us
     try:
         cursor = conn.cursor()
         date_str = datetime.now().strftime("%Y-%m-%d")
-        cursor.execute("INSERT INTO group_materials (group_id, title, type, content, date) VALUES (?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO group_materials (group_id, title, type, content, date) VALUES (%s, ?, ?, ?, ?)",
                        (group_id, request.title, request.type, request.content, date_str))
         conn.commit()
         return {"message": "Material added."}
@@ -5806,7 +6886,7 @@ async def add_group_material(group_id: int, request: MaterialCreateRequest, x_us
 @app.get("/api/groups/{group_id}/materials", response_model=List[MaterialResponse])
 async def get_group_materials(group_id: int):
     conn = get_db_connection()
-    materials = conn.execute("SELECT * FROM group_materials WHERE group_id = ? ORDER BY id DESC", (group_id,)).fetchall()
+    materials = conn.execute("SELECT * FROM group_materials WHERE group_id = %s ORDER BY id DESC", (group_id,)).fetchall()
     conn.close()
     return [MaterialResponse(id=m['id'], title=m['title'], type=m['type'], content=m['content'], date=m['date']) for m in materials]
 
@@ -5839,10 +6919,10 @@ async def get_teacher_assignments(section_id: Optional[int] = None,
         conditions = []
         params = []
         if section_id:
-            conditions.append("a.section_id = ?")
+            conditions.append("a.section_id = %s")
             params.append(section_id)
         if x_school_id:
-            conditions.append("(a.section_id IS NULL OR sec.school_id = ?)")
+            conditions.append("(a.section_id IS NULL OR sec.school_id = %s)")
             params.append(x_school_id)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
@@ -5867,7 +6947,7 @@ async def get_student_groups(
         SELECT g.id, g.name, g.description, g.subject
         FROM groups g
         JOIN group_members gm ON g.id = gm.group_id
-        WHERE gm.student_id = ?
+        WHERE gm.student_id = %s
     """
     groups = conn.execute(query, (student_id,)).fetchall()
     conn.close()
@@ -5887,7 +6967,7 @@ async def get_student_assignments(
     c = conn.cursor()
     
     # Get student grade/section
-    student = c.execute("SELECT grade, section_id FROM students WHERE id = ?", (student_id,)).fetchone()
+    student = c.execute("SELECT grade, section_id FROM students WHERE id = %s", (student_id,)).fetchone()
     grade = student['grade'] if student else 0
     section_id = student['section_id'] if student else None
 
@@ -5895,12 +6975,12 @@ async def get_student_assignments(
         SELECT a.id, a.title, a.description, a.due_date, a.type,
                COALESCE(g.name, sec.name, 'Class') as course_name
         FROM assignments a
-        LEFT JOIN group_members gm ON a.group_id = gm.group_id AND gm.student_id = ?
+        LEFT JOIN group_members gm ON a.group_id = gm.group_id AND gm.student_id = %s
         LEFT JOIN groups g ON a.group_id = g.id
         LEFT JOIN sections sec ON a.section_id = sec.id
         WHERE gm.student_id IS NOT NULL
-           OR (a.section_id IS NOT NULL AND a.section_id = ?)
-           OR (a.section_id IS NULL AND a.grade_level IS NOT NULL AND a.grade_level = ?)
+           OR (a.section_id IS NOT NULL AND a.section_id = %s)
+           OR (a.section_id IS NULL AND a.grade_level IS NOT NULL AND a.grade_level = %s)
         ORDER BY a.due_date DESC
     """, (student_id, section_id, grade)).fetchall()
     
@@ -5919,14 +6999,14 @@ async def get_student_assignments(
         SELECT q.id, q.title, q.time_limit_mins, q.target_type, q.target_id, q.group_id
         FROM quizzes q
         WHERE 
-           (q.target_type = 'student' AND q.target_id = ?)
-           OR (q.target_type = 'grade' AND q.target_id = ?)
-           OR (q.target_type = 'group' AND q.group_id IN (SELECT group_id FROM group_members WHERE student_id = ?))
+           (q.target_type = 'student' AND q.target_id = %s)
+           OR (q.target_type = 'grade' AND q.target_id = %s)
+           OR (q.target_type = 'group' AND q.group_id IN (SELECT group_id FROM group_members WHERE student_id = %s))
     """, (student_id, str(grade), student_id)).fetchall()
     
     # Filter out completed ones manually or via query (simple query above gets all access)
     # Let's check attempts
-    completed_quiz_ids = [row['quiz_id'] for row in c.execute("SELECT quiz_id FROM quiz_attempts WHERE student_id = ?", (student_id,)).fetchall()]
+    completed_quiz_ids = [row['quiz_id'] for row in c.execute("SELECT quiz_id FROM quiz_attempts WHERE student_id = %s", (student_id,)).fetchall()]
     
     for q in quizzes:
         if q['id'] not in completed_quiz_ids:
@@ -5934,7 +7014,7 @@ async def get_student_assignments(
             # Fetch Course Name if group based
             course_name = "Assigned Quiz"
             if q['target_type'] == 'group' and q['group_id']:
-                 g = c.execute("SELECT name FROM groups WHERE id = ?", (q['group_id'],)).fetchone()
+                 g = c.execute("SELECT name FROM groups WHERE id = %s", (q['group_id'],)).fetchone()
                  if g: course_name = g['name']
             elif q['target_type'] == 'grade':
                  course_name = f"Grade {q['target_id']} Quiz"
@@ -6113,11 +7193,11 @@ async def get_upcoming_classes(student_id: Optional[str] = None, x_user_id: str 
     # Determine School Context
     school_id = 1
     if x_user_id:
-        user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if user: school_id = dict(user).get('school_id', 1)
 
     # Fetch classes for this school
-    query = "SELECT * FROM live_classes WHERE school_id = ? ORDER BY date ASC"
+    query = "SELECT * FROM live_classes WHERE school_id = %s ORDER BY date ASC"
     classes = conn.execute(query, (school_id,)).fetchall()
     conn.close()
     
@@ -6146,12 +7226,12 @@ async def schedule_class_endpoint(
     
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         school_id = user['school_id'] if user else 1
 
         cursor = conn.cursor()
         targets = json.dumps(request.target_students) if request.target_students else "[]"
-        cursor.execute("INSERT INTO live_classes (topic, date, meet_link, target_students, teacher_id, school_id) VALUES (?, ?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO live_classes (topic, date, meet_link, target_students, teacher_id, school_id) VALUES (%s, ?, ?, ?, ?, ?)",
                        (request.topic, request.date, request.meet_link, targets, x_user_id, school_id))
         conn.commit()
         return {"message": "Class scheduled successfully."}
@@ -6162,7 +7242,7 @@ async def schedule_class_endpoint(
 async def delete_class(class_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM live_classes WHERE id = ?", (class_id,))
+    cursor.execute("DELETE FROM live_classes WHERE id = %s", (class_id,))
     conn.commit()
     conn.close()
     return {"message": "Class cancelled."}
@@ -6315,7 +7395,7 @@ async def upload_group_material(group_id: int, file: UploadFile = File(...), tit
         # URL accessible via Cloudinary
         file_url = secure_url
         
-        cursor.execute("INSERT INTO group_materials (group_id, title, type, content, date) VALUES (?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO group_materials (group_id, title, type, content, date) VALUES (%s, ?, ?, ?, ?)",
                       (group_id, display_title, content_type, file_url, date_str))
         conn.commit()
         conn.close()
@@ -6345,10 +7425,10 @@ async def create_quiz_endpoint(request: QuizCreateRequest):
         
         cursor.execute("""
             INSERT INTO quizzes (group_id, title, questions, created_at, time_limit_mins, target_type, target_id, acknowledged)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            VALUES (%s, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         """, (request.group_id, request.title, questions_json, created_at, request.time_limit, request.target_type, request.target_id, acknowledged_val))
         
-        quiz_id = cursor.lastrowid
+        quiz_id = _last_insert_id(cursor)
         if not quiz_id:
              raise ValueError("Failed to retrieve new quiz ID")
 
@@ -6398,7 +7478,7 @@ async def get_teacher_quizzes(x_user_role: str = Header(None, alias="X-User-Role
 @app.get("/api/groups/{group_id}/quizzes")
 async def get_group_quizzes(group_id: int):
     conn = get_db_connection()
-    quizzes = conn.execute("SELECT id, title, created_at, questions FROM quizzes WHERE group_id = ?", (group_id,)).fetchall()
+    quizzes = conn.execute("SELECT id, title, created_at, questions FROM quizzes WHERE group_id = %s", (group_id,)).fetchall()
     
     # Also fetch attempts for the current user if they are a student? 
     # For now just return the quizzes. Frontend can verify if taken.
@@ -6414,7 +7494,7 @@ async def get_group_quizzes(group_id: int):
 @app.get("/api/quizzes/{quiz_id}")
 async def get_quiz_details(quiz_id: int):
     conn = get_db_connection()
-    quiz = conn.execute("SELECT * FROM quizzes WHERE id = ?", (quiz_id,)).fetchone()
+    quiz = conn.execute("SELECT * FROM quizzes WHERE id = %s", (quiz_id,)).fetchone()
     conn.close()
     
     if not quiz:
@@ -6441,7 +7521,7 @@ async def get_quiz_details(quiz_id: int):
 async def submit_quiz(quiz_id: int, request: QuizSubmitRequest):
     try:
         conn = get_db_connection()
-        quiz_row = conn.execute("SELECT * FROM quizzes WHERE id = ?", (quiz_id,)).fetchone()
+        quiz_row = conn.execute("SELECT * FROM quizzes WHERE id = %s", (quiz_id,)).fetchone()
         
         if not quiz_row:
             conn.close()
@@ -6490,11 +7570,11 @@ async def submit_quiz(quiz_id: int, request: QuizSubmitRequest):
         answers_json = json.dumps(request.answers)
         submitted_at = datetime.now().isoformat()
         
-        conn.execute("INSERT INTO quiz_attempts (quiz_id, student_id, score, answers, ai_feedback, submitted_at) VALUES (?, ?, ?, ?, ?, ?)",
+        conn.execute("INSERT INTO quiz_attempts (quiz_id, student_id, score, answers, ai_feedback, submitted_at) VALUES (%s, ?, ?, ?, ?, ?)",
                     (quiz_id, request.student_id, final_score_percent, answers_json, ai_feedback, submitted_at))
         
         # Update Student Stats (XP, Activity Log)
-        conn.execute("INSERT INTO activities (student_id, date, topic, difficulty, score, time_spent_min, ai_feedback) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        conn.execute("INSERT INTO activities (student_id, date, topic, difficulty, score, time_spent_min, ai_feedback) VALUES (%s, ?, ?, ?, ?, ?, ?)",
                     (request.student_id, datetime.now().strftime("%Y-%m-%d"), f"Quiz: {quiz['title']}", "Medium", final_score_percent, 15, ai_feedback))
 
         conn.commit()
@@ -6532,7 +7612,7 @@ async def get_quiz_results(
                 qa.submitted_at 
             FROM quiz_attempts qa
             JOIN students s ON qa.student_id = s.id
-            WHERE qa.quiz_id = ?
+            WHERE qa.quiz_id = %s
             ORDER BY qa.score DESC
         """
         results = conn.execute(query, (quiz_id,)).fetchall()
@@ -6710,7 +7790,7 @@ def _ensure_institution_schema(conn) -> None:
         code = _institution_code_for_school(school_id)
 
         profile = cursor.execute(
-            "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+            "SELECT school_id FROM institution_profiles WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         if not profile:
@@ -6719,13 +7799,13 @@ def _ensure_institution_schema(conn) -> None:
                 INSERT INTO institution_profiles (
                     school_id, institution_code, institution_visual_name, institution_brief_details,
                     institution_type, institution_structure, state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?)
                 """ + ret_school,
                 (school_id, code, s["name"], "", "K12 School", "Sole Entity", "Trial", created_ts, now_iso)
             )
 
         addr = cursor.execute(
-            "SELECT id FROM institution_addresses WHERE school_id = ?",
+            "SELECT id FROM institution_addresses WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         if not addr:
@@ -6733,26 +7813,26 @@ def _ensure_institution_schema(conn) -> None:
                 """
                 INSERT INTO institution_addresses (
                     school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (school_id, s["address"] or "", "", "", "English", True, created_ts, now_iso)
             )
 
         sec = cursor.execute(
-            "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+            "SELECT school_id FROM institution_security_settings WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         if not sec:
             cursor.execute(
                 """
                 INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, ?, ?, ?)
                 """ + ret_school,
                 (school_id, "password_only", "", now_iso)
             )
 
         branding = cursor.execute(
-            "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+            "SELECT school_id FROM institution_branding_settings WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         if not branding:
@@ -6761,7 +7841,7 @@ def _ensure_institution_schema(conn) -> None:
                 INSERT INTO institution_branding_settings (
                     school_id, logo_url, color_theme, default_course_image_url,
                     date_format, time_format, currency_code, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                 """ + ret_school,
                 (school_id, "", "", "", "YYYY-MM-DD", "24h", "USD", now_iso)
             )
@@ -6771,7 +7851,7 @@ def _ensure_institution_schema(conn) -> None:
 def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
     _ensure_institution_schema(conn)
     school = conn.execute(
-        "SELECT id, name, address, contact_email, created_at FROM schools WHERE id = ?",
+        "SELECT id, name, address, contact_email, created_at FROM schools WHERE id = %s",
         (school_id,)
     ).fetchone()
     if not school:
@@ -6782,7 +7862,7 @@ def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
         SELECT institution_code, institution_visual_name, institution_brief_details,
                institution_type, institution_structure, state, created_at, updated_at
         FROM institution_profiles
-        WHERE school_id = ?
+        WHERE school_id = %s
         """,
         (school_id,)
     ).fetchone()
@@ -6791,7 +7871,7 @@ def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
         """
         SELECT id, address_line, region, timezone, language, is_primary, created_at, updated_at
         FROM institution_addresses
-        WHERE school_id = ?
+        WHERE school_id = %s
         ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, id ASC
         """,
         (school_id,)
@@ -6802,7 +7882,7 @@ def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
         SELECT id, individual_type, custom_type, first_name, middle_name, last_name,
                email, status, contact_number, mobile_number, address, created_at, updated_at
         FROM institution_key_individuals
-        WHERE school_id = ?
+        WHERE school_id = %s
         ORDER BY id ASC
         """,
         (school_id,)
@@ -6812,7 +7892,7 @@ def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
         """
         SELECT auth_mode, recommendation_text, updated_at
         FROM institution_security_settings
-        WHERE school_id = ?
+        WHERE school_id = %s
         """,
         (school_id,)
     ).fetchone()
@@ -6822,7 +7902,7 @@ def _fetch_institution_detail(conn, school_id: int) -> Dict[str, Any]:
         SELECT logo_url, color_theme, default_course_image_url,
                date_format, time_format, currency_code, updated_at
         FROM institution_branding_settings
-        WHERE school_id = ?
+        WHERE school_id = %s
         """,
         (school_id,)
     ).fetchone()
@@ -6954,7 +8034,7 @@ async def upload_institution_branding_asset(
     try:
         ensure_super_admin_user(conn, x_user_id)
         _ensure_institution_schema(conn)
-        school = conn.execute("SELECT id FROM schools WHERE id = ?", (school_id,)).fetchone()
+        school = conn.execute("SELECT id FROM schools WHERE id = %s", (school_id,)).fetchone()
         if not school:
             raise HTTPException(status_code=404, detail="Institution not found.")
         clean_type = (asset_type or "").strip()
@@ -6981,18 +8061,18 @@ async def upload_institution_branding_asset(
         now_iso = datetime.now().isoformat()
 
         exists = conn.execute(
-            "SELECT school_id FROM institution_branding_settings WHERE school_id = ?",
+            "SELECT school_id FROM institution_branding_settings WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         if exists:
             if clean_type == "logo":
                 conn.execute(
-                    "UPDATE institution_branding_settings SET logo_url = ?, updated_at = ? WHERE school_id = ?",
+                    "UPDATE institution_branding_settings SET logo_url = %s, updated_at = %s WHERE school_id = %s",
                     (web_path, now_iso, school_id)
                 )
             else:
                 conn.execute(
-                    "UPDATE institution_branding_settings SET default_course_image_url = ?, updated_at = ? WHERE school_id = ?",
+                    "UPDATE institution_branding_settings SET default_course_image_url = %s, updated_at = %s WHERE school_id = %s",
                     (web_path, now_iso, school_id)
                 )
         else:
@@ -7003,7 +8083,7 @@ async def upload_institution_branding_asset(
                 INSERT INTO institution_branding_settings (
                     school_id, logo_url, color_theme, default_course_image_url,
                     date_format, time_format, currency_code, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (school_id, logo_url, "", default_course_image_url, "YYYY-MM-DD", "24h", "USD", now_iso)
             )
@@ -7044,18 +8124,22 @@ async def create_institutions(
             school_address = (addr.address_line or "").strip()
 
             cursor = conn.cursor()
+            id_query = " RETURNING id" if is_postgres else ""
             cursor.execute(
-                "INSERT INTO schools (name, address, contact_email, created_at) VALUES (?, ?, ?, ?)",
+                f"INSERT INTO schools (name, address, contact_email, created_at) VALUES (%s, ?, ?, ?){id_query}",
                 (school_name, school_address, primary_contact_email, now_iso)
             )
-            school_id = int(cursor.lastrowid)
+            if is_postgres:
+                school_id = cursor.fetchone()[0]
+            else:
+                school_id = int(_last_insert_id(cursor))
 
             cursor.execute(
                 """
                 INSERT INTO institution_profiles (
                     school_id, institution_code, institution_visual_name, institution_brief_details,
                     institution_type, institution_structure, state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?)
                 """ + ret_school,
                 (
                     school_id,
@@ -7074,7 +8158,7 @@ async def create_institutions(
                 """
                 INSERT INTO institution_addresses (
                     school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     school_id,
@@ -7094,7 +8178,7 @@ async def create_institutions(
                     INSERT INTO institution_key_individuals (
                         school_id, individual_type, custom_type, first_name, middle_name,
                         last_name, email, status, contact_number, mobile_number, address, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         school_id,
@@ -7120,7 +8204,7 @@ async def create_institutions(
             cursor.execute(
                 """
                 INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
-                VALUES (?, ?, ?, ?)
+                VALUES (%s, ?, ?, ?)
                 """ + ret_school,
                 (
                     school_id,
@@ -7137,7 +8221,7 @@ async def create_institutions(
                 INSERT INTO institution_branding_settings (
                     school_id, logo_url, color_theme, default_course_image_url,
                     date_format, time_format, currency_code, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                 """ + ret_school,
                 (
                     school_id,
@@ -7180,7 +8264,7 @@ async def update_institution(
         _validate_institution_update_request(request)
         is_postgres = USE_POSTGRES and "postgres" in DATABASE_URL.lower()
         ret_school = " RETURNING school_id" if is_postgres else ""
-        school = conn.execute("SELECT id, name, address, contact_email FROM schools WHERE id = ?", (school_id,)).fetchone()
+        school = conn.execute("SELECT id, name, address, contact_email FROM schools WHERE id = %s", (school_id,)).fetchone()
         if not school:
             raise HTTPException(status_code=404, detail="Institution not found.")
 
@@ -7204,12 +8288,12 @@ async def update_institution(
                 updated_contact_email = normalize_and_validate_email(request.key_individuals[0].email)
 
         conn.execute(
-            "UPDATE schools SET name = ?, address = ?, contact_email = ? WHERE id = ?",
+            "UPDATE schools SET name = %s, address = %s, contact_email = %s WHERE id = %s",
             (updated_name, updated_address, updated_contact_email, school_id)
         )
 
         profile_exists = conn.execute(
-            "SELECT school_id FROM institution_profiles WHERE school_id = ?",
+            "SELECT school_id FROM institution_profiles WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         profile_values = {
@@ -7223,9 +8307,9 @@ async def update_institution(
             conn.execute(
                 """
                 UPDATE institution_profiles
-                SET institution_visual_name = ?, institution_brief_details = ?, institution_type = ?,
-                    institution_structure = ?, state = ?, updated_at = ?
-                WHERE school_id = ?
+                SET institution_visual_name = %s, institution_brief_details = %s, institution_type = %s,
+                    institution_structure = %s, state = %s, updated_at = %s
+                WHERE school_id = %s
                 """,
                 (
                     profile_values["institution_visual_name"],
@@ -7243,7 +8327,7 @@ async def update_institution(
                 INSERT INTO institution_profiles (
                     school_id, institution_code, institution_visual_name, institution_brief_details,
                     institution_type, institution_structure, state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?)
                 """ + ret_school,
                 (
                     school_id,
@@ -7259,13 +8343,13 @@ async def update_institution(
             )
 
         if request.addresses is not None:
-            conn.execute("DELETE FROM institution_addresses WHERE school_id = ?", (school_id,))
+            conn.execute("DELETE FROM institution_addresses WHERE school_id = %s", (school_id,))
             for idx, addr in enumerate(request.addresses):
                 conn.execute(
                     """
                     INSERT INTO institution_addresses (
                         school_id, address_line, region, timezone, language, is_primary, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         school_id,
@@ -7280,14 +8364,14 @@ async def update_institution(
                 )
 
         if request.key_individuals is not None:
-            conn.execute("DELETE FROM institution_key_individuals WHERE school_id = ?", (school_id,))
+            conn.execute("DELETE FROM institution_key_individuals WHERE school_id = %s", (school_id,))
             for contact in request.key_individuals:
                 conn.execute(
                     """
                     INSERT INTO institution_key_individuals (
                         school_id, individual_type, custom_type, first_name, middle_name,
                         last_name, email, status, contact_number, mobile_number, address, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         school_id,
@@ -7308,7 +8392,7 @@ async def update_institution(
 
         if request.security is not None:
             sec_exists = conn.execute(
-                "SELECT school_id FROM institution_security_settings WHERE school_id = ?",
+                "SELECT school_id FROM institution_security_settings WHERE school_id = %s",
                 (school_id,)
             ).fetchone()
             rec_text = (request.security.recommendation_text or "").strip()
@@ -7319,8 +8403,8 @@ async def update_institution(
                 conn.execute(
                     """
                     UPDATE institution_security_settings
-                    SET auth_mode = ?, recommendation_text = ?, updated_at = ?
-                    WHERE school_id = ?
+                    SET auth_mode = %s, recommendation_text = %s, updated_at = %s
+                    WHERE school_id = %s
                     """,
                     (
                         (request.security.auth_mode or "password_only").strip(),
@@ -7333,7 +8417,7 @@ async def update_institution(
                 conn.execute(
                     """
                     INSERT INTO institution_security_settings (school_id, auth_mode, recommendation_text, updated_at)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, ?, ?, ?)
                     """ + ret_school,
                     (
                         school_id,
@@ -7348,7 +8432,7 @@ async def update_institution(
                 """
                 SELECT logo_url, color_theme, default_course_image_url, date_format, time_format, currency_code
                 FROM institution_branding_settings
-                WHERE school_id = ?
+                WHERE school_id = %s
                 """,
                 (school_id,)
             ).fetchone()
@@ -7363,9 +8447,9 @@ async def update_institution(
                 conn.execute(
                     """
                     UPDATE institution_branding_settings
-                    SET logo_url = ?, color_theme = ?, default_course_image_url = ?,
-                        date_format = ?, time_format = ?, currency_code = ?, updated_at = ?
-                    WHERE school_id = ?
+                    SET logo_url = %s, color_theme = %s, default_course_image_url = %s,
+                        date_format = %s, time_format = %s, currency_code = %s, updated_at = %s
+                    WHERE school_id = %s
                     """,
                     (merged_logo, merged_theme, merged_course_image, merged_date, merged_time, (merged_currency or "USD").upper(), now_iso, school_id)
                 )
@@ -7375,7 +8459,7 @@ async def update_institution(
                     INSERT INTO institution_branding_settings (
                         school_id, logo_url, color_theme, default_course_image_url,
                         date_format, time_format, currency_code, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
                     """ + ret_school,
                     (school_id, merged_logo, merged_theme, merged_course_image, merged_date, merged_time, (merged_currency or "USD").upper(), now_iso)
                 )
@@ -7397,22 +8481,6 @@ async def update_institution(
     finally:
         conn.close()
 
-@app.get("/api/admin/schools", response_model=List[SchoolResponse])
-async def get_schools():
-    conn = get_db_connection()
-    try:
-        schools = conn.execute("SELECT * FROM schools").fetchall()
-        return [SchoolResponse(
-            id=s['id'],
-            name=s['name'],
-            address=s['address'] if s['address'] else "",
-            contact_email=s['contact_email'] if s['contact_email'] else "",
-            created_at=s['created_at'] if s['created_at'] else datetime.now().isoformat()
-        ) for s in schools]
-    finally:
-        conn.close()
-
-
 @app.put("/api/admin/schools/{school_id}")
 async def update_school(
     school_id: int,
@@ -7424,14 +8492,14 @@ async def update_school(
 
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user or not user['is_super_admin']:
              log_auth_event(x_user_id, "Unauthorized Access", "Attempted to update school without Super Admin access")
              raise HTTPException(status_code=403, detail="Permission denied. SUPER ADMIN ONLY.")
         
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE schools SET name = ?, address = ?, contact_email = ? WHERE id = ?",
+            "UPDATE schools SET name = %s, address = %s, contact_email = %s WHERE id = %s",
             (request.name, request.address, request.contact_email, school_id)
         )
         if cursor.rowcount == 0:
@@ -7458,7 +8526,7 @@ async def delete_school(
 
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user or not user['is_super_admin']:
              log_auth_event(x_user_id, "Unauthorized Access", "Attempted to delete school without Super Admin access")
              raise HTTPException(status_code=403, detail="Permission denied. SUPER ADMIN ONLY.")
@@ -7467,7 +8535,7 @@ async def delete_school(
         # Note: Students will be moved to school_id=1 automatically by DB constraint ON DELETE SET DEFAULT if configured,
         # or we might need to handle it. Let's assume the DB constraint works or we just delete.
         # But to be safe and clear:
-        cursor.execute("DELETE FROM schools WHERE id = ?", (school_id,))
+        cursor.execute("DELETE FROM schools WHERE id = %s", (school_id,))
         
         if cursor.rowcount == 0:
              raise HTTPException(status_code=404, detail="School not found.")
@@ -7489,15 +8557,15 @@ async def get_school_stats(
     conn = get_db_connection()
     try:
         students = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = ? AND role = 'Student'",
+            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = %s AND role = 'Student'",
             (school_id,)
         ).fetchone()
         teachers = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = ? AND role IN ('Teacher','Principal','Admin','Tenant_Admin','Academic_Admin')",
+            "SELECT COUNT(*) AS cnt FROM students WHERE school_id = %s AND role IN ('Teacher','Principal','Admin','Tenant_Admin','Academic_Admin')",
             (school_id,)
         ).fetchone()
         classes_row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM active_classes WHERE school_id = ?",
+            "SELECT COUNT(*) AS cnt FROM active_classes WHERE school_id = %s",
             (school_id,)
         ).fetchone()
         return {
@@ -7612,7 +8680,7 @@ async def create_announcement(req: AnnouncementCreateRequest):
     conn = get_db_connection()
     try:
         ts = datetime.now().isoformat()
-        conn.execute("INSERT INTO announcements (title, content, target_role, created_at) VALUES (?, ?, ?, ?)", 
+        conn.execute("INSERT INTO announcements (title, content, target_role, created_at) VALUES (%s, ?, ?, ?)", 
                      (req.title, req.content, req.target_role, ts))
         conn.commit()
     except Exception as e:
@@ -7630,7 +8698,7 @@ async def get_messages(user_id: str = Header(None, alias="X-User-Id")):
     # Get messages where I am receiver OR sender
     msgs = c.execute("""
         SELECT * FROM messages 
-        WHERE receiver_id = ? OR sender_id = ? 
+        WHERE receiver_id = %s OR sender_id = %s 
         ORDER BY timestamp DESC
     """, (user_id, user_id)).fetchall()
     conn.close()
@@ -7642,7 +8710,7 @@ async def send_message(req: MessageSendRequest, user_id: str = Header(None, alia
     conn = get_db_connection()
     try:
         ts = datetime.now().isoformat()
-        conn.execute("INSERT INTO messages (sender_id, receiver_id, content, subject, timestamp, is_read) VALUES (?, ?, ?, ?, ?, FALSE)", 
+        conn.execute("INSERT INTO messages (sender_id, receiver_id, content, subject, timestamp, is_read) VALUES (%s, ?, ?, ?, ?, FALSE)", 
                      (user_id, req.receiver_id, req.content, req.subject, ts))
         conn.commit()
     except Exception as e:
@@ -7663,7 +8731,7 @@ async def get_events():
 async def create_event(req: EventCreateRequest):
     conn = get_db_connection()
     try:
-        conn.execute("INSERT INTO calendar_events (title, date, type) VALUES (?, ?, ?)", 
+        conn.execute("INSERT INTO calendar_events (title, date, type) VALUES (%s, ?, ?)", 
                      (req.title, req.date, req.type))
         conn.commit()
     except Exception as e:
@@ -7679,7 +8747,7 @@ async def create_exam_schedule(req: ExamScheduleCreateRequest, x_user_id: str = 
         raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
@@ -7694,19 +8762,19 @@ async def create_exam_schedule(req: ExamScheduleCreateRequest, x_user_id: str = 
             elif int(req.school_id) != int(user_school_id):
                 raise HTTPException(status_code=403, detail="You can only create schedules for your own school.")
 
-        school_exists = conn.execute("SELECT id FROM schools WHERE id = ?", (target_school_id,)).fetchone()
+        school_exists = conn.execute("SELECT id FROM schools WHERE id = %s", (target_school_id,)).fetchone()
         if not school_exists:
             raise HTTPException(status_code=400, detail="Invalid school_id.")
 
         if req.section_id:
-            sec = conn.execute("SELECT id, school_id, grade_level FROM sections WHERE id = ?", (req.section_id,)).fetchone()
+            sec = conn.execute("SELECT id, school_id, grade_level FROM sections WHERE id = %s", (req.section_id,)).fetchone()
             if not sec or sec["school_id"] != target_school_id:
                 raise HTTPException(status_code=400, detail="Invalid section_id for this school.")
             if sec["grade_level"] != req.grade_level:
                 raise HTTPException(status_code=400, detail="section_id does not match grade_level.")
         if req.teacher_id:
             teacher = conn.execute(
-                "SELECT id, role, school_id FROM students WHERE id = ?",
+                "SELECT id, role, school_id FROM students WHERE id = %s",
                 (req.teacher_id,)
             ).fetchone()
             if not teacher or teacher["school_id"] != target_school_id or teacher["role"] != "Teacher":
@@ -7719,17 +8787,17 @@ async def create_exam_schedule(req: ExamScheduleCreateRequest, x_user_id: str = 
                 school_id, title, subject, grade_level, section_id, exam_date,
                 start_time, end_time, venue, instructions, teacher_id,
                 created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             target_school_id, req.title, req.subject, req.grade_level, req.section_id, req.date,
             req.start_time, req.end_time, req.venue, req.instructions, req.teacher_id,
             x_user_id, created_at, created_at
         ))
-        schedule_id = cursor.lastrowid
+        schedule_id = _last_insert_id(cursor)
 
         # Optional: also register as a calendar event for visibility
         try:
-            conn.execute("INSERT INTO calendar_events (title, date, type, description) VALUES (?, ?, 'Exam', ?)",
+            conn.execute("INSERT INTO calendar_events (title, date, type, description) VALUES (%s, ?, 'Exam', ?)",
                          (f"{req.title} - {req.subject}", req.date, req.instructions or ""))
         except Exception:
             pass
@@ -7775,7 +8843,7 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
         raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT id, role, grade, section_id, school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT id, role, grade, section_id, school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
@@ -7788,8 +8856,8 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
                 FROM exam_schedules es
                 LEFT JOIN sections sec ON es.section_id = sec.id
                 LEFT JOIN students t ON es.teacher_id = t.id
-                WHERE es.school_id = ? AND es.grade_level = ?
-                AND (es.section_id IS NULL OR es.section_id = ?)
+                WHERE es.school_id = %s AND es.grade_level = %s
+                AND (es.section_id IS NULL OR es.section_id = %s)
                 ORDER BY es.exam_date ASC, es.start_time ASC
             """
             return conn.execute(query, (school_id, grade_level, section_id)).fetchall()
@@ -7801,7 +8869,7 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
         if role in ['Parent', 'Parent_Guardian']:
             results = []
             parent_row = conn.execute(
-                "SELECT id, name FROM students WHERE id = ?",
+                "SELECT id, name FROM students WHERE id = %s",
                 (x_user_id,)
             ).fetchone()
             parent_name = (parent_row["name"] or "").strip() if parent_row else ""
@@ -7825,7 +8893,7 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
                     SELECT s.id, s.name, s.grade, s.section_id
                     FROM guardians g
                     JOIN students s ON g.student_id = s.id
-                    WHERE LOWER(g.email) = LOWER(?) AND s.school_id = ? AND s.role = 'Student'
+                    WHERE LOWER(g.email) = LOWER(?) AND s.school_id = %s AND s.role = 'Student'
                 """, (parent_email, school_id)).fetchall()
                 for row in rows:
                     children_by_id[row["id"]] = dict(row)
@@ -7840,7 +8908,7 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
                         LOWER(g.name) = LOWER(?)
                         OR LOWER(g.name) = LOWER(?)
                     )
-                      AND s.school_id = ?
+                      AND s.school_id = %s
                       AND s.role = 'Student'
                 """, (parent_name, x_user_id, school_id)).fetchall()
                 for row in rows:
@@ -7862,12 +8930,12 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
                 FROM exam_schedules es
                 LEFT JOIN sections sec ON es.section_id = sec.id
                 LEFT JOIN students t ON es.teacher_id = t.id
-                WHERE es.school_id = ?
+                WHERE es.school_id = %s
                 AND (
-                    es.teacher_id = ?
+                    es.teacher_id = %s
                     OR EXISTS (
                         SELECT 1 FROM timetables tt
-                        WHERE tt.teacher_id = ?
+                        WHERE tt.teacher_id = %s
                         AND tt.class_grade = es.grade_level
                         AND (es.section_id IS NULL OR tt.section = (SELECT name FROM sections WHERE id = es.section_id))
                         AND (es.subject IS NULL OR tt.subject = es.subject)
@@ -7884,7 +8952,7 @@ async def get_my_exam_schedules(x_user_id: str = Header(None, alias="X-User-Id")
             FROM exam_schedules es
             LEFT JOIN sections sec ON es.section_id = sec.id
             LEFT JOIN students t ON es.teacher_id = t.id
-            WHERE es.school_id = ?
+            WHERE es.school_id = %s
             ORDER BY es.exam_date ASC, es.start_time ASC
         """, (school_id,)).fetchall()
         return [dict(r) for r in rows]
@@ -7905,7 +8973,7 @@ async def get_all_exam_schedules(
         raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         if not (user["is_super_admin"] or user["role"] in ['Tenant_Admin', 'Principal', 'Admin', 'Super Admin']):
@@ -7919,23 +8987,23 @@ async def get_all_exam_schedules(
             FROM exam_schedules es
             LEFT JOIN sections sec ON es.section_id = sec.id
             LEFT JOIN students t ON es.teacher_id = t.id
-            WHERE es.school_id = ?
+            WHERE es.school_id = %s
         """
         params = [target_school_id]
         if grade_level is not None:
-            query += " AND es.grade_level = ?"
+            query += " AND es.grade_level = %s"
             params.append(grade_level)
         if section_id is not None:
-            query += " AND es.section_id = ?"
+            query += " AND es.section_id = %s"
             params.append(section_id)
         if subject:
-            query += " AND es.subject = ?"
+            query += " AND es.subject = %s"
             params.append(subject)
         if date_from:
-            query += " AND es.exam_date >= ?"
+            query += " AND es.exam_date >= %s"
             params.append(date_from)
         if date_to:
-            query += " AND es.exam_date <= ?"
+            query += " AND es.exam_date <= %s"
             params.append(date_to)
         query += " ORDER BY es.exam_date ASC, es.start_time ASC"
         rows = conn.execute(query, params).fetchall()
@@ -7953,26 +9021,26 @@ async def update_exam_schedule(
         raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         if not (user["is_super_admin"] or user["role"] in ['Tenant_Admin', 'Principal', 'Admin', 'Super Admin']):
             raise HTTPException(status_code=403, detail="Only Principal/Admin can update exam schedules.")
 
         school_id = user["school_id"] if user["school_id"] else 1
-        existing = conn.execute("SELECT * FROM exam_schedules WHERE id = ? AND school_id = ?", (schedule_id, school_id)).fetchone()
+        existing = conn.execute("SELECT * FROM exam_schedules WHERE id = %s AND school_id = %s", (schedule_id, school_id)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Exam schedule not found.")
 
         if req.section_id:
-            sec = conn.execute("SELECT id, school_id, grade_level FROM sections WHERE id = ?", (req.section_id,)).fetchone()
+            sec = conn.execute("SELECT id, school_id, grade_level FROM sections WHERE id = %s", (req.section_id,)).fetchone()
             if not sec or sec["school_id"] != school_id:
                 raise HTTPException(status_code=400, detail="Invalid section_id for this school.")
             if req.grade_level and sec["grade_level"] != req.grade_level:
                 raise HTTPException(status_code=400, detail="section_id does not match grade_level.")
         if req.teacher_id:
             teacher = conn.execute(
-                "SELECT id, role, school_id FROM students WHERE id = ?",
+                "SELECT id, role, school_id FROM students WHERE id = %s",
                 (req.teacher_id,)
             ).fetchone()
             if not teacher or teacher["school_id"] != school_id or teacher["role"] != "Teacher":
@@ -7993,16 +9061,16 @@ async def update_exam_schedule(
             ("teacher_id", req.teacher_id),
         ]:
             if value is not None:
-                updates.append(f"{field} = ?")
+                updates.append(f"{field} = %s")
                 params.append(value)
-        updates.append("updated_at = ?")
+        updates.append("updated_at = %s")
         params.append(datetime.now().isoformat())
         params.append(schedule_id)
 
         if updates:
-            conn.execute(f"UPDATE exam_schedules SET {', '.join(updates)} WHERE id = ?", params)
+            conn.execute(f"UPDATE exam_schedules SET {', '.join(updates)} WHERE id = %s", params)
 
-        schedule = conn.execute("SELECT * FROM exam_schedules WHERE id = ?", (schedule_id,)).fetchone()
+        schedule = conn.execute("SELECT * FROM exam_schedules WHERE id = %s", (schedule_id,)).fetchone()
         if req.notify and schedule:
             _notify_exam_schedule(
                 conn,
@@ -8033,14 +9101,14 @@ async def notify_exam_schedule(
         raise HTTPException(status_code=401, detail="Authentication required")
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         if not (user["is_super_admin"] or user["role"] in ['Tenant_Admin', 'Principal', 'Admin', 'Super Admin']):
             raise HTTPException(status_code=403, detail="Only Principal/Admin can notify exam schedules.")
 
         school_id = user["school_id"] if user["school_id"] else 1
-        schedule = conn.execute("SELECT * FROM exam_schedules WHERE id = ? AND school_id = ?", (schedule_id, school_id)).fetchone()
+        schedule = conn.execute("SELECT * FROM exam_schedules WHERE id = %s AND school_id = %s", (schedule_id, school_id)).fetchone()
         if not schedule:
             raise HTTPException(status_code=404, detail="Exam schedule not found.")
 
@@ -8183,7 +9251,7 @@ async def get_sections(school_id: Optional[int] = None):
     conn = get_db_connection()
     try:
         if school_id:
-            sections = conn.execute("SELECT * FROM sections WHERE school_id = ?", (school_id,)).fetchall()
+            sections = conn.execute("SELECT * FROM sections WHERE school_id = %s", (school_id,)).fetchall()
         else:
             sections = conn.execute("SELECT * FROM sections").fetchall()
         
@@ -8197,7 +9265,7 @@ async def create_section(req: SectionCreateRequest, x_user_id: str = Header(None
     conn = get_db_connection()
     try:
         ts = datetime.now().isoformat()
-        conn.execute("INSERT INTO sections (school_id, name, grade_level, created_at) VALUES (?, ?, ?, ?)", 
+        conn.execute("INSERT INTO sections (school_id, name, grade_level, created_at) VALUES (%s, ?, ?, ?)", 
                      (req.school_id, req.name, req.grade_level, ts))
         conn.commit()
     finally:
@@ -8211,13 +9279,13 @@ async def assign_student_section(student_id: str, section_id: int, x_user_id: st
     conn = get_db_connection()
     try:
         # Check if section exists
-        section = conn.execute("SELECT school_id, grade_level FROM sections WHERE id = ?", (section_id,)).fetchone()
+        section = conn.execute("SELECT school_id, grade_level FROM sections WHERE id = %s", (section_id,)).fetchone()
         if not section:
             raise HTTPException(status_code=404, detail="Section not found")
             
         # Update student (Also update grade to match section if needed, optional)
         cursor = conn.cursor()
-        cursor.execute("UPDATE students SET section_id = ?, grade = ? WHERE id = ?", (section_id, section['grade_level'], student_id))
+        cursor.execute("UPDATE students SET section_id = %s, grade = %s WHERE id = %s", (section_id, section['grade_level'], student_id))
         if cursor.cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Student not found")
         conn.commit()
@@ -8232,7 +9300,7 @@ async def get_guardians(student_id: str, x_user_id: str = Header(None, alias="X-
     await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        guardians = conn.execute("SELECT * FROM guardians WHERE student_id = ?", (student_id,)).fetchall()
+        guardians = conn.execute("SELECT * FROM guardians WHERE student_id = %s", (student_id,)).fetchall()
         return [GuardianResponse(**dict(g)) for g in guardians]
     finally:
         conn.close()
@@ -8244,7 +9312,7 @@ async def add_guardian(student_id: str, req: GuardianCreateRequest, x_user_id: s
     try:
         conn.execute(
             """INSERT INTO guardians (student_id, name, relationship, phone, email, address, is_emergency_contact) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, ?, ?, ?, ?, ?, ?)""",
             (student_id, req.name, req.relationship, req.phone, req.email, req.address, req.is_emergency_contact)
         )
         conn.commit()
@@ -8257,7 +9325,7 @@ async def delete_guardian(id: int, x_user_id: str = Header(None, alias="X-User-I
     await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        conn.execute("DELETE FROM guardians WHERE id = ?", (id,))
+        conn.execute("DELETE FROM guardians WHERE id = %s", (id,))
         conn.commit()
     finally:
         conn.close()
@@ -8269,7 +9337,7 @@ async def get_health_record(student_id: str, x_user_id: str = Header(None, alias
     await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        record = conn.execute("SELECT * FROM health_records WHERE student_id = ?", (student_id,)).fetchone()
+        record = conn.execute("SELECT * FROM health_records WHERE student_id = %s", (student_id,)).fetchone()
         if record:
             return HealthRecordResponse(**dict(record))
         return None
@@ -8283,7 +9351,7 @@ async def update_health_record(student_id: str, req: HealthRecordUpdateRequest, 
     try:
         ts = datetime.now().isoformat()
         # Check if exists
-        exists = conn.execute("SELECT id FROM health_records WHERE student_id = ?", (student_id,)).fetchone()
+        exists = conn.execute("SELECT id FROM health_records WHERE student_id = %s", (student_id,)).fetchone()
         if exists:
             conn.execute("""
                 UPDATE health_records SET 
@@ -8298,7 +9366,7 @@ async def update_health_record(student_id: str, req: HealthRecordUpdateRequest, 
             conn.execute("""
                 INSERT INTO health_records 
                 (student_id, blood_group, emergency_contact_name, emergency_contact_phone, allergies, medical_conditions, medications, doctor_name, doctor_phone, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (student_id, req.blood_group, req.emergency_contact_name, req.emergency_contact_phone, 
                   req.allergies, req.medical_conditions, req.medications, 
                   req.doctor_name, req.doctor_phone, ts))
@@ -8313,7 +9381,7 @@ async def get_documents(student_id: str, x_user_id: str = Header(None, alias="X-
     await verify_permission("student_info_view", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        docs = conn.execute("SELECT * FROM student_documents WHERE student_id = ?", (student_id,)).fetchall()
+        docs = conn.execute("SELECT * FROM student_documents WHERE student_id = %s", (student_id,)).fetchall()
         return [DocumentResponse(**dict(d)) for d in docs]
     finally:
         conn.close()
@@ -8338,7 +9406,7 @@ async def upload_document(
         ts = datetime.now().isoformat()
         conn.execute("""
             INSERT INTO student_documents (student_id, document_type, document_name, file_path, upload_date, uploaded_by)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?)
         """, (student_id, document_type, file.filename, file_path, ts, x_user_id))
         conn.commit()
     finally:
@@ -8351,7 +9419,7 @@ async def delete_document(doc_id: int, x_user_id: str = Header(None, alias="X-Us
     await verify_permission("student_info_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        doc = conn.execute("SELECT file_path FROM student_documents WHERE id = ?", (doc_id,)).fetchone()
+        doc = conn.execute("SELECT file_path FROM student_documents WHERE id = %s", (doc_id,)).fetchone()
         if doc:
             try:
                 if os.path.exists(doc['file_path']):
@@ -8359,230 +9427,11 @@ async def delete_document(doc_id: int, x_user_id: str = Header(None, alias="X-Us
             except:
                 pass # Ignore file system errors
             
-            conn.execute("DELETE FROM student_documents WHERE id = ?", (doc_id,))
+            conn.execute("DELETE FROM student_documents WHERE id = %s", (doc_id,))
             conn.commit()
     finally:
         conn.close()
     return {"message": "Document deleted"}
-
-# --- ROLE & PERMISSION MANAGEMENT ENDPOINTS (FR-3) ---
-
-
-@app.get("/api/admin/roles/{role_id}", response_model=RoleResponse)
-async def get_role_details(
-    role_id: int,
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    try:
-        r = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
-        if not r:
-            raise HTTPException(status_code=404, detail="Role not found")
-            
-        perms = conn.execute("""
-            SELECT p.id, p.code, p.description 
-            FROM permissions p
-            JOIN role_permissions rp ON p.id = rp.permission_id
-            WHERE rp.role_id = ?
-        """, (r['id'],)).fetchall()
-        
-        return RoleResponse(
-            id=r['id'],
-            code=r['name'].replace(' ', '_').upper(),
-            name=r['name'],
-            description=r['description'] or "",
-            status=r['status'],
-            is_system=bool(r['is_system']),
-            permissions=[dict(p) for p in perms]
-        )
-    finally:
-        conn.close()
-
-@app.post("/api/admin/roles")
-async def create_role(
-    request: RoleCreateRequest,
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        
-        # Create Role
-        cursor.execute("INSERT INTO roles (name, description, status, is_system) VALUES (?, ?, ?, FALSE)", 
-                       (request.name, request.description, request.status))
-        role_id = cursor.lastrowid
-        if not role_id:
-             role_id = cursor.execute("SELECT id FROM roles WHERE name = ?", (request.name,)).fetchone()['id']
-             
-        # Assign Permissions
-        if request.permissions:
-            placeholders = ','.join(['?'] * len(request.permissions))
-            valid_perms = conn.execute(f"SELECT id FROM permissions WHERE code IN ({placeholders})", tuple(request.permissions)).fetchall()
-            
-            data = [(role_id, p['id']) for p in valid_perms]
-            cursor.executemany("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", data)
-        
-        conn.commit()
-        return {"message": "Role created successfully", "role_id": role_id}
-    except sqlite3.IntegrityError:
-         raise HTTPException(status_code=400, detail="Role name already exists.")
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.put("/api/admin/roles/{role_id}")
-async def update_role(
-    role_id: int,
-    request: RoleCreateRequest,
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        
-        role = cursor.execute("SELECT is_system FROM roles WHERE id = ?", (role_id,)).fetchone()
-        if not role:
-            raise HTTPException(status_code=404, detail="Role not found")
-        
-        cursor.execute("UPDATE roles SET name = ?, description = ?, status = ? WHERE id = ?", 
-                       (request.name, request.description, request.status, role_id))
-                       
-        cursor.execute("DELETE FROM role_permissions WHERE role_id = ?", (role_id,))
-        
-        if request.permissions:
-            placeholders = ','.join(['?'] * len(request.permissions))
-            valid_perms = conn.execute(f"SELECT id FROM permissions WHERE code IN ({placeholders})", tuple(request.permissions)).fetchall()
-            
-            data = [(role_id, p['id']) for p in valid_perms]
-            cursor.executemany("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", data)
-            
-        conn.commit()
-        return {"message": "Role updated successfully"}
-    finally:
-        conn.close()
-
-@app.delete("/api/admin/roles/{role_id}")
-async def delete_role(
-    role_id: int,
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    try:
-        role = conn.execute("SELECT is_system FROM roles WHERE id = ?", (role_id,)).fetchone()
-        if not role:
-            raise HTTPException(status_code=404, detail="Role not found")
-            
-        if role['is_system']:
-             raise HTTPException(status_code=400, detail="Cannot delete system roles.")
-             
-        conn.execute("DELETE FROM roles WHERE id = ?", (role_id,))
-        conn.commit()
-        return {"message": "Role deleted successfully"}
-    finally:
-        conn.close()
-
-@app.get("/api/admin/permissions")
-async def get_all_permissions(
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_permission("role_management", x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    perms = conn.execute("SELECT * FROM permissions ORDER BY group_name, code").fetchall()
-    conn.close()
-    
-    grouped = {}
-    for p in perms:
-        g = p['group_name'] or 'General'
-        if g not in grouped: grouped[g] = []
-        grouped[g].append({
-            "id": p['id'],
-            "code": p['code'],
-            "description": p['description']
-        })
-        
-    return grouped
-
-# New Endpoints for Permission Management (FR-3)
-
-class PermissionDetailResponse(BaseModel):
-    id: int
-    code: str
-    description: str
-    group_name: str
-    display_code: str
-    status: str = "Active"
-
-class PermissionUpdateRequest(BaseModel):
-    description: str
-
-@app.get("/api/admin/permissions/list", response_model=List[PermissionDetailResponse])
-async def get_permissions_list(
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_any_permission(["permission_management", "view_permissions", "edit_permissions"], x_user_id=x_user_id)
-    
-    conn = get_db_connection()
-    try:
-        perms = conn.execute("SELECT * FROM permissions ORDER BY id").fetchall()
-        return [
-            PermissionDetailResponse(
-                id=p['id'],
-                code=p['code'],
-                description=p['description'],
-                group_name=p['group_name'] or "General",
-                display_code=f"P-{p['id']:04d}",
-                status=((p['status'] if 'status' in p.keys() else "Active") or "Active")
-            ) for p in perms
-        ]
-    finally:
-        conn.close()
-
-@app.put("/api/admin/permissions/{perm_id}")
-async def update_permission(
-    perm_id: int,
-    request: PermissionUpdateRequest,
-    x_user_role: str = Header(None, alias="X-User-Role"),
-    x_user_id: str = Header(None, alias="X-User-Id")
-):
-    await verify_any_permission(["permission_management", "edit_permissions"], x_user_id=x_user_id)
-
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE permissions SET description = ? WHERE id = ?", (request.description, perm_id))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Permission not found")
-        conn.commit()
-        return {"message": "Permission updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-
 
 # --- STAFF MANAGEMENT ENDPOINTS (FR-3.4) ---
 
@@ -8605,10 +9454,10 @@ async def create_department(
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO departments (name, description, head_of_department_id) VALUES (?, ?, ?)",
+        cursor.execute("INSERT INTO departments (name, description, head_of_department_id) VALUES (%s, ?, ?)",
                        (request.name, request.description, request.head_of_department_id))
         conn.commit()
-        return {"message": "Department created", "id": cursor.lastrowid}
+        return {"message": "Department created", "id": _last_insert_id(cursor)}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Department Name already exists")
     finally:
@@ -8650,7 +9499,7 @@ async def update_staff_profile(
         # Upsert logic
         cursor.execute("""
             INSERT INTO staff_profiles (user_id, department_id, position_title, joining_date, contract_type, salary)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 department_id=excluded.department_id,
                 position_title=excluded.position_title,
@@ -8679,7 +9528,7 @@ async def get_staff_attendance(
         """
         params = []
         if date:
-            base_query += " WHERE sa.date = ?"
+            base_query += " WHERE sa.date = %s"
             params.append(date)
         else:
             base_query += " ORDER BY sa.date DESC LIMIT 100"
@@ -8700,7 +9549,7 @@ async def mark_staff_attendance(
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO staff_attendance (user_id, date, status, check_in_time, check_out_time)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?)
         """, (request.user_id, request.date, request.status, request.check_in_time, request.check_out_time))
         conn.commit()
         return {"message": "Attendance marked"}
@@ -8716,7 +9565,7 @@ async def get_staff_performance(
     await verify_permission("staff_manage", x_user_id=x_user_id)
     conn = get_db_connection()
     try:
-        rows = conn.execute("SELECT * FROM staff_performance WHERE user_id = ? ORDER BY review_date DESC", (user_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM staff_performance WHERE user_id = %s ORDER BY review_date DESC", (user_id,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -8732,7 +9581,7 @@ async def create_performance_review(
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO staff_performance (user_id, reviewer_id, review_date, rating, comments, goals)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?)
         """, (request.user_id, x_user_id, request.review_date, request.rating, request.comments, request.goals))
         conn.commit()
         return {"message": "Review added"}
@@ -8746,7 +9595,7 @@ def _authorize_resource_admin(cursor, x_user_id: Optional[str], requested_school
     if not x_user_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
     actor = cursor.execute(
-        "SELECT id, role, school_id, is_super_admin FROM students WHERE id = ?",
+        "SELECT id, role, school_id, is_super_admin FROM students WHERE id = %s",
         (x_user_id,)
     ).fetchone()
     if not actor:
@@ -8758,7 +9607,7 @@ def _authorize_resource_admin(cursor, x_user_id: Optional[str], requested_school
     target_school_id = int(requested_school_id or (actor["school_id"] or 1))
     if not actor["is_super_admin"] and int(actor["school_id"] or 1) != target_school_id:
         raise HTTPException(status_code=403, detail="You can only manage resources for your own school.")
-    school_row = cursor.execute("SELECT id FROM schools WHERE id = ?", (target_school_id,)).fetchone()
+    school_row = cursor.execute("SELECT id FROM schools WHERE id = %s", (target_school_id,)).fetchone()
     if not school_row:
         raise HTTPException(status_code=400, detail="Invalid school_id.")
 
@@ -8885,7 +9734,7 @@ async def publish_form_template(
         row = cursor.execute(
             """
             INSERT INTO resources (title, description, category, file_path, uploaded_by, uploaded_at, school_id)
-            VALUES (?, ?, 'Form', ?, ?, ?, ?)
+            VALUES (%s, ?, 'Form', ?, ?, ?, ?)
             RETURNING id
             """,
             (title, description, web_path, uploaded_by, uploaded_at, target_school_id)
@@ -8934,7 +9783,7 @@ async def get_resources(
         params = []
         
         if school_id:
-            query += " AND school_id = ?"
+            query += " AND school_id = %s"
             params.append(school_id)
             
         normalized_category = _normalize_resource_category(category)
@@ -9005,7 +9854,7 @@ async def create_resource(
 
         cursor.execute("""
             INSERT INTO resources (title, description, category, file_path, uploaded_by, uploaded_at, school_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+            VALUES (%s, ?, ?, ?, ?, ?, ?) RETURNING id
         """, (title, description, normalized_category, web_path, uploaded_by, uploaded_at, target_school_id))
 
         row = cursor.fetchone()
@@ -9023,7 +9872,7 @@ async def create_resource(
                     """
                     SELECT id
                     FROM students
-                    WHERE school_id = ?
+                    WHERE school_id = %s
                       AND role IN ('Principal', 'Tenant_Admin', 'Admin')
                     """,
                     (target_school_id,)
@@ -9089,7 +9938,7 @@ async def delete_resource(resource_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM resources WHERE id = ?", (resource_id,))
+        cursor.execute("DELETE FROM resources WHERE id = %s", (resource_id,))
         # Check rowcount if possible, but wrapper might not expose it easily without result.
         conn.commit()
         return {"message": "Resource deleted successfully"}
@@ -9238,7 +10087,7 @@ class OAuthApproveRequest(BaseModel):
 async def oauth_approve(request: OAuthApproveRequest):
     # Verify user exists (simple check)
     conn = get_db_connection()
-    user = conn.execute("SELECT id FROM students WHERE id = ?", (request.user_id,)).fetchone()
+    user = conn.execute("SELECT id FROM students WHERE id = %s", (request.user_id,)).fetchone()
     conn.close()
     
     if not user:
@@ -9364,7 +10213,7 @@ async def oauth_userinfo(authorization: str = Header(...)):
     user_id = token_data["user_id"]
     
     conn = get_db_connection()
-    user = conn.execute("SELECT * FROM students WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("SELECT * FROM students WHERE id = %s", (user_id,)).fetchone()
     conn.close()
     
     if not user:
@@ -9394,14 +10243,14 @@ async def create_course(course: LMSCourseCreateRequest, x_user_id: str = Header(
         
     created_at = datetime.now().isoformat()
     # Get School ID safely
-    school_row = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+    school_row = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
     school_id = school_row['school_id'] if school_row else 1
     
     c.execute("""
         INSERT INTO lms_courses (title, description, teacher_id, category, thumbnail_url, enrollment_key, created_at, school_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
     """, (course.title, course.description, x_user_id, course.category, course.thumbnail_url, course.enrollment_key, created_at, school_id))
-    course_id = c.lastrowid
+    course_id = _last_insert_id(c)
     conn.commit()
     conn.close()
     
@@ -9421,7 +10270,7 @@ async def get_courses(category: Optional[str] = None, search: Optional[str] = No
     query = "SELECT * FROM lms_courses WHERE 1=1"
     params = []
     if category and category != 'All':
-        query += " AND category = ?"
+        query += " AND category = %s"
         params.append(category)
     if search:
         query += " AND (title LIKE ? OR description LIKE ?)"
@@ -9439,22 +10288,22 @@ async def get_courses(category: Optional[str] = None, search: Optional[str] = No
 @app.get("/api/lms/courses/{course_id}/full")
 async def get_course_full(course_id: int, x_user_id: str = Header(None, alias="X-User-Id")):
     conn = get_db_connection()
-    course = conn.execute("SELECT * FROM lms_courses WHERE id = ?", (course_id,)).fetchone()
+    course = conn.execute("SELECT * FROM lms_courses WHERE id = %s", (course_id,)).fetchone()
     if not course:
         conn.close()
         raise HTTPException(status_code=404, detail="Course not found")
         
-    sections_rows = conn.execute("SELECT * FROM lms_course_sections WHERE course_id = ? ORDER BY order_index", (course_id,)).fetchall()
+    sections_rows = conn.execute("SELECT * FROM lms_course_sections WHERE course_id = %s ORDER BY order_index", (course_id,)).fetchall()
     sections = []
     
     for s_row in sections_rows:
-        modules = conn.execute("SELECT * FROM lms_course_modules WHERE section_id = ? ORDER BY order_index", (s_row['id'],)).fetchall()
+        modules = conn.execute("SELECT * FROM lms_course_modules WHERE section_id = %s ORDER BY order_index", (s_row['id'],)).fetchall()
         
         module_list = []
         for m in modules:
             m_dict = dict(m)
             if x_user_id:
-                comp = conn.execute("SELECT status, score FROM lms_module_completion WHERE module_id = ? AND student_id = ?", (m['id'], x_user_id)).fetchone()
+                comp = conn.execute("SELECT status, score FROM lms_module_completion WHERE module_id = %s AND student_id = %s", (m['id'], x_user_id)).fetchone()
                 if comp:
                     m_dict['completion'] = dict(comp)
             module_list.append(m_dict)
@@ -9474,9 +10323,9 @@ async def get_course_full(course_id: int, x_user_id: str = Header(None, alias="X
 async def add_section(course_id: int, section: LMSSectionCreateRequest):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO lms_course_sections (course_id, title, order_index) VALUES (?, ?, ?)", 
+    c.execute("INSERT INTO lms_course_sections (course_id, title, order_index) VALUES (%s, ?, ?)", 
               (course_id, section.title, section.order_index))
-    s_id = c.lastrowid
+    s_id = _last_insert_id(c)
     conn.commit()
     conn.close()
     return {**section.dict(), "id": s_id, "course_id": course_id}
@@ -9511,9 +10360,9 @@ async def add_module(section_id: int, module: LMSModuleCreateRequest):
     
     c.execute("""
         INSERT INTO lms_course_modules (section_id, title, type, content_url, content_text, searchable_text, order_index)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, ?, ?, ?, ?, ?, ?)
     """, (section_id, module.title, module.type, module.content_url, module.content_text, searchable_text, module.order_index))
-    m_id = c.lastrowid
+    m_id = _last_insert_id(c)
     conn.commit()
     conn.close()
     return {**module.dict(), "id": m_id, "section_id": section_id}
@@ -9535,7 +10384,7 @@ async def chat_with_course(course_id: int, request: AIChatRequest):
     rows = conn.execute("""
         SELECT m.searchable_text, m.title FROM lms_course_modules m
         JOIN lms_course_sections s ON m.section_id = s.id
-        WHERE s.course_id = ? AND m.searchable_text IS NOT NULL AND m.searchable_text != ''
+        WHERE s.course_id = %s AND m.searchable_text IS NOT NULL AND m.searchable_text != ''
     """, (course_id,)).fetchall()
     
     context = ""
@@ -9581,7 +10430,7 @@ async def complete_module(module_id: int, request: LMSCompletionRequest, x_user_
         # Upsert logic for completion
         c.execute("""
             INSERT INTO lms_module_completion (module_id, student_id, status, score)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?)
             ON CONFLICT(module_id, student_id) DO UPDATE SET
             status = EXCLUDED.status,
             score = EXCLUDED.score
@@ -9673,7 +10522,7 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
                 SELECT id FROM students
                 WHERE role IN ('Parent', 'Parent_Guardian')
                   AND (LOWER(id) = LOWER(?) OR LOWER(email) = LOWER(?))
-                  AND (? IS NULL OR school_id = ?)
+                  AND (? IS NULL OR school_id = %s)
                 """,
                 (guardian_email, guardian_email, school_id, school_id)
             ).fetchall()
@@ -9686,7 +10535,7 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
                 SELECT id FROM students
                 WHERE role IN ('Parent', 'Parent_Guardian')
                   AND LOWER(name) = LOWER(?)
-                  AND (? IS NULL OR school_id = ?)
+                  AND (? IS NULL OR school_id = %s)
                 """,
                 (guardian_name, school_id, school_id)
             ).fetchall()
@@ -9695,7 +10544,7 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
 
     # 2. Naming convention fallback (e.g. "Parent of Student X")
     try:
-        student_row = cursor.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+        student_row = cursor.execute("SELECT name FROM students WHERE id = %s", (student_id,)).fetchone()
         if student_row:
             s_name = student_row["name"].lower()
             # Match "Parent of [Student Name]" - use bit more flexible match
@@ -9704,7 +10553,7 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
                 SELECT id FROM students
                 WHERE role IN ('Parent', 'Parent_Guardian')
                   AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ?)
-                  AND (? IS NULL OR school_id = ?)
+                  AND (? IS NULL OR school_id = %s)
                 """,
                 (f"%parent of {s_name}%", f"%guardian of {s_name}%", school_id, school_id)
             ).fetchall()
@@ -9718,8 +10567,8 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
         derived_p = "parent_" + student_id[len("student_"):]
         p_row = cursor.execute(
             """
-            SELECT id FROM students WHERE id = ? AND role IN ('Parent', 'Parent_Guardian')
-            AND (? IS NULL OR school_id = ?)
+            SELECT id FROM students WHERE id = %s AND role IN ('Parent', 'Parent_Guardian')
+            AND (? IS NULL OR school_id = %s)
             """,
             (derived_p, school_id, school_id)
         ).fetchone()
@@ -9732,9 +10581,9 @@ def _resolve_parent_ids_for_student(cursor, student_id: str, school_id: Optional
         SELECT DISTINCT s.id
         FROM students s
         JOIN guardians g ON LOWER(g.email) = LOWER(s.id) OR LOWER(g.name) = LOWER(s.name)
-        WHERE g.student_id = ?
+        WHERE g.student_id = %s
           AND s.role IN ('Parent', 'Parent_Guardian')
-          AND (? IS NULL OR s.school_id = ?)
+          AND (? IS NULL OR s.school_id = %s)
         """,
         (student_id, school_id, school_id)
     ).fetchall()
@@ -9752,7 +10601,7 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
     sender_id = None
     requested_sender = (x_user_id or "").strip()
     if requested_sender:
-        sender_row = c.execute("SELECT id FROM students WHERE id = ?", (requested_sender,)).fetchone()
+        sender_row = c.execute("SELECT id FROM students WHERE id = %s", (requested_sender,)).fetchone()
         if sender_row:
             sender_id = sender_row["id"]
     if not sender_id:
@@ -9770,7 +10619,7 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
     try:
         for record in req.records:
             student_row = c.execute(
-                "SELECT id, name, school_id FROM students WHERE id = ? AND role = 'Student'",
+                "SELECT id, name, school_id FROM students WHERE id = %s AND role = 'Student'",
                 (record.student_id,)
             ).fetchone()
             if not student_row:
@@ -9783,10 +10632,10 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
             remarks = (record.remarks or "").strip()
 
             try:
-                c.execute("DELETE FROM student_attendance WHERE student_id = ? AND date = ?", (record.student_id, attendance_date))
+                c.execute("DELETE FROM student_attendance WHERE student_id = %s AND date = %s", (record.student_id, attendance_date))
                 c.execute("""
                     INSERT INTO student_attendance (student_id, date, status, remarks, recorded_by, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (%s, ?, ?, ?, ?, ?)
                 """, (record.student_id, attendance_date, status, remarks, sender_id, created_at))
             except Exception as row_error:
                 logger.warning(f"Attendance row skipped for {record.student_id}: {row_error}")
@@ -9797,7 +10646,7 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
 
             # Notify student + parents on attendance update (non-blocking)
             if sender_id and status in ("Present", "Absent", "Late"):
-                guardians = c.execute("SELECT email, name FROM guardians WHERE student_id = ?", (record.student_id,)).fetchall()
+                guardians = c.execute("SELECT email, name FROM guardians WHERE student_id = %s", (record.student_id,)).fetchall()
                 student_name = student_row["name"] if student_row else "Student"
                 school_id = student_row["school_id"] if student_row else None
                 status_upper = status.upper()
@@ -9809,7 +10658,7 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
                 try:
                     c.execute("""
                         INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-                        VALUES (?, ?, ?, ?, ?, FALSE)
+                        VALUES (%s, ?, ?, ?, ?, FALSE)
                     """, (sender_id, record.student_id, student_subject, student_content, created_at))
                     student_notified += 1
                 except Exception as notify_err:
@@ -9824,7 +10673,7 @@ async def take_bulk_attendance(req: BulkAttendanceRequest, x_user_id: str = Head
                     try:
                         c.execute("""
                                INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-                               VALUES (?, ?, ?, ?, ?, FALSE)
+                               VALUES (%s, ?, ?, ?, ?, FALSE)
                             """, (sender_id, pid, subject, content, created_at))
                         parent_notified += 1
                     except Exception as notify_err:
@@ -9854,10 +10703,10 @@ async def get_class_attendance(grade: int, date: str):
     c = conn.cursor()
     
     # Get all students for this grade
-    students = c.execute("SELECT id, name, photo_url FROM students WHERE grade = ? AND role = 'Student'", (grade,)).fetchall()
+    students = c.execute("SELECT id, name, photo_url FROM students WHERE grade = %s AND role = 'Student'", (grade,)).fetchall()
     
     # Get attendance for date
-    att_rows = c.execute("SELECT student_id, status, remarks FROM student_attendance WHERE date = ?", (date,)).fetchall()
+    att_rows = c.execute("SELECT student_id, status, remarks FROM student_attendance WHERE date = %s", (date,)).fetchall()
     att_map = {row['student_id']: row for row in att_rows}
     
     results = []
@@ -9914,7 +10763,7 @@ async def get_my_attendance(
     c = conn.cursor()
     try:
         requester = c.execute(
-            "SELECT id, role FROM students WHERE id = ?",
+            "SELECT id, role FROM students WHERE id = %s",
             (x_user_id,)
         ).fetchone()
         if not requester:
@@ -9934,7 +10783,7 @@ async def get_my_attendance(
 
 
         student = c.execute(
-            "SELECT id, role, attendance_rate FROM students WHERE id = ? AND role = 'Student'",
+            "SELECT id, role, attendance_rate FROM students WHERE id = %s AND role = 'Student'",
             (target_student_id,),
         ).fetchone()
         if not student:
@@ -9973,9 +10822,9 @@ async def get_my_attendance(
             """
             SELECT date, status, remarks, created_at
             FROM student_attendance
-            WHERE student_id = ?
-              AND date >= ?
-              AND date <= ?
+            WHERE student_id = %s
+              AND date >= %s
+              AND date <= %s
             ORDER BY date DESC, created_at DESC
             """,
             (target_student_id, from_date_str, to_date_str)
@@ -10005,9 +10854,9 @@ async def get_my_attendance(
             """
             SELECT date, status, remarks, created_at
             FROM student_attendance
-            WHERE student_id = ?
-              AND date >= ?
-              AND date <= ?
+            WHERE student_id = %s
+              AND date >= %s
+              AND date <= %s
             ORDER BY date DESC, created_at DESC
             """,
             (target_student_id, monthly_from.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"))
@@ -10108,7 +10957,7 @@ async def get_my_attendance(
 async def get_teacher_timetable(teacher_id: str):
     conn = get_db_connection()
     c = conn.cursor()
-    rows = c.execute("SELECT * FROM timetables WHERE teacher_id = ? ORDER BY day_of_week, period_number", (teacher_id,)).fetchall()
+    rows = c.execute("SELECT * FROM timetables WHERE teacher_id = %s ORDER BY day_of_week, period_number", (teacher_id,)).fetchall()
     conn.close()
     
     # Map to simpler structure
@@ -10133,7 +10982,7 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
     c = conn.cursor()
     try:
         requester = c.execute(
-            "SELECT id, role FROM students WHERE id = ?",
+            "SELECT id, role FROM students WHERE id = %s",
             (x_user_id,)
         ).fetchone()
         if not requester:
@@ -10144,7 +10993,7 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
             raise HTTPException(status_code=403, detail="Access denied for this student.")
 
         student = c.execute(
-            "SELECT id, role, grade, section_id FROM students WHERE id = ? AND role = 'Student'",
+            "SELECT id, role, grade, section_id FROM students WHERE id = %s AND role = 'Student'",
             (target_student_id,),
         ).fetchone()
         if not student:
@@ -10153,7 +11002,7 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
         grade = student["grade"]
         section_name = None
         if student["section_id"]:
-            sec = c.execute("SELECT name FROM sections WHERE id = ?", (student["section_id"],)).fetchone()
+            sec = c.execute("SELECT name FROM sections WHERE id = %s", (student["section_id"],)).fetchone()
             if sec:
                 section_name = sec["name"]
 
@@ -10175,8 +11024,8 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
                 f"""
                 SELECT id, day_of_week, period_number, start_time, end_time, subject, teacher_id, class_grade, section
                 FROM timetables
-                WHERE class_grade = ?
-                  AND (section = ? OR section IS NULL OR TRIM(section) = '')
+                WHERE class_grade = %s
+                  AND (section = %s OR section IS NULL OR TRIM(section) = '')
                 ORDER BY {order_expr}, period_number ASC, start_time ASC
                 """,
                 (grade, section_name)
@@ -10186,7 +11035,7 @@ async def get_my_timetable(student_id: Optional[str] = None, x_user_id: str = He
                 f"""
                 SELECT id, day_of_week, period_number, start_time, end_time, subject, teacher_id, class_grade, section
                 FROM timetables
-                WHERE class_grade = ?
+                WHERE class_grade = %s
                 ORDER BY {order_expr}, period_number ASC, start_time ASC
                 """,
                 (grade,)
@@ -10216,7 +11065,7 @@ async def upload_timetable_pdf(
     c = conn.cursor()
     try:
         actor = c.execute(
-            "SELECT id, role, school_id FROM students WHERE id = ?",
+            "SELECT id, role, school_id FROM students WHERE id = %s",
             (x_user_id,)
         ).fetchone()
         if not actor:
@@ -10253,7 +11102,7 @@ async def upload_timetable_pdf(
         row = c.execute(
             """
             INSERT INTO timetable_pdfs (school_id, class_grade, section, title, file_path, uploaded_by, uploaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """,
             (
@@ -10273,9 +11122,9 @@ async def upload_timetable_pdf(
             SELECT s.id, s.name, sec.name AS section_name
             FROM students s
             LEFT JOIN sections sec ON sec.id = s.section_id
-            WHERE s.school_id = ?
+            WHERE s.school_id = %s
               AND s.role = 'Student'
-              AND s.grade = ?
+              AND s.grade = %s
               AND (? = '' OR LOWER(COALESCE(sec.name, '')) = LOWER(?))
             """,
             (target_school_id, class_grade, clean_section, clean_section)
@@ -10288,9 +11137,9 @@ async def upload_timetable_pdf(
                 SELECT DISTINCT t.id
                 FROM students t
                 JOIN timetables tt ON tt.teacher_id = t.id
-                WHERE t.school_id = ?
+                WHERE t.school_id = %s
                   AND t.role = 'Teacher'
-                  AND tt.class_grade = ?
+                  AND tt.class_grade = %s
                   AND LOWER(COALESCE(tt.section, '')) = LOWER(?)
                   AND t.id <> ?
                 """,
@@ -10302,9 +11151,9 @@ async def upload_timetable_pdf(
                 SELECT DISTINCT t.id
                 FROM students t
                 JOIN timetables tt ON tt.teacher_id = t.id
-                WHERE t.school_id = ?
+                WHERE t.school_id = %s
                   AND t.role = 'Teacher'
-                  AND tt.class_grade = ?
+                  AND tt.class_grade = %s
                   AND t.id <> ?
                 """,
                 (target_school_id, class_grade, actor["id"])
@@ -10324,7 +11173,7 @@ async def upload_timetable_pdf(
                 c.execute(
                     """
                     INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-                    VALUES (?, ?, ?, ?, ?, FALSE)
+                    VALUES (%s, ?, ?, ?, ?, FALSE)
                     """,
                     (
                         actor["id"],
@@ -10339,7 +11188,7 @@ async def upload_timetable_pdf(
                 logger.warning(f"Failed to notify student {student['id']} about timetable PDF: {e}")
 
             guardians = c.execute(
-                "SELECT email, name FROM guardians WHERE student_id = ?",
+                "SELECT email, name FROM guardians WHERE student_id = %s",
                 (student["id"],)
             ).fetchall()
             parent_ids = _resolve_parent_ids_for_student(c, student["id"], target_school_id, guardians)
@@ -10350,7 +11199,7 @@ async def upload_timetable_pdf(
                     c.execute(
                         """
                         INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-                        VALUES (?, ?, ?, ?, ?, FALSE)
+                        VALUES (%s, ?, ?, ?, ?, FALSE)
                         """,
                         (
                             actor["id"],
@@ -10410,7 +11259,7 @@ async def get_my_timetable_pdfs(student_id: Optional[str] = None, x_user_id: str
     c = conn.cursor()
     try:
         requester = c.execute(
-            "SELECT id, role FROM students WHERE id = ?",
+            "SELECT id, role FROM students WHERE id = %s",
             (x_user_id,)
         ).fetchone()
         if not requester:
@@ -10427,7 +11276,7 @@ async def get_my_timetable_pdfs(student_id: Optional[str] = None, x_user_id: str
             SELECT s.id, s.grade, s.school_id, sec.name AS section_name
             FROM students s
             LEFT JOIN sections sec ON sec.id = s.section_id
-            WHERE s.id = ? AND s.role = 'Student'
+            WHERE s.id = %s AND s.role = 'Student'
             """,
             (target_student_id,)
         ).fetchone()
@@ -10439,8 +11288,8 @@ async def get_my_timetable_pdfs(student_id: Optional[str] = None, x_user_id: str
             """
             SELECT id, class_grade, section, title, file_path, uploaded_by, uploaded_at
             FROM timetable_pdfs
-            WHERE school_id = ?
-              AND class_grade = ?
+            WHERE school_id = %s
+              AND class_grade = %s
               AND (section IS NULL OR TRIM(section) = '' OR ? = '' OR LOWER(TRIM(section)) = LOWER(?))
             ORDER BY uploaded_at DESC
             """,
@@ -10471,7 +11320,7 @@ async def get_teacher_timetable_pdfs(x_user_id: str = Header(None, alias="X-User
     c = conn.cursor()
     try:
         teacher = c.execute(
-            "SELECT id, role, school_id FROM students WHERE id = ?",
+            "SELECT id, role, school_id FROM students WHERE id = %s",
             (x_user_id,)
         ).fetchone()
         if not teacher:
@@ -10485,7 +11334,7 @@ async def get_teacher_timetable_pdfs(x_user_id: str = Header(None, alias="X-User
             """
             SELECT id, class_grade, section, title, file_path, uploaded_by, uploaded_at
             FROM timetable_pdfs
-            WHERE school_id = ?
+            WHERE school_id = %s
             ORDER BY uploaded_at DESC
             """,
             (teacher["school_id"] if teacher["school_id"] else 1,)
@@ -10496,7 +11345,7 @@ async def get_teacher_timetable_pdfs(x_user_id: str = Header(None, alias="X-User
                 """
                 SELECT DISTINCT class_grade, COALESCE(TRIM(section), '') AS section
                 FROM timetables
-                WHERE teacher_id = ?
+                WHERE teacher_id = %s
                 """,
                 (x_user_id,)
             ).fetchall()
@@ -10577,7 +11426,7 @@ async def action_leave_request(request_id: int, action: str = Body(..., embed=Tr
     c = conn.cursor()
     try:
         status = "Approved" if action.lower() == "approve" else "Denied"
-        c.execute("UPDATE leave_requests SET status = ?, reviewed_by = ? WHERE id = ?", (status, reviewer_id, request_id))
+        c.execute("UPDATE leave_requests SET status = %s, reviewed_by = %s WHERE id = %s", (status, reviewer_id, request_id))
         conn.commit()
         return {"success": True}
     except Exception as e:
@@ -10623,7 +11472,7 @@ async def grade_submission(sub_id: int,
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("UPDATE assignment_submissions SET grade = ?, feedback = ?, status = 'Graded' WHERE id = ?", (grade, feedback, sub_id))
+        c.execute("UPDATE assignment_submissions SET grade = %s, feedback = %s, status = 'Graded' WHERE id = %s", (grade, feedback, sub_id))
         conn.commit()
         return {"success": True}
     except Exception as e:
@@ -10641,7 +11490,7 @@ async def reassign_submission(sub_id: int,
     conn = get_db_connection()
     c = conn.cursor()
     try:
-        c.execute("UPDATE assignment_submissions SET grade = NULL, status = 'Reassigned', feedback = ? WHERE id = ?", (feedback, sub_id))
+        c.execute("UPDATE assignment_submissions SET grade = NULL, status = 'Reassigned', feedback = %s WHERE id = %s", (feedback, sub_id))
         conn.commit()
         return {"success": True}
     except Exception as e:
@@ -10687,7 +11536,7 @@ async def create_assignment(
         final_section = section_id
         if final_section:
             section = conn.execute(
-                "SELECT id, grade_level, school_id FROM sections WHERE id = ?", (final_section,)
+                "SELECT id, grade_level, school_id FROM sections WHERE id = %s", (final_section,)
             ).fetchone()
             if not section:
                 raise HTTPException(status_code=404, detail="Section not found.")
@@ -10706,7 +11555,7 @@ async def create_assignment(
 
         conn.execute("""
             INSERT INTO assignments (group_id, title, description, due_date, type, points, section_id, grade_level)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?, ?, ?, ?)
         """, (None, title, desc_payload, due_date, "Assignment", points, final_section, final_grade))
         conn.commit()
         return {"success": True, "message": "Assignment created", "file_url": file_url}
@@ -10725,23 +11574,23 @@ async def submit_assignment(assignment_id: int,
         raise HTTPException(status_code=403, detail="Student ID mismatch.")
     conn = get_db_connection()
     try:
-        assignment = conn.execute("SELECT id FROM assignments WHERE id = ?", (assignment_id,)).fetchone()
+        assignment = conn.execute("SELECT id FROM assignments WHERE id = %s", (assignment_id,)).fetchone()
         if not assignment:
             raise HTTPException(status_code=404, detail="Assignment not found.")
         existing = conn.execute("""
-            SELECT id FROM assignment_submissions WHERE assignment_id = ? AND student_id = ?
+            SELECT id FROM assignment_submissions WHERE assignment_id = %s AND student_id = %s
         """, (assignment_id, req.student_id)).fetchone()
         submitted_at = datetime.now().isoformat()
         if existing:
             conn.execute("""
                 UPDATE assignment_submissions
-                SET content_text = ?, submitted_at = ?, status = 'Submitted', grade = NULL, feedback = NULL
-                WHERE id = ?
+                SET content_text = %s, submitted_at = %s, status = 'Submitted', grade = NULL, feedback = NULL
+                WHERE id = %s
             """, (req.content, submitted_at, existing["id"]))
         else:
             conn.execute("""
                 INSERT INTO assignment_submissions (assignment_id, student_id, submitted_at, content_text, status)
-                VALUES (?, ?, ?, ?, 'Submitted')
+                VALUES (%s, ?, ?, ?, 'Submitted')
             """, (assignment_id, req.student_id, submitted_at, req.content))
         conn.commit()
         return {"success": True}
@@ -10760,7 +11609,7 @@ async def get_assignment_submissions(assignment_id: int,
                    st.name as student_name
             FROM assignment_submissions s
             JOIN students st ON s.student_id = st.id
-            WHERE s.assignment_id = ?
+            WHERE s.assignment_id = %s
             ORDER BY s.submitted_at DESC
         """, (assignment_id,)).fetchall()
         return [dict(r) for r in subs]
@@ -10785,13 +11634,13 @@ class LeaveStatusUpdate(BaseModel):
 
 # --- PROGRESS CARD MODULE ---
 class ProgressCardResponse(BaseModel):
-    student: Dict[str, Any]
-    academics: Dict[str, Any]
-    attendance: Dict[str, Any]
-    engagement: Dict[str, Any]
-    alerts: List[str]
-    recent_marks: List[Dict[str, Any]]
-    remarks: Optional[str]
+    student: Optional[Dict[str, Any]] = None
+    academics: Optional[Dict[str, Any]] = None
+    attendance: Optional[Dict[str, Any]] = None
+    engagement: Optional[Dict[str, Any]] = None
+    alerts: Optional[List[str]] = None
+    recent_marks: Optional[List[Dict[str, Any]]] = None
+    remarks: Optional[str] = None
 
 # --- ASSIGNMENT MODULE (Simple Create) ---
 class ProgressMarksEntry(BaseModel):
@@ -10831,12 +11680,12 @@ async def get_progress_roster(grade_level: int,
     conn = get_db_connection()
     try:
         params = [grade_level]
-        query = "SELECT id, name, grade FROM students WHERE role = 'Student' AND grade = ?"
+        query = "SELECT id, name, grade FROM students WHERE role = 'Student' AND grade = %s"
         if section_id:
-            query += " AND section_id = ?"
+            query += " AND section_id = %s"
             params.append(section_id)
         if x_school_id:
-            query += " AND school_id = ?"
+            query += " AND school_id = %s"
             params.append(x_school_id)
         query += " ORDER BY name"
         rows = conn.execute(query, tuple(params)).fetchall()
@@ -10857,7 +11706,7 @@ async def save_progress_marks(req: ProgressMarksBulkRequest,
         cursor = conn.cursor()
         # Validate section if provided
         if req.section_id:
-            sec = cursor.execute("SELECT id, school_id, grade_level FROM sections WHERE id = ?", (req.section_id,)).fetchone()
+            sec = cursor.execute("SELECT id, school_id, grade_level FROM sections WHERE id = %s", (req.section_id,)).fetchone()
             if not sec:
                 raise HTTPException(status_code=404, detail="Section not found.")
             if x_school_id and sec["school_id"] != x_school_id:
@@ -10867,7 +11716,7 @@ async def save_progress_marks(req: ProgressMarksBulkRequest,
         inserted = 0
         for e in req.entries:
             stu = cursor.execute(
-                "SELECT id, grade, section_id, school_id FROM students WHERE id = ? AND role = 'Student'",
+                "SELECT id, grade, section_id, school_id FROM students WHERE id = %s AND role = 'Student'",
                 (e.student_id,)
             ).fetchone()
             if not stu:
@@ -10881,7 +11730,7 @@ async def save_progress_marks(req: ProgressMarksBulkRequest,
 
             cursor.execute("""
                 INSERT INTO student_marks (student_id, exam_name, subject, marks_obtained, max_marks, grade, remarks, date, published, published_at, published_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                VALUES (%s, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             """, (
                 e.student_id,
                 req.exam_name,
@@ -10914,7 +11763,7 @@ async def publish_progress_marks(req: ProgressPublishRequest,
         cursor = conn.cursor()
         # Validate section if provided
         if req.section_id:
-            sec = cursor.execute("SELECT id, school_id, grade_level FROM sections WHERE id = ?", (req.section_id,)).fetchone()
+            sec = cursor.execute("SELECT id, school_id, grade_level FROM sections WHERE id = %s", (req.section_id,)).fetchone()
             if not sec:
                 raise HTTPException(status_code=404, detail="Section not found.")
             if x_school_id and sec["school_id"] != x_school_id:
@@ -10922,19 +11771,19 @@ async def publish_progress_marks(req: ProgressPublishRequest,
 
         query = """
             UPDATE student_marks
-            SET published = 1, published_at = ?, published_by = ?
+            SET published = 1, published_at = %s, published_by = %s
             WHERE id IN (
                 SELECT sm.id
                 FROM student_marks sm
                 JOIN students s ON sm.student_id = s.id
-                WHERE sm.exam_name = ? AND sm.subject = ? AND s.grade = ? AND COALESCE(sm.published, 0) = 0
+                WHERE sm.exam_name = %s AND sm.subject = %s AND s.grade = %s AND COALESCE(sm.published, 0) = 0
         """
         params = [datetime.now().isoformat(), x_user_id, req.exam_name, req.subject, req.grade_level]
         if req.section_id:
-            query += " AND s.section_id = ?"
+            query += " AND s.section_id = %s"
             params.append(req.section_id)
         if x_school_id:
-            query += " AND s.school_id = ?"
+            query += " AND s.school_id = %s"
             params.append(x_school_id)
         query += " )"
 
@@ -10961,7 +11810,7 @@ async def publish_progress_for_student(req: ProgressPublishStudentRequest,
     try:
         cursor = conn.cursor()
         student = cursor.execute(
-            "SELECT id, school_id FROM students WHERE id = ? AND role = 'Student'",
+            "SELECT id, school_id FROM students WHERE id = %s AND role = 'Student'",
             (student_id,)
         ).fetchone()
         if not student:
@@ -10972,8 +11821,8 @@ async def publish_progress_for_student(req: ProgressPublishStudentRequest,
         cursor.execute(
             """
             UPDATE student_marks
-            SET published = 1, published_at = ?, published_by = ?
-            WHERE student_id = ? AND COALESCE(published, 0) = 0
+            SET published = 1, published_at = %s, published_by = %s
+            WHERE student_id = %s AND COALESCE(published, 0) = 0
             """,
             (datetime.now().isoformat(), x_user_id or "teacher_publish", student_id)
         )
@@ -10997,13 +11846,13 @@ async def preview_publish_marks(exam_name: str,
                    SUM(CASE WHEN sm.published = 1 THEN 1 ELSE 0 END) as published
             FROM student_marks sm
             JOIN students s ON sm.student_id = s.id
-            WHERE sm.exam_name = ? AND sm.subject = ? AND s.grade = ?
+            WHERE sm.exam_name = %s AND sm.subject = %s AND s.grade = %s
         """
         if section_id:
-            query += " AND s.section_id = ?"
+            query += " AND s.section_id = %s"
             params.append(section_id)
         if x_school_id:
-            query += " AND s.school_id = ?"
+            query += " AND s.school_id = %s"
             params.append(x_school_id)
         row = conn.execute(query, tuple(params)).fetchone()
         total = int(row["total"] or 0)
@@ -11022,7 +11871,7 @@ async def get_email_inbox(x_user_id: str = Header(None, alias="X-User-Id")):
         rows = conn.execute("""
             SELECT id, sender_id, recipient_email, subject, body, sent_at, is_read
             FROM emails
-            WHERE recipient_email = ?
+            WHERE recipient_email = %s
             ORDER BY id DESC
         """, (x_user_id,)).fetchall()
         return [dict(r) for r in rows]
@@ -11038,7 +11887,7 @@ async def get_email_sent(x_user_id: str = Header(None, alias="X-User-Id")):
         rows = conn.execute("""
             SELECT id, sender_id, recipient_email, subject, body, sent_at, is_read
             FROM emails
-            WHERE sender_id = ?
+            WHERE sender_id = %s
             ORDER BY id DESC
         """, (x_user_id,)).fetchall()
         return [dict(r) for r in rows]
@@ -11052,7 +11901,7 @@ async def mark_email_read(email_id: int, x_user_id: str = Header(None, alias="X-
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE emails SET is_read = 1 WHERE id = ? AND recipient_email = ?", (email_id, x_user_id))
+        cursor.execute("UPDATE emails SET is_read = 1 WHERE id = %s AND recipient_email = %s", (email_id, x_user_id))
         conn.commit()
         return {"success": True}
     finally:
@@ -11073,7 +11922,7 @@ async def send_internal_email(req: EmailSendRequest,
     try:
         cursor = conn.cursor()
         # Resolve sender school for scoping
-        sender = cursor.execute("SELECT school_id, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        sender = cursor.execute("SELECT school_id, is_super_admin FROM students WHERE id = %s", (x_user_id,)).fetchone()
         sender_school_id = sender["school_id"] if sender else None
         is_super_admin = bool(sender["is_super_admin"]) if sender else False
 
@@ -11092,17 +11941,17 @@ async def send_internal_email(req: EmailSendRequest,
                 add_recipient(r["id"])
         elif to.lower().startswith("grade:"):
             grade = to.split(":", 1)[1].strip()
-            rows = cursor.execute("SELECT id FROM students WHERE role = 'Student' AND grade = ?", (grade,)).fetchall()
+            rows = cursor.execute("SELECT id FROM students WHERE role = 'Student' AND grade = %s", (grade,)).fetchall()
             for r in rows:
                 add_recipient(r["id"])
         elif to.lower().startswith("section:"):
             section_id = to.split(":", 1)[1].strip()
-            rows = cursor.execute("SELECT id FROM students WHERE role = 'Student' AND section_id = ?", (section_id,)).fetchall()
+            rows = cursor.execute("SELECT id FROM students WHERE role = 'Student' AND section_id = %s", (section_id,)).fetchall()
             for r in rows:
                 add_recipient(r["id"])
         elif to.lower().startswith("role:"):
             role = to.split(":", 1)[1].strip()
-            rows = cursor.execute("SELECT id FROM students WHERE role = ?", (role,)).fetchall()
+            rows = cursor.execute("SELECT id FROM students WHERE role = %s", (role,)).fetchall()
             for r in rows:
                 add_recipient(r["id"])
         else:
@@ -11113,7 +11962,7 @@ async def send_internal_email(req: EmailSendRequest,
         if not is_super_admin and sender_school_id:
             scoped = []
             for rid in recipients:
-                r = cursor.execute("SELECT id, school_id FROM students WHERE id = ?", (rid,)).fetchone()
+                r = cursor.execute("SELECT id, school_id FROM students WHERE id = %s", (rid,)).fetchone()
                 if r and r["school_id"] == sender_school_id:
                     scoped.append(r["id"])
                 elif "@" in rid:
@@ -11128,7 +11977,7 @@ async def send_internal_email(req: EmailSendRequest,
         for rid in recipients:
             cursor.execute("""
                 INSERT INTO emails (sender_id, recipient_email, subject, body, sent_at, is_read)
-                VALUES (?, ?, ?, ?, ?, FALSE)
+                VALUES (%s, ?, ?, ?, ?, FALSE)
             """, (x_user_id, rid, req.subject, req.body, ts))
 
             # If recipient looks like an email, try SMTP send in background
@@ -11149,7 +11998,7 @@ async def apply_leave(request: LeaveApplication):
 
         # Resolve requester role + school
         requester = cursor.execute(
-            "SELECT role, school_id FROM students WHERE id = ?",
+            "SELECT role, school_id FROM students WHERE id = %s",
             (request.user_id,)
         ).fetchone()
         if not requester:
@@ -11160,7 +12009,7 @@ async def apply_leave(request: LeaveApplication):
         # 1. Insert Request
         cursor.execute("""
             INSERT INTO leave_requests (user_id, type, start_date, end_date, reason, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'Pending', ?)
+            VALUES (%s, ?, ?, ?, ?, 'Pending', ?)
         """, (request.user_id, request.type, request.start_date, request.end_date, request.reason, datetime.now().isoformat()))
         
         # 2. Notify Admin AND Principal (SuperAdmin/Tenant_Admin)
@@ -11172,7 +12021,7 @@ async def apply_leave(request: LeaveApplication):
             cursor.execute(f"""
                 SELECT id FROM students 
                 WHERE role IN ({target_roles}) 
-                AND (school_id = ? OR role IN ('Super_Admin', 'SuperAdmin'))
+                AND (school_id = %s OR role IN ('Super_Admin', 'SuperAdmin'))
             """, (requester_school_id,))
             
             admins = cursor.fetchall()
@@ -11185,7 +12034,7 @@ async def apply_leave(request: LeaveApplication):
                 aid = admin[0]
                 cursor.execute("""
                     INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-                    VALUES (?, ?, 'New Leave Request (Requires Approval)', ?, ?, FALSE)
+                    VALUES (%s, ?, 'New Leave Request (Requires Approval)', ?, ?, FALSE)
                 """, (request.user_id, aid, msg_content, ts))
         except Exception as e:
             print(f"Notification Error: {e}")
@@ -11209,7 +12058,7 @@ async def get_pending_leaves(x_school_id: int = Header(1, alias="X-School-Id")):
             SELECT l.*, s.name, s.grade 
             FROM leave_requests l
             JOIN students s ON l.user_id = s.id
-            WHERE l.status = 'Pending' AND s.school_id = ?
+            WHERE l.status = 'Pending' AND s.school_id = %s
         """
         rows = conn.execute(query, (x_school_id,)).fetchall()
         return [dict(r) for r in rows]
@@ -11227,7 +12076,7 @@ async def get_leave_history(x_school_id: int = Header(1, alias="X-School-Id")):
                 SELECT l.*, s.name, s.grade
                 FROM leave_requests l
                 JOIN students s ON l.user_id = s.id
-                WHERE l.status != 'Pending' AND s.school_id = ?
+                WHERE l.status != 'Pending' AND s.school_id = %s
                 ORDER BY l.created_at DESC, l.id DESC
             """, (x_school_id,)).fetchall()
         except Exception:
@@ -11235,7 +12084,7 @@ async def get_leave_history(x_school_id: int = Header(1, alias="X-School-Id")):
                 SELECT l.*, s.name, s.grade
                 FROM leave_requests l
                 JOIN students s ON l.user_id = s.id
-                WHERE l.status != 'Pending' AND s.school_id = ?
+                WHERE l.status != 'Pending' AND s.school_id = %s
                 ORDER BY l.id DESC
             """, (x_school_id,)).fetchall()
         return [dict(r) for r in rows]
@@ -11250,7 +12099,7 @@ async def get_processed_leave_history(x_school_id: int = Header(1, alias="X-Scho
 async def get_my_leave_history(user_id: str):
     conn = get_db_connection()
     try:
-        rows = conn.execute("SELECT * FROM leave_requests WHERE user_id = ? ORDER BY created_at DESC", (user_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM leave_requests WHERE user_id = %s ORDER BY created_at DESC", (user_id,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -11262,7 +12111,7 @@ async def update_leave_status(leave_id: int, update: LeaveStatusUpdate, x_user_r
         cursor = conn.cursor()
         
         # Fetch request details
-        cursor.execute("SELECT user_id, type, status, admin_approval, principal_approval FROM leave_requests WHERE id = ?", (leave_id,))
+        cursor.execute("SELECT user_id, type, status, admin_approval, principal_approval FROM leave_requests WHERE id = %s", (leave_id,))
         req = cursor.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Leave request not found.")
@@ -11284,17 +12133,17 @@ async def update_leave_status(leave_id: int, update: LeaveStatusUpdate, x_user_r
         
         if is_admin_role:
             new_admin_status = update.status
-            cursor.execute("UPDATE leave_requests SET admin_approval = ? WHERE id = ?", (update.status, leave_id))
+            cursor.execute("UPDATE leave_requests SET admin_approval = %s WHERE id = %s", (update.status, leave_id))
         
         if is_principal_role:
             new_principal_status = update.status
-            cursor.execute("UPDATE leave_requests SET principal_approval = ? WHERE id = ?", (update.status, leave_id))
+            cursor.execute("UPDATE leave_requests SET principal_approval = %s WHERE id = %s", (update.status, leave_id))
             
         if not (is_admin_role or is_principal_role):
             # Fallback for generic permissions or testing
             print(f"Warning: User role {x_user_role} approving leave, treating as Admin")
             new_admin_status = update.status
-            cursor.execute("UPDATE leave_requests SET admin_approval = ? WHERE id = ?", (update.status, leave_id))
+            cursor.execute("UPDATE leave_requests SET admin_approval = %s WHERE id = %s", (update.status, leave_id))
 
         # Determine Final Status
         final_status = 'Pending'
@@ -11311,7 +12160,7 @@ async def update_leave_status(leave_id: int, update: LeaveStatusUpdate, x_user_r
         if final_status == 'Approved' and current_status != 'Approved':
              # If a teacher leave is approved, require reassignment
              requester = cursor.execute(
-                 "SELECT role, school_id FROM students WHERE id = ?",
+                 "SELECT role, school_id FROM students WHERE id = %s",
                  (requester_id,)
              ).fetchone()
              if requester and requester[0] == 'Teacher':
@@ -11322,29 +12171,29 @@ async def update_leave_status(leave_id: int, update: LeaveStatusUpdate, x_user_r
                      if update.substitute_teacher_id:
                         # Validate substitute teacher
                         sub = cursor.execute(
-                            "SELECT id, role, school_id FROM students WHERE id = ?",
+                            "SELECT id, role, school_id FROM students WHERE id = %s",
                             (update.substitute_teacher_id,)
                         ).fetchone()
                         if sub:
                              # Reassign timetable entries to substitute teacher
                              cursor.execute(
-                                 "UPDATE timetables SET teacher_id = ? WHERE teacher_id = ?",
+                                 "UPDATE timetables SET teacher_id = %s WHERE teacher_id = %s",
                                  (update.substitute_teacher_id, requester_id)
                              )
                              cursor.execute("""
                                  INSERT INTO leave_reassignments (leave_id, original_teacher_id, substitute_teacher_id, assigned_by, assigned_at)
-                                 VALUES (?, ?, ?, ?, ?)
+                                 VALUES (%s, ?, ?, ?, ?)
                              """, (leave_id, requester_id, update.substitute_teacher_id, update.reviewed_by, datetime.now().isoformat()))
 
         # Update Final Status
-        cursor.execute("UPDATE leave_requests SET status = ?, reviewed_by = ? WHERE id = ?", 
+        cursor.execute("UPDATE leave_requests SET status = %s, reviewed_by = %s WHERE id = %s", 
                        (final_status, update.reviewed_by, leave_id))
 
         status_msg = f"Your {leave_type} request has been {update.status.upper()}."
         
         cursor.execute("""
             INSERT INTO messages (sender_id, receiver_id, subject, content, timestamp, is_read)
-            VALUES (?, ?, 'Leave Request Update', ?, ?, FALSE)
+            VALUES (%s, ?, 'Leave Request Update', ?, ?, FALSE)
         """, (update.reviewed_by, requester_id, status_msg, datetime.now().isoformat()))
         conn.commit()
 
@@ -11378,26 +12227,26 @@ async def get_notifications(x_user_id: str = Header(..., alias="X-User-Id")):
         
         result = []
         for row in msgs:
-            # Use name-based access to avoid index errors with DictCursor
-            try:
-                result.append({
-                    "id": row["id"],
-                    "sender_id": row["sender_id"],
-                    "subject": row["subject"],
-                    "content": row["content"],
-                    "timestamp": row["timestamp"],
-                    "is_read": bool(row["is_read"])
-                })
-            except (TypeError, KeyError, IndexError):
-                # Fallback to index if name access fails (standard cursor)
-                result.append({
-                    "id": row[0],
-                    "sender_id": row[1],
-                    "subject": row[2],
-                    "content": row[3],
-                    "timestamp": row[4],
-                    "is_read": bool(row[5])
-                })
+            # Handle both dictionary-like and tuple-like row formats robustly
+            if hasattr(row, "keys"):
+                r_dict = dict(row)
+            else:
+                r_dict = {
+                    "id": row[0] if len(row) > 0 else None,
+                    "sender_id": row[1] if len(row) > 1 else None,
+                    "subject": row[2] if len(row) > 2 else None,
+                    "content": row[3] if len(row) > 3 else None,
+                    "timestamp": row[4] if len(row) > 4 else None,
+                    "is_read": bool(row[5]) if len(row) > 5 else False,
+                }
+            result.append({
+                "id": r_dict.get("id"),
+                "sender_id": r_dict.get("sender_id"),
+                "subject": r_dict.get("subject"),
+                "content": r_dict.get("content"),
+                "timestamp": r_dict.get("timestamp"),
+                "is_read": bool(r_dict.get("is_read", False))
+            })
         return result
     except Exception as e:
         logger.error(f"Error fetching notifications: {e}")
@@ -11410,7 +12259,7 @@ async def mark_notification_read(msg_id: int, x_user_id: str = Header(..., alias
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE messages SET is_read = 1 WHERE id = ? AND receiver_id = ?", (msg_id, x_user_id))
+        cursor.execute("UPDATE messages SET is_read = 1 WHERE id = %s AND receiver_id = %s", (msg_id, x_user_id))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Notification not found.")
         conn.commit()
@@ -11431,7 +12280,7 @@ def _resolve_progress_student_id(conn, student_id: str) -> str:
         return requested_id
 
     direct = conn.execute(
-        "SELECT id FROM students WHERE id = ? AND role = 'Student'",
+        "SELECT id FROM students WHERE id = %s AND role = 'Student'",
         (requested_id,)
     ).fetchone()
     if direct:
@@ -11443,7 +12292,7 @@ def _resolve_progress_student_id(conn, student_id: str) -> str:
             alias_candidates = (alias_candidates,)
         for candidate in alias_candidates:
             row = conn.execute(
-                "SELECT id FROM students WHERE id = ? AND role = 'Student'",
+                "SELECT id FROM students WHERE id = %s AND role = 'Student'",
                 (candidate,)
             ).fetchone()
             if row:
@@ -11500,7 +12349,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         resolved_student_id = _resolve_progress_student_id(conn, student_id)
         # Resolve student
         student = conn.execute(
-            "SELECT id, name, grade, school_id, attendance_rate FROM students WHERE id = ? AND role = 'Student'",
+            "SELECT id, name, grade, school_id, attendance_rate FROM students WHERE id = %s AND role = 'Student'",
             (resolved_student_id,)
         ).fetchone()
         if not student:
@@ -11510,7 +12359,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         requester_role = None
         if x_user_id:
             requester = conn.execute(
-                "SELECT school_id, is_super_admin, role FROM students WHERE id = ?",
+                "SELECT school_id, is_super_admin, role FROM students WHERE id = %s",
                 (x_user_id,)
             ).fetchone()
             if not requester:
@@ -11526,7 +12375,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT subject,
                    AVG(CASE WHEN max_marks > 0 THEN (marks_obtained * 100.0) / max_marks ELSE NULL END) AS avg_pct
             FROM student_marks
-            WHERE student_id = ?
+            WHERE student_id = %s
         """
         if published_only:
             subject_query += " AND published = 1"
@@ -11537,7 +12386,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         overall_query = """
             SELECT AVG(CASE WHEN max_marks > 0 THEN (marks_obtained * 100.0) / max_marks ELSE NULL END) AS avg_pct
             FROM student_marks
-            WHERE student_id = ?
+            WHERE student_id = %s
         """
         if published_only:
             overall_query += " AND published = 1"
@@ -11549,7 +12398,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT date,
                    AVG(CASE WHEN max_marks > 0 THEN (marks_obtained * 100.0) / max_marks ELSE NULL END) AS avg_pct
             FROM student_marks
-            WHERE student_id = ?
+            WHERE student_id = %s
         """
         if published_only:
             trend_query += " AND published = 1"
@@ -11571,7 +12420,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         absent_row = conn.execute("""
             SELECT COUNT(*) AS cnt
             FROM student_attendance
-            WHERE student_id = ? AND date >= ? AND status = 'Absent'
+            WHERE student_id = %s AND date >= %s AND status = 'Absent'
         """, (resolved_student_id, cutoff_30)).fetchone()
         absent_last_30 = int(absent_row["cnt"] or 0)
 
@@ -11580,14 +12429,14 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
             SELECT COUNT(DISTINCT a.id) AS cnt
             FROM assignments a
             JOIN group_members gm ON gm.group_id = a.group_id
-            WHERE gm.student_id = ?
+            WHERE gm.student_id = %s
         """, (resolved_student_id,)).fetchone()
         assignments_due = int(assignments_due_row["cnt"] or 0)
 
         assignments_submitted_row = conn.execute("""
             SELECT COUNT(*) AS cnt
             FROM assignment_submissions
-            WHERE student_id = ?
+            WHERE student_id = %s
         """, (resolved_student_id,)).fetchone()
         assignments_submitted = int(assignments_submitted_row["cnt"] or 0)
 
@@ -11595,7 +12444,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         quiz_row = conn.execute("""
             SELECT COUNT(*) AS cnt, AVG(score) AS avg_score
             FROM quiz_attempts
-            WHERE student_id = ?
+            WHERE student_id = %s
         """, (resolved_student_id,)).fetchone()
         quizzes_attempted = int(quiz_row["cnt"] or 0)
         avg_quiz_score = round(quiz_row["avg_score"] or 0, 1)
@@ -11605,14 +12454,14 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         activities_30_row = conn.execute("""
             SELECT COUNT(*) AS cnt
             FROM activities
-            WHERE student_id = ? AND date >= ?
+            WHERE student_id = %s AND date >= %s
         """, (resolved_student_id, cutoff_30)).fetchone()
         activities_last_30 = int(activities_30_row["cnt"] or 0)
 
         active_days_row = conn.execute("""
             SELECT COUNT(DISTINCT date) AS cnt
             FROM activities
-            WHERE student_id = ? AND date >= ?
+            WHERE student_id = %s AND date >= %s
         """, (resolved_student_id, cutoff_7)).fetchone()
         active_days_last_7 = int(active_days_row["cnt"] or 0)
 
@@ -11620,7 +12469,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         remarks_query = """
             SELECT remarks
             FROM student_marks
-            WHERE student_id = ? AND remarks IS NOT NULL AND remarks != ''
+            WHERE student_id = %s AND remarks IS NOT NULL AND remarks != ''
         """
         if published_only:
             remarks_query += " AND published = 1"
@@ -11632,7 +12481,7 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
         recent_query = """
             SELECT subject, exam_name, marks_obtained, max_marks, grade, date
             FROM student_marks
-            WHERE student_id = ?
+            WHERE student_id = %s
         """
         if published_only:
             recent_query += " AND published = 1"
@@ -11685,12 +12534,12 @@ async def get_progress_card(student_id: str, x_user_id: str = Header(None, alias
 # --- QUESTION BANK MODULE ---
 
 class QuestionBankResponse(BaseModel):
-    id: int
-    title: str
-    file_path: str
-    uploaded_by: str
-    created_at: str
-    school_id: int
+    id: Optional[int] = None
+    title: Optional[str] = None
+    file_path: Optional[str] = None
+    uploaded_by: Optional[str] = None
+    created_at: Optional[str] = None
+    school_id: Optional[int] = None
 
 @app.post("/api/question-bank/upload")
 async def upload_question_bank(
@@ -11704,7 +12553,7 @@ async def upload_question_bank(
     conn = get_db_connection()
     try:
         # Check if user is teacher or admin
-        user = conn.execute("SELECT role, school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user or user['role'] not in ['Teacher', 'Tenant_Admin', 'Principal', 'Admin']:
              raise HTTPException(status_code=403, detail="Only teachers can upload question banks.")
              
@@ -11723,10 +12572,10 @@ async def upload_question_bank(
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO question_banks (title, file_path, uploaded_by, created_at, school_id)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, ?, ?, ?, ?)
         """, (title, relative_path, x_user_id, created_at, school_id))
         
-        bank_id = cursor.lastrowid
+        bank_id = _last_insert_id(cursor)
         conn.commit()
         
         return {
@@ -11751,11 +12600,11 @@ async def get_question_banks(x_user_id: str = Header(None, alias="X-User-Id")):
         # Get user's school
         school_id = 1
         if x_user_id:
-             user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+             user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
              if user and user['school_id']:
                  school_id = user['school_id']
         
-        rows = conn.execute("SELECT * FROM question_banks WHERE school_id = ? ORDER BY created_at DESC", (school_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM question_banks WHERE school_id = %s ORDER BY created_at DESC", (school_id,)).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -11776,7 +12625,7 @@ async def create_pdf_exam(
     conn = get_db_connection()
     try:
         # Verify Teacher
-        user = conn.execute("SELECT role, school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+        user = conn.execute("SELECT role, school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
         if not user or user['role'] not in ['Teacher', 'Tenant_Admin', 'Principal', 'Admin']:
              raise HTTPException(status_code=403, detail="Only teachers can create exams.")
         
@@ -11800,10 +12649,10 @@ async def create_pdf_exam(
             INSERT INTO quizzes (
                 title, group_id, questions, created_at, time_limit_mins, 
                 target_type, exam_type, file_path
-            ) VALUES (?, ?, 'PDF_EXAM', ?, ?, 'group', 'pdf', ?)
+            ) VALUES (%s, ?, 'PDF_EXAM', ?, ?, 'group', 'pdf', ?)
         """, (title, target_group, created_at, time_limit, relative_path))
         
-        exam_id = cursor.lastrowid
+        exam_id = _last_insert_id(cursor)
         conn.commit()
         
         return {"id": exam_id, "message": "PDF Exam Created Successfully"}
@@ -11826,7 +12675,7 @@ async def submit_pdf_exam(
     conn = get_db_connection()
     try:
         # Check if already submitted
-        existing = conn.execute("SELECT id FROM quiz_attempts WHERE quiz_id = ? AND student_id = ?", (exam_id, x_user_id)).fetchone()
+        existing = conn.execute("SELECT id FROM quiz_attempts WHERE quiz_id = %s AND student_id = %s", (exam_id, x_user_id)).fetchone()
         if existing:
             raise HTTPException(status_code=400, detail="You have already submitted this exam.")
             
@@ -11844,7 +12693,7 @@ async def submit_pdf_exam(
         cursor.execute("""
             INSERT INTO quiz_attempts (
                 quiz_id, student_id, score, answers, submitted_at, submission_file_path
-            ) VALUES (?, ?, 0, 'PDF_SUBMISSION', ?, ?)
+            ) VALUES (%s, ?, 0, 'PDF_SUBMISSION', ?, ?)
         """, (exam_id, x_user_id, submitted_at, relative_path))
         
         conn.commit()
@@ -11871,7 +12720,7 @@ async def get_student_exams(x_user_id: str = Header(None, alias="X-User-Id"), x_
         school_id = 1
         # Get School ID
         if x_user_id:
-             user = conn.execute("SELECT school_id FROM students WHERE id = ?", (x_user_id,)).fetchone()
+             user = conn.execute("SELECT school_id FROM students WHERE id = %s", (x_user_id,)).fetchone()
              if user and user['school_id']:
                  school_id = user['school_id']
 
@@ -11879,7 +12728,7 @@ async def get_student_exams(x_user_id: str = Header(None, alias="X-User-Id"), x_
             SELECT q.*, 
             CASE WHEN qa.id IS NOT NULL THEN 1 ELSE 0 END as submitted
             FROM quizzes q
-            LEFT JOIN quiz_attempts qa ON q.id = qa.quiz_id AND qa.student_id = ?
+            LEFT JOIN quiz_attempts qa ON q.id = qa.quiz_id AND qa.student_id = %s
             WHERE q.exam_type = 'pdf'
             ORDER BY q.created_at DESC
         """, (target_student_id,)).fetchall()
@@ -11906,3 +12755,7 @@ if __name__ == "__main__":
         if "Address already in use" in str(e) or "address already in use" in str(e):
             print(f"[Startup Error] Port {backend_port} is already in use. Stop the old process or set BACKEND_PORT to another port.")
         raise
+
+
+
+

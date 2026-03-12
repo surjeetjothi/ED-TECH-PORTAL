@@ -1,0 +1,201 @@
+
+
+--- PAGE 1 ---
+User Management
+ Objective
+In the RBAC (Role based access control)  the user get the roles that match their responsibilities.
+Organizations streamline access control by aligning users with roles rather than individual
+permissions, making it easy to adjust when an employeeʼs role changes. 
+ Assumptions
+ Milestones
+ Requirements
+Target date Jan 2026
+Document
+status
+DRAFT
+Team
+members
+Status
+Product overview
+Role-Based Access Control (RBAC) is a security approach that controls user access to IT
+resources by assigning permissions to roles based on job functions. Instead of giving
+permissions directly to users, RBAC links users to roles, granting only the access needed
+for their tasks. This follows the least privilege principle, enhancing security and simplifying
+management.
+One Tenant (School or University)
+└──  User (multiple)
+├──  Role (multiple)
+│     ├──  Permission (multiple)      
+
+--- PAGE 2 ---
+User Management
+Menu
+As an admin when I
+click on the User
+Management menu
+then I should be able to
+see cards of all the
+users available in the
+application.
+Total number of
+active tenants
+Total number of
+users
+% of users increased
+in last month
+Permissio
+n -
+view_user
+_manage
+men
+User management
+Listing
+As an admin when I
+click on the User
+Management menu
+then I should be able to
+see listing of all the
+users available in the
+application.
+The listing should show
+User ID
+Username (unique) 
+First Name
+Last Name
+Email Address
+Institution ID
+Institution Official
+Name
+Institution Type
+Actions - view, edit &
+delete
+permissio
+n -
+view_user
+s,
+edit_users,
+delete
+users
+Requirement User Story Status Notes
+
+--- PAGE 3 ---
+Search Users As an admin, I want to
+view a list of all users
+and search for specific
+individuals so that I can
+quickly locate and
+manage accounts.
+AC 1: The system
+displays a table
+listing users with key
+details (e.g., Name,
+Email, Role, Status).
+AC 2: A search bar is
+available that filters
+the list in real-time by
+name or email.
+AC 3: If no users
+match the search
+criteria, a "No users
+found" message is
+displayed.
+AC 4: The list
+supports pagination if
+the number of users
+exceeds a defined
+limit
+Create & Edit Users As an admin, I want to 
+create new user
+accounts and edit
+existing ones so that
+the user database
+remains accurate and
+up to date.
+Primary Details
+(Section 1)
+Username (unique)
+
+--- PAGE 4 ---
+First Name
+Last Name
+Email Address
+(validated for format
+and uniqueness).
+Contact Info (Section
+2)
+Primary Phone
+Number
+Mobile Phone
+Secondary Email
+Address
+Guardian Details
+(Section 3)
+More than one
+Guardian details can be
+added so it should be a
+listing screen with an
+ability to add Guardian
+First Name
+Last Name
+Email Address
+(validated for format
+and uniqueness).
+Primary Phone
+Number
+Mobile Phone
+Email Address
+(validated for format
+and uniqueness).
+Organizational (Section
+4)
+Employee ID
+Job Title
+
+--- PAGE 5 ---
+Department
+Manager/Supervisor
+Office Location.
+Settings (Section 5)
+Preferred Language
+Timezone
+Date Format
+
+--- PAGE 6 ---
+ Out of Scope
+ Design
+ Open questions
+Associate Roles to
+users
+As an Admin, I want to 
+associate roles with
+users and view the
+permissions linked to
+those roles so that I
+can ensure each user
+has the correct level of
+access.
+Acceptance Criteria:
+AC 1: The "Edit User"
+or "Create User"
+interface includes a
+dropdown or
+selection tool to
+assign one or more
+roles.
+AC 2: When a role is
+selected, the system
+displays a read-only
+list of the specific
+permissions (e.g.,
+Read, Write, Delete)
+associated with that
+role.
+AC 3: Changes to a
+user's role take effect
+immediately upon
+saving.
+
+--- PAGE 7 ---
+ Reference Links
+Question Answer Date
+Answered

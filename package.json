@@ -32,14 +32,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/surjeetjothi/ED-TECH-PORTAL.git"
+    "url": "git+https://github.com/your-org/classbridge.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/surjeetjothi/ED-TECH-PORTAL/issues"
+    "url": "https://github.com/your-org/classbridge/issues"
   },
-  "homepage": "https://github.com/surjeetjothi/ED-TECH-PORTAL#readme"
+  "homepage": "https://github.com/your-org/classbridge#readme"
 }

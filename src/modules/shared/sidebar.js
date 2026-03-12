@@ -439,33 +439,48 @@ function getSidebarConfig(role) {
             { label: 'Sent Mail', view: 'email-sent-view', route: '/admin/email/sent' }
         ]
     });
-    items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
-    if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
-        items.push({
-            label: 'Role Management',
-            icon: 'manage_accounts',
-            view: 'roles-view',
-            onClick: () => {
-                switchView('roles-view');
-                loadRoles();
-            }
-        });
+    if (!['Tenant_Admin', 'Principal'].includes(appState.role)) {
+        items.push({ label: 'sidebar_resource_library', icon: 'library_books', view: 'resources-view', onClick: () => handleTeacherViewToggle('resources-view') });
+        if (hasPermission('view_role_management') || hasPermission('role_management') || appState.isSuperAdmin || (appState.permissions || []).includes('*')) {
+            items.push({
+                label: 'Role Management',
+                icon: 'manage_accounts',
+                view: 'roles-view',
+                onClick: () => {
+                    switchView('roles-view');
+                    loadRoles();
+                }
+            });
+        }
+        if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
+            items.push({
+                label: 'Permission Setup',
+                icon: 'vpn_key',
+                view: 'permissions-view',
+                onClick: () => {
+                    switchView('permissions-view');
+                    loadPermissionsSetup();
+                }
+            });
+        }
     }
-    if (hasPermission('view_permissions') || hasPermission('edit_permissions') || hasPermission('permission_management') || appState.isSuperAdmin) {
-        items.push({
-            label: 'Permission Setup',
-            icon: 'vpn_key',
-            view: 'permissions-view',
-            onClick: () => {
-                switchView('permissions-view');
-                loadPermissionsSetup();
-            }
-        });
-    }
+    
     if (appState.isSuperAdmin || ['Tenant_Admin', 'Principal', 'Admin'].includes(appState.role)) {
+        if (!['Tenant_Admin', 'Principal'].includes(appState.role)) {
+            items.push({
+                label: 'User Management',
+                icon: 'people',
+                view: 'user-management-view',
+                onClick: () => {
+                    if (typeof openUserManagement === 'function') openUserManagement();
+                    else switchView('user-management-view');
+                }
+            });
+        }
         items.push({ label: 'sidebar_staff_faculty', icon: 'people_alt', view: 'staff-view', onClick: () => handleTeacherViewToggle('staff-view') });
     }
-    if (appState.isSuperAdmin) {
+    
+    if (appState.isSuperAdmin && !['Tenant_Admin', 'Principal'].includes(appState.role)) {
         // Root Admin Panel — merged into Super Admin sidebar
         items.push({
             label: 'Root Admin Panel',

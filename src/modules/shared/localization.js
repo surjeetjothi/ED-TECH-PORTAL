@@ -118,7 +118,7 @@ window.translations = window.translations || {
         badge_download: "Download",
         // Modals - Roles
         modal_select_role: "Select Role",
-        role_principal: "Principal",
+        role_principal: "Tenant Admin",
         role_super_admin: "Super Admin",
         // Modals - Upload Resource
         modal_upload_resource: "Upload Resource",
@@ -348,7 +348,7 @@ window.translations = window.translations || {
         login_student_login: "Student Login",
         login_teacher_portal: "Teacher Portal",
         login_parent_access: "Parent Access",
-        login_principal_login: "Principal Login",
+        login_principal_login: "Tenant Admin Login",
         login_super_admin: "Super Admin",
         login_root_admin_portal: "Root Admin Portal",
         login_generic: "Login",
@@ -487,7 +487,7 @@ window.translations = window.translations || {
         badge_download: "Descargar",
         // Modals - Roles
         modal_select_role: "Seleccionar Rol",
-        role_principal: "Director",
+        role_principal: "Administrador Inquilino",
         role_super_admin: "Super Administrador",
         // Modals - Upload Resource
         modal_upload_resource: "Subir Recurso",
@@ -663,7 +663,7 @@ window.translations = window.translations || {
         login_student_login: "Inicio de estudiante",
         login_teacher_portal: "Portal del profesor",
         login_parent_access: "Acceso para padres",
-        login_principal_login: "Inicio de director",
+        login_principal_login: "Inicio de Administrador Inquilino",
         login_super_admin: "Súper administrador",
         login_root_admin_portal: "Portal de administrador raíz",
         login_generic: "Iniciar sesión",
@@ -843,7 +843,7 @@ window.translations = window.translations || {
         badge_download: "تحميل",
         // Modals - Roles
         modal_select_role: "تحديد الدور",
-        role_principal: "المدير",
+        role_principal: "مسؤول المستأجر",
         role_super_admin: "المشرف العام",
         // Modals - Upload Resource
         modal_upload_resource: "رفع الموارد",
@@ -1019,7 +1019,7 @@ window.translations = window.translations || {
         login_student_login: "دخول الطالب",
         login_teacher_portal: "بوابة المعلم",
         login_parent_access: "بوابة ولي الأمر",
-        login_principal_login: "دخول المدير",
+        login_principal_login: "دخول مسؤول المستأجر",
         login_super_admin: "مشرف عام",
         login_root_admin_portal: "بوابة المشرف الجذر",
         login_generic: "دخول",
@@ -1199,7 +1199,7 @@ window.translations = window.translations || {
         badge_download: "डाउनलोड",
         // Modals - Roles
         modal_select_role: "भूमिका चुनें",
-        role_principal: "प्रधानाचार्य",
+        role_principal: "टेनेंट एडमिन",
         role_super_admin: "सुपर एडमिन",
         // Modals - Upload Resource
         modal_upload_resource: "संसाधन अपलोड करें",
@@ -1429,7 +1429,7 @@ window.translations = window.translations || {
         login_student_login: "छात्र लॉगिन",
         login_teacher_portal: "शिक्षक पोर्टल",
         login_parent_access: "अभिभावक प्रवेश",
-        login_principal_login: "प्रधानाचार्य लॉगिन",
+        login_principal_login: "टेनेंट एडमिन लॉगिन",
         login_super_admin: "सुपर एडमिन",
         login_root_admin_portal: "रूट एडमिन पोर्टल",
         login_generic: "लॉगिन",
@@ -1568,7 +1568,7 @@ window.translations = window.translations || {
         badge_download: "ダウンロード",
         // Modals - Roles
         modal_select_role: "役割を選択",
-        role_principal: "校長",
+        role_principal: "テナント管理者",
         role_super_admin: "スーパー管理者",
         // Modals - Upload Resource
         modal_upload_resource: "リソースをアップロード",
@@ -1744,7 +1744,7 @@ window.translations = window.translations || {
         login_student_login: "生徒ログイン",
         login_teacher_portal: "教師ポータル",
         login_parent_access: "保護者アクセス",
-        login_principal_login: "校長ログイン",
+        login_principal_login: "テナント管理者ログイン",
         login_super_admin: "スーパー管理者",
         login_root_admin_portal: "ルート管理者ポータル",
         login_generic: "ログイン",

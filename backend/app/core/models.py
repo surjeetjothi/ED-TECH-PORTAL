@@ -176,11 +176,14 @@ class RootAdminSchoolActivateRequest(BaseModel):
     otp: str
 
 class SchoolResponse(BaseModel):
-    id: int
-    name: str
-    address: str
-    contact_email: str
-    created_at: str 
+    id: Optional[int] = None
+    name: Optional[str] = None
+    address: Optional[str] = None
+    contact_email: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        extra = 'ignore'
 
 class InstitutionAddressInput(BaseModel):
     address_line: str
@@ -368,6 +371,7 @@ class AddUserRequest(BaseModel):
     name: str
     role: str
     password: str
+    email: Optional[str] = None
     grade: Optional[int] = 0
     preferred_subject: Optional[str] = "All"
 
@@ -486,6 +490,8 @@ class RoleResponse(BaseModel):
     status: str
     permissions: List[dict] # {id, code, description}
     is_system: bool = False
+    institution_id: Optional[int] = None
+    institution_name: Optional[str] = None
 
 class PermissionResponse(BaseModel):
     id: int
@@ -717,5 +723,3 @@ class LMSModuleResponse(BaseModel):
     content_url: Optional[str]
     content_text: Optional[str]
     order_index: int
-
-

@@ -67,7 +67,6 @@
             // ── Phase 2a: Shared infrastructure (every logged-in role needs these) ──
             await loadSequential([
                 'ai_chat.js',
-                'rbac.js',
             ]);
 
             // ── Phase 2b: Role-specific modules ──
@@ -79,10 +78,10 @@
             const isParent = ['Parent', 'Parent_Guardian'].includes(role);
 
             if (isAdminLike) {
-                // Root / Super admins get everything
+                // Root / Super admins get everything.
+                // NOTE: root_admin/super_admin logic is already integrated in src/script.js.
+                // Avoid loading duplicate module implementations that can override global handlers.
                 await loadSequential([
-                    'root_admin.js',
-                    'super_admin.js',
                     'teacher_reports.js',
                     'teacher_dashboard.js',
                     'teacher_students.js',
@@ -147,7 +146,6 @@
                 // Unknown role — load everything to be safe
                 console.warn(`[CB Loader] Unknown role "${role}" — loading all modules as fallback`);
                 await loadSequential([
-                    'root_admin.js', 'super_admin.js',
                     'teacher_reports.js', 'teacher_dashboard.js', 'teacher_students.js',
                     'teacher_quiz.js', 'teacher_assignments.js', 'teacher_attendance.js',
                     'teacher_leave.js', 'teacher_progress.js', 'monthly_report.js',

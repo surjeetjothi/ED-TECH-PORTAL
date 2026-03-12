@@ -107,7 +107,7 @@ async function handleTeacherLeaveSubmit(event) {
         const data = await response.json().catch(() => ({}));
 
         if (response.ok) {
-            alert(data.message || 'Leave application submitted successfully! Notification sent to Principal.');
+            alert(data.message || 'Leave application submitted successfully! Notification sent to Tenant Admin.');
             document.getElementById('teacher-leave-form').reset();
         } else {
             alert('Failed to submit leave: ' + (data.detail || data.message || "Unknown error"));
@@ -461,7 +461,7 @@ async function loadTeacherLeaveApprovals() {
                                     ${req.start_date} - ${req.end_date} (${diffDays} Days) • <span class="fw-medium text-dark">${req.type}</span>
                                     <div class="mt-1">
                                         ${req.admin_approval === 'Approved' ? '<span class="badge bg-success bg-opacity-10 text-success border me-1" style="font-size:0.7rem;">Admin: Approved</span>' : '<span class="badge bg-secondary bg-opacity-10 text-secondary border me-1" style="font-size:0.7rem;">Admin: Pending</span>'}
-                                        ${req.principal_approval === 'Approved' ? '<span class="badge bg-success bg-opacity-10 text-success border" style="font-size:0.7rem;">Principal: Approved</span>' : '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:0.7rem;">Principal: Pending</span>'}
+                                        ${req.principal_approval === 'Approved' ? '<span class="badge bg-success bg-opacity-10 text-success border" style="font-size:0.7rem;">Tenant Admin: Approved</span>' : '<span class="badge bg-secondary bg-opacity-10 text-secondary border" style="font-size:0.7rem;">Tenant Admin: Pending</span>'}
                                     </div>
                                     </div>
                                 <p class="mb-0 mt-2 text-muted small fst-italic">"${req.reason}"</p>

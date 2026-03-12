@@ -134,6 +134,9 @@ function renderSuperAdminSidebar() {
 function loadSuperAdminDashboard() {
     return __awaiter(this, void 0, void 0, function* () {
         _ensureSAStyles();
+        // Clear Context for Global View
+        appState.activeSchoolId = null;
+        appState.schoolName = null;
         renderSuperAdminSidebar();
         switchView('super-admin-view');
 
@@ -160,7 +163,7 @@ function loadSuperAdminDashboard() {
             const schoolStats = {};
             yield Promise.all(schools.map((s) => __awaiter(this, void 0, void 0, function* () {
                 try {
-                    const r = yield fetchAPI(`/admin/schools/${s.id}/stats`, {});
+                    const r = yield fetchAPI('/admin/schools' + '/' + s.id + '/stats', {});
                     if (r.ok) schoolStats[s.id] = yield r.json();
                 } catch (e) { }
             })));
@@ -168,79 +171,90 @@ function loadSuperAdminDashboard() {
             const totalStudents = schools.reduce((a, s) => a + (schoolStats[s.id]?.students || 0), 0) || platformStats.students;
             const totalTeachers = schools.reduce((a, s) => a + (schoolStats[s.id]?.teachers || 0), 0) || platformStats.teachers;
             const totalActive = schools.filter(s => s.is_active !== false).length;
+            const totalUsers = Number(platformStats.total_users || 0) ||
+                (Number(totalStudents || 0) + Number(totalTeachers || 0) + Number(platformStats.parents || 0));
 
             const now = new Date();
             const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
             const adminName = appState.name || appState.userId || 'Admin';
 
             container.innerHTML = `
-            <!-- TOP BAR -->
-            <div class="sa-topbar">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-                    <div>
-                        <h1>🏛 ${greeting}, ${adminName}</h1>
-                        <p>Platform overview · ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                    </div>
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                        <button class="sa-btn-add" onclick="showCreateSchoolModal()">
-                            <span class="material-icons" style="font-size:1.1rem;">add_circle</span> Add Institution
-                        </button>
-                        <button class="sa-btn-add" onclick="loadSuperAdminDashboard()" title="Refresh">
-                            <span class="material-icons" style="font-size:1.1rem;">refresh</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
 
             <!-- STAT ROW -->
-            <div class="sa-stat-row">
-                <div class="sa-stat-card">
-                    <div class="sa-stat-icon" style="background:#e8eeff;">🏫</div>
-                    <div>
-                        <div class="sa-stat-val">${schools.length}</div>
-                        <div class="sa-stat-lbl">Total Institutions</div>
-                        <div class="sa-stat-sub">${totalActive} active</div>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div class="d-flex gap-3">
+                    <div class="rounded-3 px-4 py-3 text-white d-flex flex-column justify-content-center" style="background:linear-gradient(135deg,#9b63f8,#7b45f0);min-width:260px;height:90px;box-shadow:0 4px 15px rgba(155,99,248,0.3);">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small fw-semibold" style="opacity:0.9;font-size:0.9rem;">Number of Institution</span>
+                            <span class="fs-2 fw-bold">${schools.length}</span>
+                        </div>
+                    </div>
+                    <div class="rounded-3 px-4 py-3 d-flex flex-column justify-content-center" style="background:#ffca28;min-width:260px;height:90px;box-shadow:0 4px 15px rgba(255,202,40,0.3);">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="small fw-semibold text-dark" style="font-size:0.9rem;">Total No Users</span>
+                            <span class="fs-2 fw-bold text-white">${totalUsers.toLocaleString()}</span>
+                        </div>
                     </div>
                 </div>
-                <div class="sa-stat-card">
-                    <div class="sa-stat-icon" style="background:#e8f5e9;">👩‍🎓</div>
-                    <div>
-                        <div class="sa-stat-val">${totalStudents.toLocaleString()}</div>
-                        <div class="sa-stat-lbl">Total Students</div>
-                        <div class="sa-stat-sub">Across all schools</div>
-                    </div>
-                </div>
-                <div class="sa-stat-card">
-                    <div class="sa-stat-icon" style="background:#fff3e0;">👨‍🏫</div>
-                    <div>
-                        <div class="sa-stat-val">${totalTeachers.toLocaleString()}</div>
-                        <div class="sa-stat-lbl">Total Teaching Staff</div>
-                        <div class="sa-stat-sub">Across all schools</div>
-                    </div>
-                </div>
-                <div class="sa-stat-card">
-                    <div class="sa-stat-icon" style="background:#fce4ec;">⚡</div>
-                    <div>
-                        <div class="sa-stat-val">${totalActive}/${schools.length}</div>
-                        <div class="sa-stat-lbl">Active Schools</div>
-                        <div class="sa-stat-sub">${schools.length - totalActive} inactive</div>
-                    </div>
-                </div>
+                <button class="btn btn-primary d-flex align-items-center gap-2 fw-bold shadow-sm" style="background:#2962ff;border:none;padding:10px 20px;border-radius:6px;" onclick="showCreateSchoolModal()">
+                    <span class="material-icons" style="font-size:1.2rem;">add_circle</span> Add Institution
+                </button>
             </div>
 
-            <!-- SCHOOLS SECTION -->
-            <div class="sa-section">
-                <div class="sa-section-hdr">
-                    <h3>🏫 Registered Institutions</h3>
-                    <span style="color:#7786a0;font-size:0.85rem;">${schools.length} institution${schools.length !== 1 ? 's' : ''}</span>
-                </div>
-                <div id="sa-school-grid" class="sa-school-grid">
-                    ${schools.length === 0
-                    ? `<div class="sa-empty"><span class="material-icons">school</span>No institutions registered yet.<br>
-                           <button class="sa-btn sa-btn-primary" style="margin-top:16px;" onclick="showCreateSchoolModal()">
-                               + Add First Institution</button></div>`
-                    : schools.map(s => _renderSchoolCard(s, schoolStats[s.id])).join('')
+            <!-- SCHOOLS TABLE SECTION -->
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-5">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="bg-white">
+                            <tr>
+                                <th class="py-3 ps-4 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Institution ID</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Official Name</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Type</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Structure</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Subscription</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Contact</th>
+                                <th class="py-3 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Created</th>
+                                <th class="py-3 text-end pe-4 border-bottom-0 fw-bold text-dark" style="font-size:0.85rem;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${schools.length === 0
+                    ? '<tr><td colspan="8" class="text-center py-4 text-muted">No institutions registered yet.</td></tr>'
+                    : schools.map(s => {
+                        const safeName = (s.name || '').replace(/"/g, '&quot;');
+                        const safeEmail = (s.contact_email || '').replace(/"/g, '&quot;');
+                        const safeAddr = (s.address || '').replace(/"/g, '&quot;');
+                        const subscriptionLabel = s.subscription || s.subscription_status || s.state || 'Trial';
+                        return `
+                                <tr>
+                                    <td class="ps-4 fw-bold text-dark" style="font-size:0.9rem;">CB_INT_${String(s.id).padStart(6, '0')}</td>
+                                    <td>
+                                        <a href="#" class="fw-bold text-decoration-none" style="color:#2962ff;font-size:0.9rem;"
+                                           onclick="openSchoolDashboard(${s.id}, '${safeName}'); return false;">
+                                            ${s.name || ''}
+                                        </a>
+                                    </td>
+                                    <td class="text-muted" style="font-size:0.9rem;">K12 School</td>
+                                    <td class="text-muted" style="font-size:0.9rem;">${s.id > 2 ? 'Union' : 'Sole Entity'}</td>
+                                    <td class="text-muted" style="font-size:0.9rem;">${subscriptionLabel}</td>
+                                    <td class="text-muted" style="font-size:0.9rem;">${s.contact_email || ''}</td>
+                                    <td class="text-muted" style="font-size:0.9rem;">${new Date(s.created_at).toLocaleDateString('en-US')}</td>
+                                    <td class="text-end pe-4">
+                                        <div class="d-flex justify-content-end gap-3 align-items-center">
+                                            <button class="btn btn-link p-0 text-primary" onclick="openEditSchoolModal(${s.id},'${safeName}','${safeAddr}','${safeEmail}')" title="Edit school info">
+                                                <span class="material-icons" style="font-size:18px;">settings</span>
+                                            </button>
+                                            <button class="btn btn-link p-0 text-danger" onclick="handleDeleteSchool(${s.id},'${safeName}')" title="Delete this school">
+                                                <span class="material-icons" style="font-size:18px;">delete</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                `;
+                    }).join('')
                 }
+                        </tbody>
+                    </table>
                 </div>
             </div>`;
 
@@ -309,29 +323,157 @@ function _renderSchoolCard(school, stats) {
     </div>`;
 }
 
+/* ── Premium Modal Styles ────────────────────────────────── */
+function _ensurePremiumModalStyles() {
+    if (document.getElementById('premium-modal-style')) return;
+    const style = document.createElement('style');
+    style.id = 'premium-modal-style';
+    style.innerHTML = `
+    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; backdrop-filter: blur(0px); } to { opacity: 1; backdrop-filter: blur(4px); } }
+    .sa-modal-overlay { backdrop-filter: blur(4px); background: rgba(15, 23, 42, 0.6) !important; }
+    .premium-modal { 
+        background: #ffffff !important; 
+        border-radius: 24px !important; 
+        padding: 0 !important; 
+        width: 100%; 
+        max-width: 520px !important;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+        overflow: hidden;
+        transform: translateY(20px);
+        animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes slideUp { to { transform: translateY(0); } }
+    .modal-header-custom {
+        display: flex;
+        align-items: center;
+        padding: 24px 32px 20px;
+        border-bottom: 1px solid #f1f5f9;
+        position: relative;
+    }
+    .modal-header-custom h4 {
+        color: #0f172a;
+        font-size: 1.35rem;
+        font-weight: 800;
+        margin: 0 0 4px;
+        letter-spacing: -0.4px;
+    }
+    .icon-box {
+        width: 48px;
+        height: 48px;
+        background: #eff6ff;
+        color: #2962ff;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 18px;
+    }
+    .icon-box .material-icons { font-size: 1.6rem; }
+    .close-btn {
+        position: absolute;
+        top: 24px;
+        right: 24px;
+        background: #f8fafc;
+        border: none;
+        color: #64748b;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .close-btn:hover { background: #fee2e2; color: #ef4444; transform: rotate(90deg); }
+    .modal-body-custom { padding: 0 32px; }
+    .modal-footer-custom { padding: 20px 32px 24px; background: #fafafb; border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
+    .premium-input {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        height: 60px;
+        font-size: 1rem;
+        color: #334155;
+        transition: all 0.2s;
+        box-shadow: none !important;
+    }
+    .custom-floating > label {
+        padding: 18px 16px;
+        color: #64748b;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .premium-input:focus {
+        border-color: #2962ff;
+        background-color: #fff;
+    }
+    .premium-input:focus ~ label, .premium-input:not(:placeholder-shown) ~ label {
+        transform: scale(0.85) translateY(-0.8rem) translateX(0.15rem);
+        color: #2962ff;
+        font-weight: 600;
+    }
+    .btn.sa-hover-fx:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    `;
+    document.head.appendChild(style);
+}
+
 /* ── Create School Modal ─────────────────────────────────── */
 function showCreateSchoolModal() {
     _removeSAModal();
+    _ensurePremiumModalStyles();
     const overlay = document.createElement('div');
-    overlay.className = 'sa-modal-overlay';
+    overlay.className = 'sa-modal-overlay fade-in';
     overlay.id = 'sa-modal-overlay';
+    
     overlay.innerHTML = `
-    <div class="sa-modal" onclick="event.stopPropagation()">
-        <h4>🏫 Add New Institution</h4>
-        <div id="sa-modal-alert" class="sa-alert"></div>
-        <input id="sa-school-name"  class="sa-input" placeholder="Institution Name *" required>
-        <input id="sa-school-email" class="sa-input" type="email" placeholder="Contact Email *" required>
-        <input id="sa-school-addr"  class="sa-input" placeholder="Address (optional)">
-        <div class="sa-modal-actions">
-            <button class="sa-btn sa-btn-primary" id="sa-create-btn" onclick="_handleCreateSchool()">
-                <span class="material-icons" style="font-size:1rem;">add</span> Create Institution
+    <div class="sa-modal premium-modal" onclick="event.stopPropagation()">
+        <div class="modal-header-custom">
+            <div class="icon-box">
+                <span class="material-icons">domain_add</span>
+            </div>
+            <div>
+                <h4>Create New Institution</h4>
+                <p class="text-muted small mb-0">Set up a new educational organization profile</p>
+            </div>
+            <button class="close-btn" onclick="_removeSAModal()"><span class="material-icons">close</span></button>
+        </div>
+        
+        <div class="modal-body-custom mt-4">
+            <div id="sa-modal-alert" class="sa-alert"></div>
+            
+            <div class="form-floating mb-3 custom-floating">
+                <input type="text" id="sa-school-name" class="form-control premium-input" placeholder="Institution Name *" required autocomplete="off">
+                <label for="sa-school-name">Institution Name <span class="text-danger">*</span></label>
+            </div>
+            
+            <div class="form-floating mb-3 custom-floating">
+                <input type="email" id="sa-school-email" class="form-control premium-input" placeholder="Contact Email *" required autocomplete="off">
+                <label for="sa-school-email">Contact Email <span class="text-danger">*</span></label>
+            </div>
+            
+            <div class="form-floating mb-4 custom-floating">
+                <input type="text" id="sa-school-addr" class="form-control premium-input" placeholder="Address (optional)" autocomplete="off">
+                <label for="sa-school-addr">Physical Address (Optional)</label>
+            </div>
+        </div>
+
+        <div class="modal-footer-custom d-flex justify-content-end gap-2 border-top pt-3">
+            <button class="btn btn-light fw-bold px-4 py-2 rounded-3 sa-hover-fx" onclick="_removeSAModal()" style="color:#64748b; background:#f1f5f9; border:none; transition:all 0.2s;">
+                Cancel
             </button>
-            <button class="sa-btn sa-btn-outline" onclick="_removeSAModal()">Cancel</button>
+            <button class="btn btn-primary fw-bold px-4 py-2 rounded-3 d-flex align-items-center gap-2 sa-hover-fx" id="sa-create-btn" onclick="_handleCreateSchool()" style="background:linear-gradient(135deg, #2962ff, #1e88e5); border:none; box-shadow:0 4px 12px rgba(41,98,255,0.3); transition:all 0.2s;">
+                <span class="material-icons" style="font-size:1.1rem;">add_circle</span> Create Institution
+            </button>
         </div>
     </div>`;
-    overlay.onclick = () => _removeSAModal();
+    
+    overlay.onclick = (e) => {
+        if (e.target.id === 'sa-modal-overlay') _removeSAModal();
+    };
     document.body.appendChild(overlay);
-    setTimeout(() => document.getElementById('sa-school-name')?.focus(), 80);
+    setTimeout(() => document.getElementById('sa-school-name')?.focus(), 200);
 }
 
 function _removeSAModal() {
@@ -351,7 +493,7 @@ function _handleCreateSchool() {
             if (alertEl) { alertEl.textContent = 'Name and Email are required.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
             return;
         }
-        if (btn) btn.innerHTML = '<span class="sa-spinner"></span> Creating…';
+        if (btn) btn.innerHTML = '<span class="sa-spinner" style="border-top-color:#fff;"></span> <span class="ms-2">Creating…</span>';
 
         try {
             const res = yield fetchAPI('/admin/schools', { method: 'POST', body: JSON.stringify({ name, contact_email: email, address: addr }) });
@@ -362,11 +504,11 @@ function _handleCreateSchool() {
                 loadSuperAdminDashboard();
             } else {
                 if (alertEl) { alertEl.textContent = data.detail || 'Failed to create institution.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
-                if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1rem;">add</span> Create Institution';
+                if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1.1rem;">add_circle</span> Create Institution';
             }
         } catch (e) {
             if (alertEl) { alertEl.textContent = 'Network error.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
-            if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1rem;">add</span> Create Institution';
+            if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1.1rem;">add_circle</span> Create Institution';
         }
     });
 }
@@ -374,25 +516,58 @@ function _handleCreateSchool() {
 /* ── Edit School Modal ───────────────────────────────────── */
 function openEditSchoolModal(id, name, address, email) {
     _removeSAModal();
+    _ensurePremiumModalStyles();
     const overlay = document.createElement('div');
-    overlay.className = 'sa-modal-overlay';
+    overlay.className = 'sa-modal-overlay fade-in';
     overlay.id = 'sa-modal-overlay';
+    
     overlay.innerHTML = `
-    <div class="sa-modal" onclick="event.stopPropagation()">
-        <h4>✏️ Edit Institution</h4>
-        <div id="sa-modal-alert" class="sa-alert"></div>
-        <input id="sa-edit-name"  class="sa-input" placeholder="Institution Name *" value="${name}">
-        <input id="sa-edit-email" class="sa-input" type="email" placeholder="Contact Email *" value="${email}">
-        <input id="sa-edit-addr"  class="sa-input" placeholder="Address" value="${address}">
-        <div class="sa-modal-actions">
-            <button class="sa-btn sa-btn-primary" id="sa-edit-btn" onclick="_handleEditSchool(${id})">
-                <span class="material-icons" style="font-size:1rem;">save</span> Save Changes
+    <div class="sa-modal premium-modal" onclick="event.stopPropagation()">
+        <div class="modal-header-custom">
+            <div class="icon-box" style="background: #fdf4ff; color: #c026d3;">
+                <span class="material-icons">edit_note</span>
+            </div>
+            <div>
+                <h4>Edit Institution</h4>
+                <p class="text-muted small mb-0">Update information for this organization</p>
+            </div>
+            <button class="close-btn" onclick="_removeSAModal()"><span class="material-icons">close</span></button>
+        </div>
+        
+        <div class="modal-body-custom mt-4">
+            <div id="sa-modal-alert" class="sa-alert"></div>
+            
+            <div class="form-floating mb-3 custom-floating">
+                <input type="text" id="sa-edit-name" class="form-control premium-input" placeholder="Institution Name *" value="${name}" required autocomplete="off">
+                <label for="sa-edit-name">Institution Name <span class="text-danger">*</span></label>
+            </div>
+            
+            <div class="form-floating mb-3 custom-floating">
+                <input type="email" id="sa-edit-email" class="form-control premium-input" placeholder="Contact Email *" value="${email}" required autocomplete="off">
+                <label for="sa-edit-email">Contact Email <span class="text-danger">*</span></label>
+            </div>
+            
+            <div class="form-floating mb-4 custom-floating">
+                <input type="text" id="sa-edit-addr" class="form-control premium-input" placeholder="Address" value="${address}" autocomplete="off">
+                <label for="sa-edit-addr">Physical Address</label>
+            </div>
+        </div>
+
+        <div class="modal-footer-custom d-flex justify-content-end gap-2 border-top pt-3">
+            <button class="btn btn-light fw-bold px-4 py-2 rounded-3 sa-hover-fx" onclick="_removeSAModal()" style="color:#64748b; background:#f1f5f9; border:none; transition:all 0.2s;">
+                Cancel
             </button>
-            <button class="sa-btn sa-btn-outline" onclick="_removeSAModal()">Cancel</button>
+            <button class="btn fw-bold px-4 py-2 rounded-3 d-flex align-items-center gap-2 text-white sa-hover-fx" id="sa-edit-btn" onclick="_handleEditSchool(${id})" style="background:linear-gradient(135deg, #c026d3, #db2777); border:none; box-shadow:0 4px 12px rgba(192,38,211,0.3); transition:all 0.2s;">
+                <span class="material-icons" style="font-size:1.1rem;">save</span> Save Changes
+            </button>
         </div>
     </div>`;
-    overlay.onclick = () => _removeSAModal();
+    
+    overlay.onclick = (e) => {
+        if (e.target.id === 'sa-modal-overlay') _removeSAModal();
+    };
     document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('sa-edit-name')?.focus(), 200);
 }
 
 function _handleEditSchool(id) {
@@ -407,10 +582,10 @@ function _handleEditSchool(id) {
             if (alertEl) { alertEl.textContent = 'Name and Email are required.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
             return;
         }
-        if (btn) btn.innerHTML = '<span class="sa-spinner"></span> Saving…';
+        if (btn) btn.innerHTML = '<span class="sa-spinner" style="border-top-color:#fff;"></span> <span class="ms-2">Saving…</span>';
 
         try {
-            const res = yield fetchAPI(`/admin/schools/${id}`, { method: 'PUT', body: JSON.stringify({ name, contact_email: email, address: addr }) });
+            const res = yield fetchAPI('/admin/schools' + '/' + id, { method: 'PUT', body: JSON.stringify({ name, contact_email: email, address: addr }) });
             const data = yield res.json().catch(() => ({}));
             if (res.ok) {
                 _removeSAModal();
@@ -418,21 +593,22 @@ function _handleEditSchool(id) {
                 loadSuperAdminDashboard();
             } else {
                 if (alertEl) { alertEl.textContent = data.detail || 'Update failed.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
-                if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1rem;">save</span> Save Changes';
+                if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1.1rem;">save</span> Save Changes';
             }
         } catch (e) {
             if (alertEl) { alertEl.textContent = 'Network error.'; alertEl.className = 'sa-alert sa-alert-error'; alertEl.style.display = 'block'; }
-            if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1rem;">save</span> Save Changes';
+            if (btn) btn.innerHTML = '<span class="material-icons" style="font-size:1.1rem;">save</span> Save Changes';
         }
     });
 }
+
 
 /* ── Delete School ───────────────────────────────────────── */
 function handleDeleteSchool(id, name) {
     return __awaiter(this, void 0, void 0, function* () {
         if (!confirm(`Delete "${name}"?\n\nThis action cannot be undone and will remove all associated data.`)) return;
         try {
-            const res = yield fetchAPI(`/admin/schools/${id}`, { method: 'DELETE' });
+            const res = yield fetchAPI('/admin/schools' + '/' + id, { method: 'DELETE' });
             if (res.ok || res.status === 204) {
                 _showSAToast(`"${name}" deleted.`, 'success');
                 loadSuperAdminDashboard();
@@ -504,3 +680,4 @@ window.openSchoolDashboard = openSchoolDashboard;
 window._handleCreateSchool = _handleCreateSchool;
 window._handleEditSchool = _handleEditSchool;
 window._removeSAModal = _removeSAModal;
+window._showSAToast = _showSAToast;

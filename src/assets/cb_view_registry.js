@@ -243,6 +243,7 @@ const VIEW_LOADERS = {
     'create-class-view': { roles: TEACHER_ROLES, loader: () => { } },
     'teacher-class-management-view': { roles: TEACHER_ROLES, loader: () => { } },
     'add-user-view': { roles: TEACHER_ROLES, loader: () => { } },
+    'add-user-view-v2': { roles: TEACHER_ROLES, loader: () => { } },
     'grade-helper-view': { roles: TEACHER_ROLES, loader: () => { } },
     'engagement-helper-view': { roles: TEACHER_ROLES, loader: () => { } },
     'communication-view': { roles: TEACHER_ROLES, loader: () => { } },

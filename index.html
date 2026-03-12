@@ -724,6 +724,41 @@
             }
         }
 
+        .popup-modal-view {
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            padding: 2rem 1rem;
+            background: rgba(15, 23, 42, 0.4);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .popup-modal-view:not(.active) {
+            display: none !important;
+        }
+
+        .popup-modal-view.active {
+            display: flex !important;
+            animation: fadeInView 0.2s ease;
+        }
+
+        .popup-modal-view .modal-dialog {
+            width: min(1080px, calc(100vw - 2rem));
+            margin: 0;
+            pointer-events: auto;
+        }
+
+        @media (max-width: 991px) {
+            .popup-modal-view {
+                padding: 1rem 0.75rem;
+            }
+
+            .popup-modal-view .modal-dialog {
+                width: calc(100vw - 1.5rem);
+            }
+        }
+
         /* Removed transform to prevent 'position: fixed' containing block issues */
         @keyframes fadeInView {
             from {
@@ -1786,7 +1821,9 @@
         (function () {
             const cleanup = () => {
                 const gOnload = document.getElementById('g_id_onload');
-                if (gOnload && (gOnload.getAttribute('data-client_id') || '').includes('{{')) {
+                const clientId = (gOnload && gOnload.getAttribute('data-client_id') || '').trim();
+                const validClientId = /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId);
+                if (gOnload && !validClientId) {
                     console.warn("[CB] Removing unconfigured Google Sign-In elements.");
                     gOnload.remove();
                     document.querySelectorAll('.g_id_signin').forEach(el => el.remove());
@@ -1925,7 +1962,7 @@
                         </div>
                         <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
                             <a href="#" class="list-group-item list-group-item-action d-flex gap-3 py-3"
-                                onclick="switchView('communication-view')">
+                                onclick="event.preventDefault(); switchView('communication-view')">
                                 <div class="bg-light rounded-circle d-flex align-items-center justify-content-center"
                                     style="width:40px; height:40px; flex-shrink:0;">
                                     <span class="material-icons text-secondary fs-5">person</span>
@@ -1940,7 +1977,7 @@
                                 </div>
                             </a>
                             <a href="#" class="list-group-item list-group-item-action d-flex gap-3 py-3"
-                                onclick="switchView('communication-view')">
+                                onclick="event.preventDefault(); switchView('communication-view')">
                                 <div class="bg-light rounded-circle d-flex align-items-center justify-content-center"
                                     style="width:40px; height:40px; flex-shrink:0;">
                                     <span class="material-icons text-secondary fs-5">person</span>
@@ -1957,7 +1994,8 @@
                         </div>
                         <div class="p-2 text-center border-top">
                             <a href="#" class="small fw-bold text-decoration-none"
-                                onclick="switchView('communication-view')" data-i18n="header_view_all_messages">View All
+                                onclick="event.preventDefault(); switchView('communication-view')"
+                                data-i18n="header_view_all_messages">View All
                                 Messages</a>
                         </div>
                     </div>
@@ -2020,16 +2058,16 @@
                     <div class="user-profile d-flex align-items-center gap-3 ps-3 border-start" style="cursor: pointer;"
                         data-bs-toggle="dropdown" aria-expanded="false">
                         <div class="info text-end">
-                            <div id="header-user-name" class="fw-bold fs-6">Surjeet</div>
-                            <div id="header-user-role" class="text-secondary small">Admin</div>
+                            <div id="header-user-name" class="fw-bold fs-6">User</div>
+                            <div id="header-user-role" class="text-secondary small"></div>
                         </div>
-                        <img src="https://ui-avatars.com/api/?name=Surjeet&background=random" alt="User"
+                        <img src="https://ui-avatars.com/api/?name=U&background=random" alt="User"
                             class="rounded-circle" width="48" height="48" id="header-user-img">
                     </div>
                     <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg p-2" style="width: 220px;">
                         <li>
                             <a class="dropdown-item d-flex align-items-center gap-2 py-2 rounded mb-1" href="#"
-                                onclick="openProfileView()">
+                                onclick="event.preventDefault(); openProfileView()">
                                 <div class="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center text-primary"
                                     style="width:32px; height:32px;">
                                     <span class="material-icons fs-6">person</span>
@@ -2042,7 +2080,7 @@
                         </li>
                         <li>
                             <a class="dropdown-item d-flex align-items-center gap-2 py-2 rounded text-danger" href="#"
-                                onclick="handleLogout()">
+                                onclick="event.preventDefault(); handleLogout()">
                                 <div class="bg-danger bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center text-danger"
                                     style="width:32px; height:32px;">
                                     <span class="material-icons fs-6">logout</span>
@@ -2281,7 +2319,7 @@
                             </div>
                             <div class="modal-body p-4">
                                 <div class="d-flex justify-content-center gap-3">
-                                    <!-- Principal -->
+                                    <!-- Tenant Admin -->
                                     <div class="role-card p-4 rounded-4 cursor-pointer glass-card text-center"
                                         onclick="selectLoginRole('Principal'); bootstrap.Modal.getInstance(document.getElementById('othersRoleModal')).hide(); showLogin();"
                                         style="flex: 1; min-width: 140px; cursor: pointer;">
@@ -2291,7 +2329,7 @@
                                                 <span class="material-icons"
                                                     style="font-size: 30px;">account_balance</span>
                                             </div>
-                                            <h6 class="fw-bold m-0" data-i18n="role_principal">Principal</h6>
+                                            <h6 class="fw-bold m-0" data-i18n="role_principal">Tenant Admin</h6>
                                         </div>
                                     </div>
 
@@ -2819,7 +2857,7 @@
             <!-- Header -->
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                    <h2 class="fw-bold mb-1">Role Management</h2>
+                    <!-- Main page title handled by header-bar -->
                     <p class="text-muted mb-0 small">View and manage all roles available in the application.</p>
                 </div>
                 <div id="role-create-action">
@@ -2834,7 +2872,7 @@
                         <table class="table table-hover align-middle mb-0" id="roles-listing-table">
                             <thead class="bg-light">
                                 <tr>
-                                    <th class="ps-4" style="width:90px;">Role Code</th>
+                                    <th class="ps-4 text-nowrap" style="width:120px;">Role Code</th>
                                     <th style="width:200px;">Role Title</th>
                                     <th style="width:90px;">Status</th>
                                     <th>Description</th>
@@ -3162,7 +3200,7 @@
                                         <option value="Student">Student</option>
                                         <option value="Teacher">Teacher</option>
                                         <option value="Parent_Guardian">Parent / Guardian</option>
-                                        <option value="Tenant_Admin">Tenant Admin (Principal)</option>
+                                        <option value="Tenant_Admin">Tenant Admin (School Head)</option>
                                         <option value="Academic_Admin">Academic Admin</option>
                                         <option value="HR_Admin">HR Admin</option>
 
@@ -3394,108 +3432,12 @@
             </div>
         </div>
 
-        <!-- Permission Edit Modal (Bootstrap popup) -->
-        <div class="modal fade" id="permEditModal" tabindex="-1" aria-labelledby="permEditModalLabel"
-            aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered" style="max-width:520px;">
-                <div class="modal-content border-0 rounded-4 overflow-hidden"
-                    style="box-shadow:0 25px 60px rgba(0,0,0,0.18);">
-
-                    <!-- Modal Header -->
-                    <div class="modal-header border-0 px-4 pt-4 pb-2"
-                        style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="d-flex align-items-center justify-content-center rounded-3"
-                                style="width:40px;height:40px;background:rgba(255,255,255,0.2);">
-                                <span class="material-icons text-white" style="font-size:20px;">vpn_key</span>
-                            </div>
-                            <div>
-                                <h5 class="modal-title fw-bold text-white mb-0" id="permEditModalLabel">Edit Permission
-                                </h5>
-                                <small class="text-white" style="opacity:0.75;font-size:0.78rem;">Update the description
-                                    for this permission</small>
-                            </div>
-                        </div>
-                        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"
-                            aria-label="Close"></button>
-                    </div>
-
-                    <!-- Modal Body -->
-                    <div class="modal-body px-4 pt-4 pb-2">
-                        <form id="perm-edit-form" onsubmit="event.preventDefault(); handleUpdatePermission();">
-                            <input type="hidden" id="perm-edit-id">
-
-                            <!-- Permission Code + Title (read-only info row) -->
-                            <div class="p-3 rounded-3 mb-4" style="background:#f8f7ff;border:1px solid #e0e7ff;">
-                                <div class="row g-3">
-                                    <div class="col-6">
-                                        <label class="form-label text-xs fw-bold text-uppercase mb-1"
-                                            style="font-size:0.68rem;letter-spacing:0.06em;color:#6366f1;">
-                                            Permission Code
-                                        </label>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="badge bg-white border font-monospace fw-bold px-2 py-1"
-                                                id="perm-edit-code-badge"
-                                                style="color:#4338ca;font-size:0.78rem;letter-spacing:0.04em;border-color:#c7d2fe!important;">
-                                                —
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <label class="form-label text-xs fw-bold text-uppercase mb-1"
-                                            style="font-size:0.68rem;letter-spacing:0.06em;color:#6366f1;">
-                                            Permission Title
-                                        </label>
-                                        <p class="mb-0 fw-semibold small" id="perm-edit-title-display"
-                                            style="color:#1e1b4b;font-size:0.8rem;line-height:1.3;">—</p>
-                                    </div>
-                                </div>
-                                <!-- Hidden inputs for backward compat -->
-                                <input type="hidden" id="perm-edit-code">
-                                <input type="hidden" id="perm-edit-title">
-                            </div>
-
-                            <!-- Editable Description -->
-                            <div class="mb-3">
-                                <label class="form-label fw-bold mb-2" style="font-size:0.85rem;color:#374151;">
-                                    Description
-                                    <span class="text-danger">*</span>
-                                </label>
-                                <textarea class="form-control rounded-3" id="perm-edit-desc" rows="4" required
-                                    placeholder="Describe what this permission allows..."
-                                    style="border:1.5px solid #e5e7eb;font-size:0.88rem;resize:vertical;transition:border .2s;"
-                                    onfocus="this.style.borderColor='#6366f1';this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.12)'"
-                                    onblur="this.style.borderColor='#e5e7eb';this.style.boxShadow='none'"></textarea>
-                                <div class="form-text text-muted mt-1" style="font-size:0.75rem;">
-                                    Only the description can be edited. Permission code and title are system-defined.
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-
-                    <!-- Modal Footer -->
-                    <div class="modal-footer border-0 px-4 pb-4 pt-2 gap-2">
-                        <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold border"
-                            style="font-size:0.85rem;" data-bs-dismiss="modal">
-                            Cancel
-                        </button>
-                        <button type="button" id="perm-update-btn" class="btn rounded-pill px-5 fw-bold shadow-sm"
-                            style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:0.85rem;border:none;transition:opacity .2s;"
-                            onclick="handleUpdatePermission()">
-                            <span class="material-icons align-middle me-1" style="font-size:15px;">save</span>
-                            Update Description
-                        </button>
-                    </div>
-
-                </div>
-            </div>
-        </div>
 
         <!-- Permission Setup View (dedicated sidebar view) -->
         <div id="permissions-view" class="view" style="scroll-margin-top: 110px;">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                    <h2 class="fw-bold mb-1">Permission Setup</h2>
+                    <!-- Main page title handled by header-bar -->
                     <p class="text-muted mb-0 small">View and manage all system permissions available in the
                         application.</p>
                 </div>
@@ -3577,13 +3519,12 @@
                                 <tr>
                                     <th class="ps-4" style="white-space: nowrap;">Permission Code</th>
                                     <th style="white-space: nowrap;">Permission Title</th>
-                                    <th style="white-space: nowrap;">Description</th>
-                                    <th class="text-center" style="white-space: nowrap;">Actions</th>
+                                    <th style="white-space: nowrap;">Assigned Roles</th>
                                 </tr>
                             </thead>
                             <tbody id="permissions-setup-body">
                                 <tr>
-                                    <td colspan="4" class="text-center py-5 text-muted">
+                                    <td colspan="3" class="text-center py-5 text-muted">
                                         <div class="spinner-border spinner-border-sm text-primary me-2"></div>
                                         Loading permissions...
                                     </td>
@@ -3840,7 +3781,7 @@
                                     </h1>
                                     <p class="lead opacity-90 mb-5">
                                         From attendance to analytics, empower your entire institution with a unified
-                                        ecosystem that principals and admins love.
+                                        ecosystem that tenant admins and admins love.
                                     </p>
 
                                     <div class="d-flex gap-3">
@@ -4870,7 +4811,7 @@
                             </a>
                             <a href="#" class="list-group-item list-group-item-action">
                                 <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">Principal</h6>
+                                    <h6 class="mb-1">Tenant Admin</h6>
                                     <small>1 hr ago</small>
                                 </div>
                                 <p class="mb-1 small text-muted">Staff meeting at 4 PM.</p>
@@ -4886,11 +4827,8 @@
 
         <!-- Super Admin View -->
         <div id="super-admin-view" class="view">
-            <h2 class="mb-4 fw-bold">Super Admin Dashboard</h2>
-            <div class="row g-4 mb-4">
-                <div class="col-12" id="super-admin-content">
-                    <!-- Content injected by JS -->
-                </div>
+            <div id="super-admin-content">
+                <!-- Content injected by JS -->
             </div>
         </div>
 
@@ -5290,7 +5228,7 @@
 
         <!-- SETTINGS VIEW -->
         <div id="settings-view" class="view">
-            <h2 class="mb-4 fw-bold">Settings</h2>
+            <!-- Main page title handled by header-bar -->
             <div class="row g-4">
                 <div class="col-lg-4">
                     <div class="dashboard-card">
@@ -5809,7 +5747,7 @@
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white py-3">
                     <h5 class="fw-bold m-0 text-danger d-flex align-items-center gap-2">
-                        <span class="material-icons">security</span> Security Audit Logs
+                        <span class="material-icons">security</span> Security Audit Trail
                     </h5>
                 </div>
                 <div class="card-body p-0">
@@ -8167,7 +8105,7 @@
                             width="32" height="32">
                         <select class="form-select border-0 bg-transparent py-0 shadow-none fw-bold text-dark"
                             style="width: auto;">
-                            <option>Surjeet (Grade 10)</option>
+                            <option>Sample Student (Grade 10)</option>
                             <option>Sibling (Grade 6)</option>
                         </select>
                     </div>
@@ -8254,7 +8192,7 @@
                             <div class="list-group-item p-3 border-light">
                                 <span class="badge bg-danger rounded-pill mb-1">Urgent</span>
                                 <p class="mb-0 fw-bold small">School closed tomorrow due to heavy rain.</p>
-                                <small class="text-muted">Principal Office • 2 hours ago</small>
+                                <small class="text-muted">Tenant Admin Office • 2 hours ago</small>
                             </div>
                             <div class="list-group-item p-3 border-light">
                                 <span class="badge bg-info rounded-pill mb-1">Event</span>
@@ -8584,7 +8522,7 @@
             <h3 class="fw-bold mb-4 text-dark">Apply for Leave</h3>
             <div class="card border-0 shadow rounded-4 p-4" style="max-width: 600px;">
                 <div class="alert alert-light border shadow-sm mb-4">
-                    <small class="text-muted">Applying for: <b>Surjeet (Grade 10-A)</b></small>
+                    <small class="text-muted">Applying for: <b>Sample Student (Grade 10-A)</b></small>
                 </div>
                 <form>
                     <div class="row mb-3">
@@ -8722,9 +8660,9 @@
         <!-- USER MANAGEMENT VIEW -->
         <div id="user-management-view" class="view" style="padding-top: 30px;">
             <div class="container-fluid px-5">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h1 class="h3 fw-bold text-dark mb-0">User Management</h1>
-                    <button class="btn btn-primary-custom" onclick="openAddUserModal()">
+                <div class="d-flex justify-content-end align-items-center mb-4">
+                    <!-- Main page title handled by header-bar -->
+                    <button class="btn btn-primary-custom" onclick="openAddUserModal()" data-requires-permission="add_users">
                         <span class="material-icons align-middle fs-5 me-1">add</span> Add New User
                     </button>
                 </div>
@@ -8772,14 +8710,8 @@
                 <ul class="nav nav-pills mb-4" id="pills-tab" role="tablist">
                     <li class="nav-item">
                         <button class="nav-link active fw-bold" id="pills-users-tab" data-bs-toggle="pill"
-                            data-bs-target="#pills-users" type="button" onclick="loadUserList()">
+                            data-bs-target="#pills-users" type="button" onclick="return refreshUserManagement(event)">
                             <span class="material-icons align-middle fs-6 me-1">people</span> All Users
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link fw-bold" id="pills-audit-tab" data-bs-toggle="pill"
-                            data-bs-target="#pills-audit" type="button" onclick="showAuditLogs()">
-                            <span class="material-icons align-middle fs-6 me-1">history</span> Audit Logs
                         </button>
                     </li>
                 </ul>
@@ -8806,21 +8738,7 @@
                                 </div>
                             </div>
 
-                            <!-- Role filter -->
-                            <div style="min-width: 170px;">
-                                <select id="user-role-filter" class="form-select border shadow-sm rounded-3"
-                                    onchange="filterUserList()">
-                                    <option value="">All Roles</option>
-                                    <option value="Admin">Admin</option>
-                                    <option value="Root_Super_Admin">Root Super Admin</option>
-                                    <option value="Teacher">Teacher</option>
-                                    <option value="Student">Student</option>
-                                    <option value="Parent_Guardian">Parent / Guardian</option>
-                                    <option value="Tenant_Admin">Tenant Admin</option>
-                                    <option value="Academic_Admin">Academic Admin</option>
-                                    <option value="HR_Admin">HR Admin</option>
-                                </select>
-                            </div>
+
 
                             <!-- Result count badge -->
                             <div class="ms-auto">
@@ -8859,19 +8777,6 @@
                                     </table>
                                 </div>
                                 <div id="users-pagination" class="p-3"></div>
-                            </div>
-                        </div>
-                    </div>
-
-
-                    <!-- Audit Logs Tab -->
-                    <div class="tab-pane fade" id="pills-audit" role="tabpanel">
-                        <div id="audit-logs-container">
-                            <div class="card border-0 shadow-sm rounded-4">
-                                <div class="card-body p-4 text-center text-muted py-5">
-                                    <div class="spinner-border text-primary mb-3" role="status"></div>
-                                    <p>Audit logs for user actions will appear here.</p>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -10613,7 +10518,7 @@
                 <div class="modal-content border-0 shadow-lg rounded-4">
                     <div class="modal-header bg-dark text-white">
                         <h5 class="modal-title d-flex align-items-center gap-2">
-                            <span class="material-icons text-danger">security</span> Security Audit Logs
+                            <span class="material-icons text-danger">security</span> Security Audit Trail
                         </h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
@@ -10740,6 +10645,7 @@
         <!-- App shell — LAST: depends on all modules above -->
         <script defer src="./src/assets/app_loader.js"></script>
         <script defer src="./src/script.js"></script>
+        
 
         <!-- View Submissions Modal (Teacher) -->
         <div class="view full-page-view" id="viewSubmissionsModal" tabindex="-1">
@@ -11360,3 +11266,4 @@
 
 
 </html>
+

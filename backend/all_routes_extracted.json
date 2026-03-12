@@ -1,0 +1,1353 @@
+[
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/",
+    "function": "serve_frontend",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/roles",
+    "function": "get_roles",
+    "permission": "view_role_management"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/roles/{role_id}",
+    "function": "get_role_details",
+    "permission": "view_role_management"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/roles",
+    "function": "create_role",
+    "permission": "add_roles"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/admin/roles/{role_id}",
+    "function": "update_role",
+    "permission": "edit_roles"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/admin/roles/{role_id}",
+    "function": "delete_role",
+    "permission": "delete_roles"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/permissions",
+    "function": "get_permissions",
+    "permission": "permission_management"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/permissions/list",
+    "function": "get_permissions_list",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/permissions/summary",
+    "function": "get_permissions_summary",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/admin/permissions/{perm_id}",
+    "function": "update_permission",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/reports/summary",
+    "function": "get_reports_summary",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/schools",
+    "function": "create_school",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/schools",
+    "function": "list_schools",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/root-admin/students",
+    "function": "root_list_students",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/root-admin/students",
+    "function": "root_add_student",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PATCH",
+    "path": "/api/root-admin/students/{student_id}/email",
+    "function": "root_update_student_email",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PATCH",
+    "path": "/api/root-admin/students/{student_id}/password",
+    "function": "root_update_student_password",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/root-admin/schools",
+    "function": "root_list_schools",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/root-admin/schools",
+    "function": "root_create_school_account",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/root-admin/schools/verify-otp",
+    "function": "root_verify_school_otp",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/root-admin/database",
+    "function": "root_view_database",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/auth/logout",
+    "function": "logout_user",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/auth/permissions",
+    "function": "get_role_permissions",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/teacher/students/{student_id}/codes",
+    "function": "get_student_codes",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/teacher/students/{student_id}/regenerate-code",
+    "function": "regenerate_student_code",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/students/{student_id}/email-code",
+    "function": "send_access_code_email",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/script.js",
+    "function": "read_script",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/frontend/static/{filename:path}",
+    "function": "serve_frontend_static",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/frontend/modules/{filepath:path}",
+    "function": "serve_frontend_modules",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/health",
+    "function": "health_check",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/lesson-plan",
+    "function": "generate_lesson_plan",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/lti/launch",
+    "function": "get_lti_launch_data",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/moodle/assignments",
+    "function": "get_moodle_assignments",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/moodle/grades",
+    "function": "get_moodle_grades",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/teacher/overview",
+    "function": "get_teacher_overview",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/students/add",
+    "function": "add_new_student",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/invitations/generate",
+    "function": "generate_invitation",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/students/{student_id}",
+    "function": "update_student",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/students/{student_id}",
+    "function": "delete_student",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/activities/add",
+    "function": "add_new_activity",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/chat_with_file/{student_id}",
+    "function": "chat_with_ai_tutor_file",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/chat/{student_id}",
+    "function": "chat_with_ai_tutor",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/teacher-chat/{teacher_id}",
+    "function": "chat_with_ai_teacher",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/grade-helper/{student_id}",
+    "function": "chat_with_grade_helper",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/engagement-helper",
+    "function": "chat_with_engagement_helper",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/all",
+    "function": "get_all_students_list",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/user-management-stats",
+    "function": "get_user_management_stats",
+    "permission": "view_user_management"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/users",
+    "function": "list_all_users",
+    "permission": "view_users"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/users/extended",
+    "function": "create_extended_user",
+    "permission": "add_users"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/users",
+    "function": "create_new_user",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/users/{user_id}",
+    "function": "view_user_details",
+    "permission": "view_users"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/admin/users/{user_id}",
+    "function": "edit_user_details",
+    "permission": "edit_users"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/admin/users/{user_id}",
+    "function": "delete_user",
+    "permission": "delete_users"
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/quiz-results",
+    "function": "get_student_quiz_results",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/data",
+    "function": "get_student_data",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/groups",
+    "function": "create_group",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/groups",
+    "function": "get_groups",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/groups/{group_id}",
+    "function": "delete_group",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/groups/{group_id}/members",
+    "function": "get_group_members",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/groups/{group_id}/members",
+    "function": "update_group_members",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/groups/{group_id}/materials",
+    "function": "add_group_material",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/groups/{group_id}/materials",
+    "function": "get_group_materials",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/teacher/assignments",
+    "function": "get_teacher_assignments",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/groups",
+    "function": "get_student_groups",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/assignments",
+    "function": "get_student_assignments",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/generate-lesson-plan",
+    "function": "generate_lesson_plan_v2",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/generate-quiz",
+    "function": "generate_quiz",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/classes/upcoming",
+    "function": "get_upcoming_classes",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/classes",
+    "function": "schedule_class_endpoint",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/classes/{class_id}",
+    "function": "delete_class",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/class/start",
+    "function": "start_class",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/class/end",
+    "function": "end_class",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/teacher/export-grades-csv",
+    "function": "export_grades_csv",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/groups/{group_id}/upload",
+    "function": "upload_group_material",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/quizzes/create",
+    "function": "create_quiz_endpoint",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/teacher/quizzes",
+    "function": "get_teacher_quizzes",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/groups/{group_id}/quizzes",
+    "function": "get_group_quizzes",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/quizzes/{quiz_id}",
+    "function": "get_quiz_details",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/quizzes/{quiz_id}/submit",
+    "function": "submit_quiz",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/quizzes/{quiz_id}/results",
+    "function": "get_quiz_results",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/institutions",
+    "function": "list_institutions",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/institutions/{school_id}",
+    "function": "get_institution_details",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/institutions/{school_id}/branding/upload",
+    "function": "upload_institution_branding_asset",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/institutions",
+    "function": "create_institutions",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/admin/institutions/{school_id}",
+    "function": "update_institution",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/admin/schools/{school_id}",
+    "function": "update_school",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/admin/schools/{school_id}",
+    "function": "delete_school",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/schools/{school_id}/stats",
+    "function": "get_school_stats",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/audit-logs",
+    "function": "get_audit_logs",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/communication/announcements",
+    "function": "get_announcements",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/communication/announcements",
+    "function": "create_announcement",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/communication/messages",
+    "function": "get_messages",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/communication/messages",
+    "function": "send_message",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/communication/events",
+    "function": "get_events",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/communication/events",
+    "function": "create_event",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/exam-schedules",
+    "function": "create_exam_schedule",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/exam-schedules/my",
+    "function": "get_my_exam_schedules",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/exam-schedules/all",
+    "function": "get_all_exam_schedules",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/exam-schedules/{schedule_id}",
+    "function": "update_exam_schedule",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/exam-schedules/{schedule_id}/notify",
+    "function": "notify_exam_schedule",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/communication/emergency",
+    "function": "trigger_emergency",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/compliance/audit-logs",
+    "function": "get_compliance_audit_logs",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/compliance/access-logs",
+    "function": "get_compliance_access_logs",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/admin/compliance/retention",
+    "function": "get_retention_policies",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/admin/compliance/retention",
+    "function": "update_retention_policies",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/sections",
+    "function": "get_sections",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/sections",
+    "function": "create_section",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/students/{student_id}/assign-section",
+    "function": "assign_student_section",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/guardians",
+    "function": "get_guardians",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/students/{student_id}/guardians",
+    "function": "add_guardian",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/guardians/{id}",
+    "function": "delete_guardian",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/health",
+    "function": "get_health_record",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/students/{student_id}/health",
+    "function": "update_health_record",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/students/{student_id}/documents",
+    "function": "get_documents",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/students/{student_id}/documents",
+    "function": "upload_document",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/documents/{doc_id}",
+    "function": "delete_document",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/staff/departments",
+    "function": "get_departments",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/staff/departments",
+    "function": "create_department",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/staff/profiles",
+    "function": "get_staff_profiles",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/staff/profiles/{user_id}",
+    "function": "update_staff_profile",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/staff/attendance",
+    "function": "get_staff_attendance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/staff/attendance",
+    "function": "mark_staff_attendance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/staff/performance/{user_id}",
+    "function": "get_staff_performance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/staff/performance",
+    "function": "create_performance_review",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/resources/form-templates",
+    "function": "get_form_templates",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/resources/form-templates",
+    "function": "publish_form_template",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/resources",
+    "function": "get_resources",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/resources",
+    "function": "create_resource",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "DELETE",
+    "path": "/api/resources/{resource_id}",
+    "function": "delete_resource",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/oauth/authorize",
+    "function": "oauth_authorize",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/oauth/approve",
+    "function": "oauth_approve",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/.well-known/openid-configuration",
+    "function": "openid_configuration",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/oauth/token",
+    "function": "oauth_token",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/oauth/userinfo",
+    "function": "oauth_userinfo",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/lms/courses",
+    "function": "create_course",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/lms/courses",
+    "function": "get_courses",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/lms/courses/{course_id}/full",
+    "function": "get_course_full",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/lms/courses/{course_id}/sections",
+    "function": "add_section",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/lms/sections/{section_id}/modules",
+    "function": "add_module",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/chat/course/{course_id}",
+    "function": "chat_with_course",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/lms/modules/{module_id}/complete",
+    "function": "complete_module",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/ai/grade/short-answer",
+    "function": "grade_quiz_short_answer",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/attendance/bulk",
+    "function": "take_bulk_attendance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/attendance/class/{grade}",
+    "function": "get_class_attendance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/attendance/student/my",
+    "function": "get_my_attendance",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/timetable/teacher/{teacher_id}",
+    "function": "get_teacher_timetable",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/timetable/student/my",
+    "function": "get_my_timetable",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/timetable/upload-pdf",
+    "function": "upload_timetable_pdf",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/timetable/student/my/pdfs",
+    "function": "get_my_timetable_pdfs",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/timetable/teacher/my/pdfs",
+    "function": "get_teacher_timetable_pdfs",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/leave/student/pending",
+    "function": "get_pending_student_leaves",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/leave/{request_id}/action",
+    "function": "action_leave_request",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/assignments/teacher/pending",
+    "function": "get_pending_assignments",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/assignments/submissions/{sub_id}/grade",
+    "function": "grade_submission",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/assignments/submissions/{sub_id}/reassign",
+    "function": "reassign_submission",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/assignments",
+    "function": "create_assignment",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/assignments/{assignment_id}/submit",
+    "function": "submit_assignment",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/assignments/{assignment_id}/submissions",
+    "function": "get_assignment_submissions",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/progress/roster",
+    "function": "get_progress_roster",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/progress/marks/bulk",
+    "function": "save_progress_marks",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/progress/publish",
+    "function": "publish_progress_marks",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/progress/publish/student",
+    "function": "publish_progress_for_student",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/progress/publish/preview",
+    "function": "preview_publish_marks",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/email/inbox",
+    "function": "get_email_inbox",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/email/sent",
+    "function": "get_email_sent",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/email/{email_id}/read",
+    "function": "mark_email_read",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/email/send",
+    "function": "send_internal_email",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/leave/apply",
+    "function": "apply_leave",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/leave/pending",
+    "function": "get_pending_leaves",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/leave/history",
+    "function": "get_leave_history",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/leave/processed",
+    "function": "get_processed_leave_history",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/leave/my-history",
+    "function": "get_my_leave_history",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/leave/{leave_id}/status",
+    "function": "update_leave_status",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/notifications/inbox",
+    "function": "get_notifications",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "PUT",
+    "path": "/api/notifications/{msg_id}/read",
+    "function": "mark_notification_read",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/progress-card/my",
+    "function": "get_my_progress_card",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/progress-card/{student_id}",
+    "function": "get_progress_card",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/question-bank/upload",
+    "function": "upload_question_bank",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/question-bank",
+    "function": "get_question_banks",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/exams/create-pdf",
+    "function": "create_pdf_exam",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "POST",
+    "path": "/api/exams/submit-pdf",
+    "function": "submit_pdf_exam",
+    "permission": ""
+  },
+  {
+    "file": "backend\\backend.py",
+    "method": "GET",
+    "path": "/api/exams/student/list",
+    "function": "get_student_exams",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/login",
+    "function": "login_user",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/verify-2fa",
+    "function": "verify_backup_code",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/authenticator/setup",
+    "function": "setup_authenticator",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/register",
+    "function": "register_user",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "GET",
+    "path": "/api/auth/verify-email",
+    "function": "verify_email",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/google-login",
+    "function": "google_login",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/microsoft-login",
+    "function": "microsoft_login",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/social-login",
+    "function": "generic_social_login",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/forgot-password",
+    "function": "forgot_password",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "POST",
+    "path": "/api/auth/reset-password",
+    "function": "reset_password",
+    "permission": ""
+  },
+  {
+    "file": "backend\\app\\routers\\auth.py",
+    "method": "GET",
+    "path": "/api/auth/refresh-permissions",
+    "function": "refresh_user_permissions",
+    "permission": ""
+  }
+]

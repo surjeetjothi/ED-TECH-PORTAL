@@ -4,6 +4,13 @@
  *           handleSaveRole, deleteRole, loadPermissionsList, renderPermissionsTable,
  *           openPermissionEditModal, handleUpdatePermission
  */
+(function () {
+if (window.__cbRbacLoaded) {
+    console.warn('[CB] rbac.js already loaded, skipping duplicate initialization.');
+    return;
+}
+window.__cbRbacLoaded = true;
+let _allRolePermissions = [];
 // --- ROLE & PERMISSION MANAGEMENT ---
 function loadRoles() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -166,8 +173,6 @@ function openRoleModal(roleId = null) {
     switchView('role-form-view');
 }
 
-let _allRolePermissions = {};
-
 function loadPermissionsForModal() {
     return __awaiter(this, arguments, void 0, function* (selectedCodes = []) {
         const container = document.getElementById('role-perms-container');
@@ -220,15 +225,32 @@ function handleSaveRole() {
                 })
             });
             if (response.ok) {
+                // -- RBAC Fix: Refresh current user's permissions immediately so that
+                // any changes made to this role propagate to ALL users with the role
+                // (including the currently logged-in admin) without requiring logout.
+                if (typeof refreshCurrentUserPermissions === 'function') {
+                    yield refreshCurrentUserPermissions();
+                }
+                if (typeof showToast === 'function') showToast('Role saved successfully.', 'success');
                 switchView('role-management-view');
                 loadRoles();
             }
             else {
-                alert("Failed to save role.");
+                const errData = yield response.json().catch(() => ({}));
+                if (typeof showToast === 'function') {
+                    showToast(errData.detail || 'Failed to save role.', 'error');
+                } else {
+                    alert(errData.detail || 'Failed to save role.');
+                }
             }
         }
         catch (e) {
-            alert("Network error.");
+            if (typeof showToast === 'function') {
+                showToast('Network error. Please try again.', 'error');
+            } else {
+                alert('Network error.');
+            }
+
         }
     });
 }
@@ -282,13 +304,19 @@ function renderPermissionsTable(perms) {
         pageSize: 10,
         renderRow: (p) => {
             const tr = document.createElement('tr');
+
+            let rolesHtml = '<span class="text-muted fst-italic">No roles assigned</span>';
+            if (p.assigned_roles && p.assigned_roles.length > 0) {
+                rolesHtml = p.assigned_roles.map(r => `<span class="badge bg-light text-dark border me-1">${r}</span>`).join('');
+            }
+
             tr.innerHTML = `
                 <td><span class="badge bg-light text-dark border">${p.display_code}</span></td>
                 <td class="fw-medium font-monospace text-primary small">${p.code}</td>
-                <td class="small text-muted">${p.description}</td>
+                <td class="small text-muted">${rolesHtml}</td>
                 <td>
                     ${(hasPermission('permission_management')) ?
-                    `<button class="btn btn-sm btn-link text-primary p-0" onclick="openPermissionEditModal(${p.id}, '${p.code}', '${p.description.replace(/'/g, "\\'")}')">
+                    `<button class="btn btn-sm btn-link text-primary p-0" onclick="openPermissionEditModal(${p.id}, '${p.code}', '${(p.description || '').replace(/'/g, "\\'")}')">
                             <span class="material-icons" style="font-size: 18px;">edit</span>
                         </button>` : ''}
                 </td>
@@ -339,3 +367,4 @@ window.loadPermissionsList = loadPermissionsList;
 window.renderPermissionsTable = renderPermissionsTable;
 window.openPermissionEditModal = openPermissionEditModal;
 window.handleUpdatePermission = handleUpdatePermission;
+})();

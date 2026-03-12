@@ -125,9 +125,27 @@ ROLE_PERMISSIONS = {
 }
 
 def check_permission(user_role: str, required_permission: str) -> bool:
-    if user_role not in ROLE_PERMISSIONS:
+    if not user_role or not required_permission:
         return False
-    return required_permission in ROLE_PERMISSIONS[user_role]
+    if user_role in ("Root_Super_Admin", "Super Admin"):
+        return True
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM roles r
+            JOIN role_permissions rp ON rp.role_id = r.id
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE LOWER(r.name) = LOWER(?)
+              AND (p.code = ? OR p.code = '*')
+            LIMIT 1
+            """,
+            (user_role, required_permission),
+        ).fetchone()
+        return bool(row)
+    finally:
+        conn.close()
 
 async def verify_permission(permission: str, x_user_role: str = Header(None, alias="X-User-Role"), x_user_id: str = Header(None, alias="X-User-Id")):
     if not x_user_id:
@@ -139,65 +157,40 @@ async def verify_permission(permission: str, x_user_role: str = Header(None, ali
 
     conn = get_db_connection()
     try:
-        user = conn.execute("SELECT role, is_super_admin FROM students WHERE id = ?", (x_user_id,)).fetchone()
-        
+        user = conn.execute(
+            "SELECT role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)",
+            (x_user_id,),
+        ).fetchone()
         if not user:
-            # Also try case-insensitive lookup (handles ID casing differences between DBs)
-            user = conn.execute(
-                "SELECT role, is_super_admin FROM students WHERE LOWER(id) = LOWER(?)",
-                (x_user_id,)
-            ).fetchone()
-        
-        if not user:
-            # User ID was provided but doesn't exist — this is a 403 (forbidden),
-            # NOT a 401 (unauthenticated). The request has an identity but no access.
             log_auth_event(x_user_id, "Unauthorized Access", f"User ID not found in system, permission: {permission}")
             raise HTTPException(status_code=403, detail="Access denied: user identity not recognized.")
 
         current_role = user['role']
-        is_super = user['is_super_admin']
+        is_super = bool(user['is_super_admin'])
 
-        # 1. Super Admin Override
         if is_super or current_role in ('Super Admin', 'Root_Super_Admin'):
             return True
 
-        # 2. Check DB Permissions via user_roles table
-        # Join user_roles -> roles -> role_permissions -> permissions
-        # Also check for wildcard '*' permission assignment
-        query = """
-            SELECT 1 
+        # Live DB chain only: user_roles -> role_permissions -> permissions
+        has_perm = conn.execute(
+            """
+            SELECT 1
             FROM user_roles ur
             JOIN role_permissions rp ON ur.role_id = rp.role_id
             JOIN permissions p ON rp.permission_id = p.id
-            WHERE ur.user_id = ? 
-            AND (p.code = ? OR p.code = '*')
-        """
-        has_perm = conn.execute(query, (x_user_id, permission)).fetchone()
+            WHERE LOWER(ur.user_id) = LOWER(?)
+              AND (p.code = ? OR p.code = '*')
+            LIMIT 1
+            """,
+            (x_user_id, permission),
+        ).fetchone()
 
         if not has_perm:
-            # Also check via role name directly in roles table (for users assigned by role name)
-            role_query = """
-                SELECT 1
-                FROM roles r
-                JOIN role_permissions rp ON r.id = rp.role_id
-                JOIN permissions p ON rp.permission_id = p.id
-                WHERE r.name = ?
-                AND (p.code = ? OR p.code = '*')
-            """
-            has_perm = conn.execute(role_query, (current_role, permission)).fetchone()
-
-        if not has_perm:
-            # Fallback to legacy hardcoded check (temporary migration bridge)
-            if current_role in ROLE_PERMISSIONS and permission in ROLE_PERMISSIONS[current_role]:
-                return True
-                
             log_auth_event(x_user_id, "Unauthorized Access", f"Missing permission: {permission}")
             raise HTTPException(status_code=403, detail=f"Permission denied: {permission} required.")
-        
         return True
     finally:
         conn.close()
-
 async def verify_any_permission(permission_codes: List[str], x_user_id: str) -> str:
     if not x_user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -214,3 +207,4 @@ async def verify_any_permission(permission_codes: List[str], x_user_id: str) -> 
     if denied:
         raise denied
     raise HTTPException(status_code=403, detail="Permission denied.")
+

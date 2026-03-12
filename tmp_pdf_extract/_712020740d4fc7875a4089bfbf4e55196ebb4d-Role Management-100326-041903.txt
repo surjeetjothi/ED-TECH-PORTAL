@@ -1,0 +1,226 @@
+
+
+--- PAGE 1 ---
+Role Management
+ Objective
+A role represents a set of permissions assigned based on job responsibilities. For example, an
+“Administrator” role might have permissions to manage user accounts and sensitive data, while
+an “Employee” role may only access essential applications and documents
+ Assumptions
+Root_Super_Admin - This role is only visible to user if they are logged in as root_super_admin.
+For all other user who have access to Role management Menu they should never be able to see
+this Role. 
+ Requirements
+Target date Jan 2026
+Document
+status
+DRAFT
+Team
+members
+@surjeetjothi@Devakrishnan R
+Status
+Product overview
+Role Management
+Menu
+As an admin when I
+click on the Role
+Management menu
+then I should be able to
+see listing of all the
+roles available in the
+application.
+The listing should show 
+Role code
+complete
+d
+Permissio
+n -
+view_role
+_manage
+ment
+Role code
+‘R-000xʼ
+is system
+generate
+d and not
+Requirement User Story Status Notes
+
+--- PAGE 2 ---
+Role Title
+Status 
+Descriptions of each
+role. For example 
+'R-001',
+‘Root_Super_Adminʼ,
+‘Activeʼ, ‘This role is
+for the super admin
+user for this platform
+and there should be
+only one root admin
+across platform.
+be
+entered
+by user
+ Actions column As an admin user when
+I look at the listing of
+role  then last column of
+the listing table should
+be action and it should
+have two icons - edit
+and delete
+The Edit icon is
+permission able and
+can only be visible to
+user who has ‘edit_roleʼ
+permission
+The Delete icon is
+permission able and
+can only be visible to
+user who has
+‘delete_roleʼ permission
+ complet
+ed
+Permissio
+n -
+edit_roles
+&
+delete_rol
+es
+Create Role As an admin user when
+I click on the create
+Role action then system
+should navigate to new
+screen that will have
+two section
+complete
+d
+Permissio
+n -
+add_roles
+Role ID is
+increment
+al id
+
+--- PAGE 3 ---
+1. Section 1: General
+Detail that will allow
+to add  Role Title ,
+Status and Role
+Description. Please
+note the Role Id
+should be
+sequentially
+generated
+automatically by
+system.
+2. Section 2: Permission
+association Section -
+this section will allow
+user to search for all
+the permission
+available in the
+system and able to
+associate them, once
+selected these
+permission should be
+shown as a list of
+permission under this
+section
+3. Actions section - at
+the bottom there
+should be two
+actions - Save &
+Cancel. Once the
+user click the Save
+action only then new
+role should be
+created and success
+pop-up icon should
+be shown on screen
+with the user
+starting
+with R-
+xxx  
+
+--- PAGE 4 ---
+navigate back to
+main Role listing.
+Edit Role As a user when I click
+on the edit action for
+role management on
+listing then the user
+should be navigate to
+new screen that can
+allow to change only
+the description of the
+role.
+Additionally user should
+be able to associate
+permission e.g add or
+remove to this role.
+ complet
+ed
+ Removing a
+permission
+from the
+role should
+not delete
+the
+permission
+from system
+Delete Role As a user when I click
+on the delete action for
+role management on
+listing then system
+should run validation
+check
+1. Are there any Active
+users who have this
+role associated, if
+‘Yesʼ then a validation
+message shown on
+screen - ‘Please
+remove association
+of the role with any
+active user before
+proceeding to deleteʼ.
+to this role.
+2. If there are no active
+user associated with
+this Role then on
+complete
+d
+Make sure if
+Role is
+deleted
+then the
+underlying
+permissions
+associated
+with that
+role
+automaticall
+y decoupled
+but NO
+permission
+gets deleted
+
+--- PAGE 5 ---
+ Out of Scope
+Screenshots:
+click of delete action
+then a confirmation
+pop-up should open
+that will action user if
+they would like to
+proceed for delete
+action, notifying that
+this action cannot be
+reverted back. if user
+process with Yes
+then delete the role. 
+
+
+--- PAGE 6 ---
+ Success metrics
+Goal Metric

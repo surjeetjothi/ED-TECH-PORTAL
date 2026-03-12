@@ -9,11 +9,14 @@ class LoginRequest(BaseModel):
     role: str = "Student" # Default to Student to avoid breaking legacy clients if any, though frontend always sends it now
 
 class LoginResponse(BaseModel):
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    user: Optional[Dict[str, Any]] = None
     success: bool = True
     user_id: str
     name: Optional[str] = None
     role: Optional[str] = None
-    roles: List[str] = []
+    roles: List[Any] = []
     permissions: List[str] = []
     requires_2fa: bool = False 
     school_id: Optional[int] = None
@@ -145,7 +148,7 @@ class MaterialCreateRequest(BaseModel):
 class SchoolCreateRequest(BaseModel):
     name: str
     address: str
-    contact_email: str
+    contact_email: Optional[str] = None
     admin_password: Optional[str] = "Admin@123"
     subscription_plan: Optional[str] = "Basic"
 
@@ -168,7 +171,7 @@ class RootAdminStudentPasswordUpdateRequest(BaseModel):
 class RootAdminSchoolCreateRequest(BaseModel):
     name: str
     address: str
-    contact_email: str
+    contact_email: Optional[str] = None
     account_password: str
 
 class RootAdminSchoolActivateRequest(BaseModel):
@@ -176,11 +179,14 @@ class RootAdminSchoolActivateRequest(BaseModel):
     otp: str
 
 class SchoolResponse(BaseModel):
-    id: int
-    name: str
-    address: str
-    contact_email: str
-    created_at: str 
+    id: Optional[int] = None
+    name: Optional[str] = None
+    address: Optional[str] = None
+    contact_email: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        extra = 'ignore'
 
 class InstitutionAddressInput(BaseModel):
     address_line: str
@@ -319,7 +325,7 @@ class QuizResponse(BaseModel):
     group_id: Optional[int] = None
     title: str
     question_count: int
-    created_at: str
+    created_at: Optional[str] = None
     time_limit: Optional[int] = 0
     target_type: Optional[str] = 'group'
     target_id: Optional[str] = None
@@ -368,6 +374,7 @@ class AddUserRequest(BaseModel):
     name: str
     role: str
     password: str
+    email: Optional[str] = None
     grade: Optional[int] = 0
     preferred_subject: Optional[str] = "All"
 
@@ -385,6 +392,8 @@ class RoleResponse(BaseModel):
     status: str
     permissions: List[dict] # {id, code, description}
     is_system: bool = False
+    institution_id: Optional[int] = None
+    institution_name: Optional[str] = None
 
 class PermissionResponse(BaseModel):
     id: int
@@ -413,7 +422,7 @@ class SectionResponse(BaseModel):
     school_id: int
     name: str
     grade_level: int
-    created_at: str
+    created_at: Optional[str] = None
 
 class GuardianCreateRequest(BaseModel):
     name: str
@@ -582,7 +591,7 @@ class LMSCourseResponse(BaseModel):
     teacher_id: Optional[str]
     category: str
     thumbnail_url: Optional[str]
-    created_at: str
+    created_at: Optional[str] = None
 
 class LMSSectionCreateRequest(BaseModel):
     title: str

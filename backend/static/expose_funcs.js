@@ -99,9 +99,9 @@ window.renderInstitutionEditAddresses = renderInstitutionEditAddresses;
 window.addInstitutionEditAddress = addInstitutionEditAddress;
 window.removeInstitutionEditAddress = removeInstitutionEditAddress;
 window.getSecurityRecommendation = getSecurityRecommendation;
-window.goInstitutionCreateStep = goInstitutionCreateStep;
-window.saveInstitutionWizardStep1AndContinue = saveInstitutionWizardStep1AndContinue;
-window.validateInstitutionWizardStep1 = validateInstitutionWizardStep1;
+window.goInstitutionCreateStep = (typeof goInstitutionCreateStep === 'function') ? goInstitutionCreateStep : function () {};
+window.saveInstitutionWizardStep1AndContinue = (typeof saveInstitutionWizardStep1AndContinue === 'function') ? saveInstitutionWizardStep1AndContinue : function () { return false; };
+window.validateInstitutionWizardStep1 = (typeof validateInstitutionWizardStep1 === 'function') ? validateInstitutionWizardStep1 : function () { return false; };
 window.showCreateSchoolModal = showCreateSchoolModal;
 window.handleCreateSchool = handleCreateSchool;
 window.openSchoolDashboard = openSchoolDashboard;
@@ -448,4 +448,3 @@ window.euGoStep = euGoStep;
 window.euNextStep = euNextStep;
 window.addGuardianRow = addGuardianRow;
 window.removeGuardianRow = removeGuardianRow;
-

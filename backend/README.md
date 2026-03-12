@@ -54,8 +54,8 @@ This backend is designed to be deployed on [Render](https://render.com) with aut
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/surjeetjothi/nexuxbackend.git
-   cd nexuxbackend
+   git clone https://github.com/your-org/classbridge.git
+   cd classbridge
    ```
 
 2. **Create virtual environment**
